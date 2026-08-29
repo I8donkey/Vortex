@@ -1,3 +1,9 @@
 build/
 newcodering.md
 *.ncr
+
+# 根目录 CMake 生成产物
+CMakeCache.txt
+CMakeFiles/
+build.ninja
+cmake_install.cmake
