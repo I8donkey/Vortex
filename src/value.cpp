@@ -26,6 +26,7 @@ ValuePtr Value::make_dict() { auto p = std::make_shared<Value>(ValueType::Dict);
 ValuePtr Value::make_pair(ValuePtr a, ValuePtr b) { auto p = std::make_shared<Value>(ValueType::Pair); p->pair_rep = std::make_shared<PairRep>(); p->pair_rep->first = std::move(a); p->pair_rep->second = std::move(b); return p; }
 ValuePtr Value::make_tuple(std::vector<ValuePtr> items) { auto p = std::make_shared<Value>(ValueType::Tuple); p->tuple_rep = std::make_shared<TupleRep>(std::move(items)); return p; }
 ValuePtr Value::make_adr(std::string name, Environment* env) { auto p = std::make_shared<Value>(ValueType::MemAdr); p->adr_rep = std::make_shared<MemAdrValue>(); p->adr_rep->var_name = std::move(name); p->adr_rep->env = env; return p; }
+ValuePtr Value::make_module() { auto p = std::make_shared<Value>(ValueType::Module); p->module_rep = std::make_shared<ModuleRep>(); return p; }
 
 std::string Value::type_name() const {
     switch (type) {
@@ -49,6 +50,7 @@ std::string Value::type_name() const {
         case ValueType::Tuple: return "tuple";
         case ValueType::MemAdr: return "memadr";
         case ValueType::Function: return "function";
+        case ValueType::Module: return "module";
     }
     return "unknown";
 }
@@ -133,6 +135,7 @@ std::string Value::to_string() const {
         }
         case ValueType::MemAdr: return "<memadr " + adr_rep->var_name + ">";
         case ValueType::Function: return "<fn " + fn_rep->name + ">";
+        case ValueType::Module: return "<module " + std::to_string(module_rep->size()) + " members>";
     }
     return "?";
 }

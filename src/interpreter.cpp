@@ -7,8 +7,20 @@
 #include <random>
 #include <algorithm>
 #include <ctime>
+#include <cmath>
+#include <cstring>
+#include <chrono>
+#include <thread>
+#include <numeric>
+#include <cctype>
 
 namespace ncr {
+
+// ============ 随机数生成器（供 random 模块复用） ============
+static std::mt19937& get_rng() {
+    static std::mt19937 rng((unsigned)std::time(nullptr));
+    return rng;
+}
 
 // ============ Environment ============
 void Environment::define(const std::string& name, ValuePtr value, bool is_const) {
@@ -48,14 +60,12 @@ std::vector<std::string> Environment::locals() const {
 }
 
 // ============ Interpreter ============
-static ValuePtr value_from_int(long long v) { return Value::make_int(v); }
 static ValuePtr value_from_uint(unsigned long long v) { return Value::make_uint(v); }
-static ValuePtr value_from_double(double v) { return Value::make_float(v); }
-static ValuePtr value_from_str(const std::string& s) { return Value::make_str(s); }
 
 Interpreter::Interpreter() {
     current_env_ = &globals_;
     init_builtins();
+    init_modules();
 }
 
 void Interpreter::init_builtins() {
@@ -241,6 +251,359 @@ void Interpreter::init_builtins() {
     reg_builtin("make_tuple", 0, (size_t)-1, [](const ValueVec& a, Environment&) {
         return Value::make_tuple(a);
     });
+}
+
+// 手动实现 strptime：将字符串按 fmt 解析进 std::tm。
+// 不依赖 std::get_time（MinGW 对其支持有限），健壮且可移植。
+static bool util_strptime(const std::string& s, const std::string& fmt, std::tm& t) {
+    static const char* dow_full[] = {"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"};
+    static const char* dow_abbr[] = {"Sun","Mon","Tue","Wed","Thu","Fri","Sat"};
+    static const char* mon_full[] = {"January","February","March","April","May","June","July",
+                                     "August","September","October","November","December"};
+    static const char* mon_abbr[] = {"Jan","Feb","Mar","Apr","May","Jun","Jul",
+                                     "Aug","Sep","Oct","Nov","Dec"};
+    static const char* am_names[] = {"AM","PM"};
+    size_t i = 0;
+    // 依次尝试两组名称（全称/简称），返回是否匹配
+    auto match_names = [&](const char* const* full, const char* const* abbr, int n, int& out) -> bool {
+        for (int k = 0; k < n; ++k) {
+            for (int pass = 0; pass < 2; ++pass) {
+                const char* w = pass == 0 ? full[k] : abbr[k];
+                size_t len = std::strlen(w);
+                if (len == 0 || i + len > s.size()) continue;
+                bool ok = true;
+                for (size_t x = 0; x < len; ++x)
+                    if ((s[i + x] | 32) != (w[x] | 32)) { ok = false; break; }
+                if (ok) { i += len; out = k; return true; }
+            }
+        }
+        return false;
+    };
+    auto skip_ws = [&]{ while (i < s.size() && std::isspace((unsigned char)s[i])) ++i; };
+    auto num = [&](size_t width, int& out) -> bool {
+        int v = 0, cnt = 0;
+        while (i < s.size() && std::isdigit((unsigned char)s[i]) && cnt < (int)width) {
+            v = v * 10 + (s[i] - '0'); ++i; ++cnt;
+        }
+        if (cnt == 0) return false;
+        out = v; return true;
+    };
+    for (size_t j = 0; j < fmt.size(); ++j) {
+        if (fmt[j] == '%' && j + 1 < fmt.size()) {
+            char c = fmt[++j];
+            int v;
+            if (c == '%') { if (i < s.size() && s[i] == '%') ++i; else return false; }
+            else if (c == 'Y') { if (!num(4, v)) return false; t.tm_year = v - 1900; }
+            else if (c == 'y') { if (!num(2, v)) return false; t.tm_year = (v < 69 ? 2000 : 1900) + v - 1900; }
+            else if (c == 'm') { if (!num(2, v)) return false; t.tm_mon = v - 1; }
+            else if (c == 'd' || c == 'e') { if (!num(2, v)) return false; t.tm_mday = v; }
+            else if (c == 'H') { if (!num(2, v)) return false; t.tm_hour = v; }
+            else if (c == 'I') { if (!num(2, v)) return false; t.tm_hour = v % 12; }
+            else if (c == 'M') { if (!num(2, v)) return false; t.tm_min = v; }
+            else if (c == 'S') { if (!num(2, v)) return false; t.tm_sec = v; }
+            else if (c == 'j') { if (!num(3, v)) return false; t.tm_yday = v - 1; }
+            else if (c == 'p') {
+                int k = 0; bool ok = false;
+                for (; k < 2; ++k) {
+                    const char* w = am_names[k];
+                    size_t len = std::strlen(w);
+                    if (len && i + len <= s.size() &&
+                        (s[i] | 32) == (w[0] | 32) &&   // 起点一致
+                        (s[i + len - 1] | 32) == (w[len - 1] | 32)) {
+                        // 全字比较
+                        bool e = true;
+                        for (size_t x = 0; x < len; ++x)
+                            if ((s[i + x] | 32) != (w[x] | 32)) { e = false; break; }
+                        if (e) { i += len; ok = true; break; }
+                    }
+                }
+                if (!ok) return false;
+                if (k == 1) t.tm_hour += 12;
+            }
+            else if (c == 'a' || c == 'A') { if (!match_names(dow_full, dow_abbr, 7, v)) return false; }
+            else if (c == 'b' || c == 'B' || c == 'h') { if (!match_names(mon_full, mon_abbr, 12, v)) return false; t.tm_mon = v; }
+            else { /* 未知指令：跳过对应字段以保持兼容 */ }
+        } else {
+            if (std::isspace((unsigned char)fmt[j])) { skip_ws(); continue; }
+            if (i >= s.size() || s[i] != fmt[j]) return false;
+            ++i;
+        }
+    }
+    return true;
+}
+
+void Interpreter::init_modules() {
+    // 构造标准库模块：math / time / random
+    // 模块函数注册辅助（带参数个数校验）
+    auto mk_fn = [](const std::string& mname, const std::string& name, size_t min_a, size_t max_a,
+                    std::function<ValuePtr(const ValueVec&)> fn) {
+        auto fv = std::make_shared<FunctionValue>();
+        fv->name = name; fv->is_builtin = true;
+        fv->builtin_fn = [mname, name, min_a, max_a, fn](const ValueVec& args, Environment&) -> ValuePtr {
+            if (args.size() < min_a || (max_a != (size_t)-1 && args.size() > max_a))
+                throw RuntimeError(mname + "." + name + " expects " +
+                    std::to_string(min_a) + "~" + std::to_string(max_a) + " args, got " +
+                    std::to_string(args.size()));
+            return fn(args);
+        };
+        auto v = Value::make_none(); v->type = ValueType::Function; v->fn_rep = fv;
+        return v;
+    };
+    auto D = [](const ValuePtr& v) -> double { return value_to_float(v)->float_val; };
+    auto L = [](const ValuePtr& v) -> long long { return value_to_int(v)->int_val; };
+
+    // ================= math =================
+    {
+        auto mod = Value::make_module();
+        auto& u = *mod->module_rep;
+        auto add_const = [&](const std::string& n, double v) { u[n] = Value::make_float(v); };
+        auto add = [&](const std::string& n, size_t a0, size_t a1,
+                       std::function<ValuePtr(const ValueVec&)> f) {
+            u[n] = mk_fn("math", n, a0, a1, std::move(f));
+        };
+        add_const("pi", 3.141592653589793);
+        add_const("e", 2.718281828459045);
+        add_const("tau", 6.283185307179586);
+        add_const("inf", HUGE_VAL);
+        add_const("nan", NAN);
+        add("sqrt", 1,1, [&](const ValueVec& a){ return Value::make_float(std::sqrt(D(a[0]))); });
+        add("cbrt", 1,1, [&](const ValueVec& a){ return Value::make_float(std::cbrt(D(a[0]))); });
+        add("pow", 2,2, [&](const ValueVec& a){ return Value::make_float(std::pow(D(a[0]), D(a[1]))); });
+        add("exp", 1,1, [&](const ValueVec& a){ return Value::make_float(std::exp(D(a[0]))); });
+        add("log", 1,2, [&](const ValueVec& a){
+                double x = D(a[0]);
+                double base = a.size()>=2 ? D(a[1]) : std::exp(1.0);
+                return Value::make_float(std::log(x)/std::log(base));
+            });
+        add("log2", 1,1, [&](const ValueVec& a){ return Value::make_float(std::log2(D(a[0]))); });
+        add("log10", 1,1, [&](const ValueVec& a){ return Value::make_float(std::log10(D(a[0]))); });
+        add("sin", 1,1, [&](const ValueVec& a){ return Value::make_float(std::sin(D(a[0]))); });
+        add("cos", 1,1, [&](const ValueVec& a){ return Value::make_float(std::cos(D(a[0]))); });
+        add("tan", 1,1, [&](const ValueVec& a){ return Value::make_float(std::tan(D(a[0]))); });
+        add("asin", 1,1, [&](const ValueVec& a){ return Value::make_float(std::asin(D(a[0]))); });
+        add("acos", 1,1, [&](const ValueVec& a){ return Value::make_float(std::acos(D(a[0]))); });
+        add("atan", 1,1, [&](const ValueVec& a){ return Value::make_float(std::atan(D(a[0]))); });
+        add("atan2", 2,2, [&](const ValueVec& a){ return Value::make_float(std::atan2(D(a[0]), D(a[1]))); });
+        add("sinh", 1,1, [&](const ValueVec& a){ return Value::make_float(std::sinh(D(a[0]))); });
+        add("cosh", 1,1, [&](const ValueVec& a){ return Value::make_float(std::cosh(D(a[0]))); });
+        add("tanh", 1,1, [&](const ValueVec& a){ return Value::make_float(std::tanh(D(a[0]))); });
+        add("asinh", 1,1, [&](const ValueVec& a){ return Value::make_float(std::asinh(D(a[0]))); });
+        add("acosh", 1,1, [&](const ValueVec& a){ return Value::make_float(std::acosh(D(a[0]))); });
+        add("atanh", 1,1, [&](const ValueVec& a){ return Value::make_float(std::atanh(D(a[0]))); });
+        add("hypot", 2,2, [&](const ValueVec& a){ return Value::make_float(std::hypot(D(a[0]), D(a[1]))); });
+        add("floor", 1,1, [&](const ValueVec& a){ return Value::make_int((long long)std::floor(D(a[0]))); });
+        add("ceil", 1,1, [&](const ValueVec& a){ return Value::make_int((long long)std::ceil(D(a[0]))); });
+        add("trunc", 1,1, [&](const ValueVec& a){ return Value::make_int((long long)std::trunc(D(a[0]))); });
+        add("round", 1,2, [&](const ValueVec& a){
+                double x = D(a[0]);
+                long long nd = a.size()>=2 ? L(a[1]) : 0;
+                double p = std::pow(10.0, (double)nd);
+                return Value::make_float(std::round(x*p)/p);
+            });
+        add("fmod", 2,2, [&](const ValueVec& a){ return Value::make_float(std::fmod(D(a[0]), D(a[1]))); });
+        add("gcd", 2,2, [&](const ValueVec& a){ return Value::make_int(std::gcd((long long)L(a[0]), (long long)L(a[1]))); });
+        add("lcm", 2,2, [&](const ValueVec& a){
+                long long x = L(a[0]), y = L(a[1]);
+                if (x==0 || y==0) return Value::make_int(0);
+                long long g = std::gcd(x, y);
+                return Value::make_int((x/g)*y);
+            });
+        add("isinf", 1,1, [&](const ValueVec& a){ return Value::make_bool(std::isinf(D(a[0]))); });
+        add("isnan", 1,1, [&](const ValueVec& a){ return Value::make_bool(std::isnan(D(a[0]))); });
+        std_modules_["math"] = mod;
+    }
+
+    // ================= time =================
+    {
+        auto mod = Value::make_module();
+        auto& u = *mod->module_rep;
+        auto add = [&](const std::string& n, size_t a0, size_t a1,
+                       std::function<ValuePtr(const ValueVec&)> f) {
+            u[n] = mk_fn("time", n, a0, a1, std::move(f));
+        };
+        auto tm_to_tuple = [](const std::tm& t) {
+            std::vector<ValuePtr> items(9);
+            items[0]=Value::make_int(t.tm_year+1900); items[1]=Value::make_int(t.tm_mon+1);
+            items[2]=Value::make_int(t.tm_mday); items[3]=Value::make_int(t.tm_hour);
+            items[4]=Value::make_int(t.tm_min); items[5]=Value::make_int(t.tm_sec);
+            items[6]=Value::make_int((t.tm_wday+6)%7); items[7]=Value::make_int(t.tm_yday+1);
+            items[8]=Value::make_int(0);
+            return Value::make_tuple(items);
+        };
+        // 用于 strptime 的解析（解析结果经 mktime 规范化）
+        u["TIME_UTC"] = Value::make_int(0);
+        add("time", 0,0, [&](const ValueVec&){
+                return Value::make_float(std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count());
+            });
+        add("sleep", 1,1, [&](const ValueVec& a){
+                std::this_thread::sleep_for(std::chrono::duration<double>(D(a[0])));
+                return Value::make_none();
+            });
+        add("gmtime", 0,1, [&](const ValueVec& a){
+                double ts = a.empty() ? std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count() : D(a[0]);
+                std::time_t t = (std::time_t)ts;
+                return tm_to_tuple(*std::gmtime(&t));
+            });
+        add("localtime", 0,1, [&](const ValueVec& a){
+                double ts = a.empty() ? std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count() : D(a[0]);
+                std::time_t t = (std::time_t)ts;
+                return tm_to_tuple(*std::localtime(&t));
+            });
+        add("mktime", 1,1, [&](const ValueVec& a){
+                auto& tr = *a[0]->tuple_rep;
+                std::tm t; std::memset(&t, 0, sizeof(t));
+                t.tm_year = (int)L(tr[0]) - 1900; t.tm_mon = (int)L(tr[1]) - 1;
+                t.tm_mday = (int)L(tr[2]); t.tm_hour = (int)L(tr[3]);
+                t.tm_min = (int)L(tr[4]); t.tm_sec = (int)L(tr[5]);
+                return Value::make_float((double)std::mktime(&t));
+            });
+        add("strftime", 2,2, [&](const ValueVec& a){
+                std::string fmt = a[0]->str_val;
+                auto& tr = *a[1]->tuple_rep;
+                std::tm t; std::memset(&t, 0, sizeof(t));
+                t.tm_year=(int)L(tr[0])-1900; t.tm_mon=(int)L(tr[1])-1; t.tm_mday=(int)L(tr[2]);
+                t.tm_hour=(int)L(tr[3]); t.tm_min=(int)L(tr[4]); t.tm_sec=(int)L(tr[5]);
+                std::mktime(&t); // 规范化并计算 weekday/yearday
+                char buf[256];
+                std::strftime(buf, sizeof(buf), fmt.c_str(), &t);
+                return Value::make_str(buf);
+            });
+        add("strptime", 2,2, [&](const ValueVec& a){
+                std::string s = a[0]->str_val, fmt = a[1]->str_val;
+                std::tm t; std::memset(&t, 0, sizeof(t));
+                if (!util_strptime(s, fmt, t))
+                    throw RuntimeError("time.strptime: unable to parse '" + s +
+                                       "' with format '" + fmt + "'");
+                std::time_t tt = std::mktime(&t); // 规范化并计算 weekday/yearday
+                if (tt != (std::time_t)-1) {
+                    std::tm* p = std::localtime(&tt);
+                    if (!p)
+                        throw RuntimeError("time.strptime: cannot resolve parsed time");
+                    return tm_to_tuple(*p);
+                }
+                // 日期字段不完整（如仅解析时间）导致 mktime 无法表示：
+                // 直接采用解析字段，缺失字段置合理默认值
+                if (t.tm_mon < 0) t.tm_mon = 0;
+                if (t.tm_mday < 1) t.tm_mday = 1;
+                return tm_to_tuple(t);
+            });
+        // 性能计数器
+        static std::chrono::steady_clock::time_point counter_start = std::chrono::steady_clock::now();
+        add("counter", 0,0, [&](const ValueVec&){
+                return Value::make_float(std::chrono::duration<double>(std::chrono::steady_clock::now()-counter_start).count());
+            });
+        add("reset_counter", 0,0, [&](const ValueVec&){
+                counter_start = std::chrono::steady_clock::now();
+                return Value::make_none();
+            });
+        add("process_time", 0,0, [&](const ValueVec&){
+                return Value::make_float((double)std::clock()/CLOCKS_PER_SEC);
+            });
+        std_modules_["time"] = mod;
+    }
+
+    // ================= random =================
+    {
+        auto mod = Value::make_module();
+        auto& u = *mod->module_rep;
+        auto add = [&](const std::string& n, size_t a0, size_t a1,
+                       std::function<ValuePtr(const ValueVec&)> f) {
+            u[n] = mk_fn("random", n, a0, a1, std::move(f));
+        };
+        auto to_list = [](const ValuePtr& v) -> std::vector<ValuePtr> {
+            return {v->list_rep->begin(), v->list_rep->end()};
+        };
+        u["DEFAULT_SEED"] = Value::make_uint((unsigned)std::time(nullptr)); // 自动：基于系统时间
+        add("seed", 1,1, [&](const ValueVec& a){
+                get_rng().seed((std::mt19937::result_type)value_to_uint(a[0])->uint_val);
+                return Value::make_none();
+            });
+        add("getstate", 0,0, [&](const ValueVec&){
+                std::ostringstream oss; oss << get_rng(); return Value::make_str(oss.str());
+            });
+        add("setstate", 1,1, [&](const ValueVec& a){
+                std::istringstream iss(a[0]->str_val); iss >> get_rng(); return Value::make_none();
+            });
+        add("random", 0,0, [&](const ValueVec&){
+                std::uniform_real_distribution<> d(0.0, 1.0);
+                return Value::make_float(d(get_rng()));
+            });
+        add("uniform", 2,2, [&](const ValueVec& a){
+                std::uniform_real_distribution<> d(D(a[0]), D(a[1])); return Value::make_float(d(get_rng()));
+            });
+        add("randint", 2,2, [&](const ValueVec& a){
+                long long lo=L(a[0]), hi=L(a[1]);
+                std::uniform_int_distribution<long long> d(lo, hi); return Value::make_int(d(get_rng()));
+            });
+        add("randrange", 2,3, [&](const ValueVec& a){
+                long long start=L(a[0]), stop=L(a[1]), step=a.size()>=3?L(a[2]):1;
+                long long n = (stop - start + step - 1)/step;
+                std::uniform_int_distribution<long long> d(0, n-1);
+                return Value::make_int(start + d(get_rng())*step);
+            });
+        add("choice", 1,1, [&](const ValueVec& a){
+                auto vec = to_list(a[0]);
+                if (vec.empty()) throw RuntimeError("random.choice of empty list");
+                std::uniform_int_distribution<size_t> d(0, vec.size()-1);
+                return vec[d(get_rng())];
+            });
+        add("choices", 1,3, [&](const ValueVec& a){
+                auto pop = to_list(a[0]);
+                bool weighted = a.size()>=2 && a[1]->type != ValueType::None;
+                std::vector<double> w;
+                if (weighted) {
+                    auto& vr = *a[1]->list_rep;
+                    for (auto& e : vr) w.push_back(D(e));
+                }
+                long long k = a.size()>=3 ? L(a[2]) : 1;
+                auto r = Value::make_list();
+                std::discrete_distribution<size_t> dd(w.begin(), w.end());
+                if (weighted) {
+                    for (long long i=0;i<k;++i) r->list_rep->push_back(pop[dd(get_rng())]);
+                } else {
+                    std::uniform_int_distribution<size_t> d(0, pop.size()-1);
+                    for (long long i=0;i<k;++i) r->list_rep->push_back(pop[d(get_rng())]);
+                }
+                return r;
+            });
+        add("shuffle", 1,1, [&](const ValueVec& a){
+                auto vec = to_list(a[0]);
+                std::shuffle(vec.begin(), vec.end(), get_rng());
+                auto& L = *a[0]->list_rep;
+                auto it = L.begin();
+                for (auto& e : vec) { *it = e; ++it; }
+                return Value::make_none();
+            });
+        add("sample", 2,2, [&](const ValueVec& a){
+                auto pop = to_list(a[0]);
+                long long k = L(a[1]);
+                std::shuffle(pop.begin(), pop.end(), get_rng());
+                auto r = Value::make_list();
+                for (long long i=0;i<k && i<(long long)pop.size();++i) r->list_rep->push_back(pop[i]);
+                return r;
+            });
+        add("gauss", 2,2, [&](const ValueVec& a){
+                std::normal_distribution<> d(D(a[0]), D(a[1])); return Value::make_float(d(get_rng()));
+            });
+        add("normalvariate", 2,2, [&](const ValueVec& a){
+                std::normal_distribution<> d(D(a[0]), D(a[1])); return Value::make_float(d(get_rng()));
+            });
+        add("expovariate", 1,1, [&](const ValueVec& a){
+                std::exponential_distribution<> d(D(a[0])); return Value::make_float(d(get_rng()));
+            });
+        add("triangular", 2,3, [&](const ValueVec& a){
+                double lo=D(a[0]), hi=D(a[1]);
+                double mode = a.size()>=3 ? D(a[2]) : (lo+hi)/2.0;
+                if (hi<=lo) throw RuntimeError("random.triangular: high must be > low");
+                double r = std::uniform_real_distribution<double>(0.0,1.0)(get_rng());
+                double c = (mode-lo)/(hi-lo);
+                double x = (r < c)
+                    ? lo + std::sqrt(r*c)*(hi-lo)
+                    : mode + (hi-mode)*(1.0 - std::sqrt((1.0-r)/(1.0-c)));
+                return Value::make_float(x);
+            });
+        std_modules_["random"] = mod;
+    }
 }
 
 bool Interpreter::is_builtin(const std::string&) const { return false; } // not used
@@ -443,8 +806,23 @@ ControlSignal Interpreter::exec_function_def(const FunctionDefStmt* s) {
     current_env_->define(s->name, v, false);
     return {};
 }
-ControlSignal Interpreter::exec_import(const ImportStmt*) {
-    // 简单实现：忽略 import（可扩展）
+ControlSignal Interpreter::exec_import(const ImportStmt* s) {
+    auto it = std_modules_.find(s->module);
+    if (it == std_modules_.end())
+        throw RuntimeError("Unknown module: '" + s->module + "'");
+    auto mod = it->second;
+    if (!s->is_from) {
+        std::string name = s->alias.empty() ? s->module : s->alias;
+        current_env_->define(name, mod, true);
+    } else {
+        auto& rep = *mod->module_rep;
+        for (auto& item : s->items) {
+            auto mi = rep.find(item);
+            if (mi == rep.end())
+                throw RuntimeError("Module '" + s->module + "' has no exported member '" + item + "'");
+            current_env_->define(item, mi->second, true);
+        }
+    }
     return {};
 }
 ControlSignal Interpreter::exec_try(const TryCatchStmt* s) {
@@ -513,6 +891,7 @@ ValuePtr Interpreter::eval_literal(const LiteralExpr* e) {
         case LiteralExpr::LitKind::String: return Value::make_str(e->str_val);
         case LiteralExpr::LitKind::None:   return Value::make_none();
         case LiteralExpr::LitKind::Unichar: return Value::make_unichar(e->char_val);
+        case LiteralExpr::LitKind::UniString: return Value::make_unistr(e->str_val);
     }
     return Value::make_none();
 }
@@ -652,7 +1031,7 @@ ValuePtr Interpreter::eval_assign(const AssignOpExpr* e) {
         ValuePtr obj = evaluate(s.object.get());
         ValuePtr idx = evaluate(s.index.get());
         long long i;
-        if (idx->type == ValueType::Int || idx->type == ValueType::UInt || idx->type == ValueType::Long) {
+        if (idx->type == ValueType::Int || idx->type == ValueType::UInt) {
             i = idx->type == ValueType::UInt ? (long long)idx->uint_val : idx->int_val;
         } else {
             // dict key
@@ -731,6 +1110,11 @@ ValuePtr Interpreter::eval_call(const CallExpr* e) {
     ValuePtr callee = evaluate(e->callee.get());
     ValueVec args;
     for (auto& a : e->args) args.push_back(evaluate(a.get()));
+    // 命名参数：压入当前调用栈帧，供内置方法（如 sort 的 cmp）读取
+    std::unordered_map<std::string, ValuePtr> kwargs;
+    for (auto& [kn, kv] : e->kwargs) kwargs[kn] = evaluate(kv.get());
+    kwarg_stack_.push_back(std::move(kwargs));
+    struct KwargGuard { Interpreter* i; ~KwargGuard() { i->kwarg_stack_.pop_back(); } } guard{this};
     if (callee->type == ValueType::Function) {
         if (callee->fn_rep->is_builtin) {
             return callee->fn_rep->builtin_fn(args, *current_env_);
@@ -744,6 +1128,13 @@ ValuePtr Interpreter::eval_call(const CallExpr* e) {
 
 ValuePtr Interpreter::eval_member(const MemberAccessExpr* e) {
     ValuePtr obj = evaluate(e->object.get());
+    // 模块成员：常量或函数（如 math.pi / math.sqrt）
+    if (obj->type == ValueType::Module) {
+        auto it = obj->module_rep->find(e->member);
+        if (it == obj->module_rep->end())
+            throw RuntimeError("Module has no member '" + e->member + "'");
+        return it->second;
+    }
     // pair.first / pair.second 直接读取
     if (obj->type == ValueType::Pair) {
         if (e->member == "first") return obj->pair_rep->first;
@@ -858,20 +1249,9 @@ ValuePtr Interpreter::call_user_function(const FunctionValue* fn, const ValueVec
 ValuePtr call_user_function_with_env(const FunctionDefStmt* def, const ValueVec& args, Environment* parent_env);
 
 // ============ 内置方法调用 ============
-static ValuePtr list_index(const ValuePtr& lst, long long i) {
-    if (i < 0 || (size_t)i >= lst->list_rep->size())
-        throw RuntimeError("list index out of range");
-    auto it = lst->list_rep->begin(); std::advance(it, i);
-    return *it;
-}
 static ListRep::iterator list_iter(const ValuePtr& lst, long long i) {
     auto it = lst->list_rep->begin(); std::advance(it, i);
     return it;
-}
-
-static std::mt19937& get_rng() {
-    static std::mt19937 rng((unsigned)std::time(nullptr));
-    return rng;
 }
 
 ValuePtr Interpreter::call_method(const ValuePtr& obj, const std::string& m, const ValueVec& args) {
@@ -953,6 +1333,11 @@ ValuePtr Interpreter::call_method(const ValuePtr& obj, const std::string& m, con
             if (m == "sort") {
                 long long l = ulong_arg(0, 0), r = ulong_arg(1, n);
                 ValuePtr cmpfn; bool has_cmp = false;
+                // 支持命名参数 cmp = fn
+                if (!kwarg_stack_.empty()) {
+                    auto kit = kwarg_stack_.back().find("cmp");
+                    if (kit != kwarg_stack_.back().end()) { cmpfn = kit->second; has_cmp = true; }
+                }
                 if (argc >= 3) { cmpfn = args[2]; has_cmp = true; }
                 // 取出 [l,r) 并排序
                 auto it_l = list_iter(obj, l), it_r = list_iter(obj, r);

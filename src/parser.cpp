@@ -126,7 +126,7 @@ StmtPtr Parser::parse_expr_as_stmt(ExprPtr first_expr) {
     ExprPtr e = first_expr ? std::move(first_expr) : parse_expr();
     // 检查是否是赋值目标
     if (is_assign_op(peek_t())) {
-        std::string op = assign_op_str(advance());
+        std::string op = assign_op_str(advance().type);
         auto v = parse_expr();
         e = std::make_unique<AssignOpExpr>(op, std::move(e), std::move(v));
     }
@@ -167,7 +167,12 @@ StmtPtr Parser::parse_var_decl(TypeSpecPtr type_hint) {
 StmtPtr Parser::parse_const_decl() {
     expect(TokenType::Kw_const);
     auto stmt = std::make_unique<ConstDeclStmt>();
-    stmt->type = parse_type_spec();
+    // 支持两种写法：
+    //   const <type> <name> = value;   （显式类型）
+    //   const <name> = value;          （类型推导，省略类型）
+    if (!(peek_t() == TokenType::Identifier && peek(1).type == TokenType::Assign)) {
+        stmt->type = parse_type_spec();
+    }
     Token n = expect(TokenType::Identifier, "constant name");
     stmt->name = n.text;
     expect(TokenType::Assign);
@@ -365,7 +370,7 @@ ExprPtr Parser::parse_expr() { return parse_assign(); }
 ExprPtr Parser::parse_assign() {
     auto lhs = parse_ternary();
     if (is_assign_op(peek_t())) {
-        std::string op = assign_op_str(advance());
+        std::string op = assign_op_str(advance().type);
         auto rhs = parse_assign(); // 右结合
         return std::make_unique<AssignOpExpr>(op, std::move(lhs), std::move(rhs));
     }
@@ -516,9 +521,18 @@ ExprPtr Parser::parse_postfix() {
         if (match(TokenType::LParen)) {
             // 调用
             std::vector<ExprPtr> args;
+            std::vector<std::pair<std::string, ExprPtr>> kwargs;
             if (!check(TokenType::RParen)) {
                 while (true) {
-                    args.push_back(parse_expr());
+                    // 命名参数：name = expr
+                    if (peek_t() == TokenType::Identifier &&
+                        peek(1).type == TokenType::Assign) {
+                        std::string kw = advance().text;
+                        advance(); // 跳过 '='
+                        kwargs.push_back({std::move(kw), parse_expr()});
+                    } else {
+                        args.push_back(parse_expr());
+                    }
                     if (!match(TokenType::Comma)) break;
                 }
             }
@@ -536,7 +550,9 @@ ExprPtr Parser::parse_postfix() {
                     continue;
                 }
             }
-            base = std::make_unique<CallExpr>(std::move(base), std::move(args));
+            auto call = std::make_unique<CallExpr>(std::move(base), std::move(args));
+            call->kwargs = std::move(kwargs);
+            base = std::move(call);
             continue;
         }
         if (match(TokenType::Dot)) {

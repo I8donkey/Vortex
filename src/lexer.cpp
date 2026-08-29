@@ -192,7 +192,6 @@ static int hex_val(char c) {
 Token Lexer::make_string(char quote) {
     int start_line = line_, start_col = col_;
     size_t start_pos = pos_ - 1; // include opening quote
-    advance(); // skip opening quote already done in caller
     std::string val;
     while (pos_ < src_.size()) {
         char c = advance();
@@ -230,7 +229,6 @@ Token Lexer::make_string(char quote) {
 Token Lexer::make_char(char quote) {
     int start_line = line_, start_col = col_;
     size_t start_pos = pos_ - 1;
-    advance();
     int value = 0;
     char c = advance();
     if (c == '\\') {

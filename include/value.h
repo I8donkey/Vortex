@@ -40,6 +40,7 @@ enum class ValueType {
     Pair,       // (a, b)
     Tuple,      // fixed tuple
     Function,   // user-defined / built-in
+    Module,     // 标准库模块（math / time / random）
 };
 
 struct Value;
@@ -85,6 +86,7 @@ using DictRep   = std::unordered_map<ValuePtr, ValuePtr, ValueHash, ValueEqual>;
 
 struct PairRep { ValuePtr first; ValuePtr second; };
 using TupleRep  = std::vector<ValuePtr>;
+using ModuleRep = std::unordered_map<std::string, ValuePtr>; // 模块成员：常量或函数
 
 // ========== 哈希与比较 functors ==========
 struct ValueHash {
@@ -120,6 +122,7 @@ struct Value : std::enable_shared_from_this<Value> {
     std::shared_ptr<TupleRep> tuple_rep;
     std::shared_ptr<FunctionValue> fn_rep;
     std::shared_ptr<MemAdrValue> adr_rep;
+    std::shared_ptr<ModuleRep> module_rep;
 
     bool is_const = false;
 
@@ -145,6 +148,7 @@ struct Value : std::enable_shared_from_this<Value> {
     static ValuePtr make_pair(ValuePtr a, ValuePtr b);
     static ValuePtr make_tuple(std::vector<ValuePtr> items);
     static ValuePtr make_adr(std::string name, Environment* env);
+    static ValuePtr make_module();
 
     // clone（深拷贝容器，浅拷贝元素）
     ValuePtr clone() const;

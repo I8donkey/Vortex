@@ -121,6 +121,7 @@ struct AssignOpExpr : Expr {
 struct CallExpr : Expr {
     ExprPtr callee;
     std::vector<ExprPtr> args;
+    std::vector<std::pair<std::string, ExprPtr>> kwargs; // 命名参数 (name, value)
     CallExpr(ExprPtr c, std::vector<ExprPtr> a)
         : Expr(ExprKind::Call), callee(std::move(c)), args(std::move(a)) {}
 };

@@ -78,6 +78,12 @@ private:
     Environment globals_;
     Environment* current_env_ = &globals_;
 
+    // 调用栈的命名参数（用于内置方法如 sort 的 cmp 关键字）
+    std::vector<std::unordered_map<std::string, ValuePtr>> kwarg_stack_;
+
+    // 已注册的标准库模块（供 import 使用）
+    std::unordered_map<std::string, ValuePtr> std_modules_;
+
     // push/pop scope
     struct ScopeGuard {
         Interpreter* interp;
@@ -139,6 +145,8 @@ private:
 
     // 初始化全局内置函数
     void init_builtins();
+    // 初始化标准库模块（math / time / random）
+    void init_modules();
 
     // 用户定义函数调用
     ValuePtr call_user_function(const FunctionValue* fn, const ValueVec& args);
