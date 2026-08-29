@@ -4,7 +4,7 @@
 #include <unordered_map>
 #include <algorithm>
 
-namespace ncr {
+namespace vortex {
 
 static const std::unordered_map<std::string, TokenType> KEYWORDS = {
     {"def", TokenType::Kw_def}, {"const", TokenType::Kw_const},
@@ -420,4 +420,4 @@ std::vector<Token> Lexer::tokenize() {
     return toks;
 }
 
-} // namespace ncr
+} // namespace vortex

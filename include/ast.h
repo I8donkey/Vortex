@@ -1,12 +1,12 @@
-#ifndef NEWCODERING_AST_H
-#define NEWCODERING_AST_H
+#ifndef VORTEX_AST_H
+#define VORTEX_AST_H
 
 #include <memory>
 #include <vector>
 #include <string>
 #include <utility>
 
-namespace ncr {
+namespace vortex {
 
 // ========== 前向声明 ==========
 struct Expr;
@@ -303,6 +303,6 @@ struct Program {
     std::vector<StmtPtr> stmts;
 };
 
-} // namespace ncr
+} // namespace vortex
 
-#endif // NEWCODERING_AST_H
+#endif // VORTEX_AST_H

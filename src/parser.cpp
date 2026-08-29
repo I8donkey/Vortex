@@ -2,7 +2,7 @@
 #include <sstream>
 #include <stdexcept>
 
-namespace ncr {
+namespace vortex {
 
 Parser::Parser(std::vector<Token> tokens) : toks_(std::move(tokens)) {}
 
@@ -707,4 +707,4 @@ ExprPtr Parser::parse_lambda() {
     return expr;
 }
 
-} // namespace ncr
+} // namespace vortex

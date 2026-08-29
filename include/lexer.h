@@ -1,11 +1,11 @@
-#ifndef NEWCODERING_LEXER_H
-#define NEWCODERING_LEXER_H
+#ifndef VORTEX_LEXER_H
+#define VORTEX_LEXER_H
 
 #include <string>
 #include <vector>
 #include <cstddef>
 
-namespace ncr {
+namespace vortex {
 
 enum class TokenType {
     // 字面量
@@ -91,6 +91,6 @@ std::string token_type_name(TokenType t);
 bool is_type_keyword(TokenType t);
 std::string token_type_name_str(TokenType t);
 
-} // namespace ncr
+} // namespace vortex
 
-#endif // NEWCODERING_LEXER_H
+#endif // VORTEX_LEXER_H

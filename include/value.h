@@ -1,5 +1,5 @@
-#ifndef NEWCODERING_VALUE_H
-#define NEWCODERING_VALUE_H
+#ifndef VORTEX_VALUE_H
+#define VORTEX_VALUE_H
 
 #include <string>
 #include <vector>
@@ -16,7 +16,7 @@
 #include <any>
 #include <utility>
 
-namespace ncr {
+namespace vortex {
 
 // ========== 值类型枚举 ==========
 enum class ValueType {
@@ -219,6 +219,6 @@ private:
     std::string msg_;
 };
 
-} // namespace ncr
+} // namespace vortex
 
-#endif // NEWCODERING_VALUE_H
+#endif // VORTEX_VALUE_H

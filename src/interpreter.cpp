@@ -14,7 +14,7 @@
 #include <numeric>
 #include <cctype>
 
-namespace ncr {
+namespace vortex {
 
 // ============ 随机数生成器（供 random 模块复用） ============
 static std::mt19937& get_rng() {
@@ -1766,10 +1766,10 @@ void Interpreter::exec_source(const std::string& src) {
     run(*prog);
 }
 
-} // namespace ncr
+} // namespace vortex
 
-// 在 namespace ncr 内部调用的前置声明实现
-namespace ncr {
+// 在 namespace vortex 内部调用的前置声明实现
+namespace vortex {
 ValuePtr call_user_function_with_env(const FunctionDefStmt* def, const ValueVec& args, Environment* parent_env) {
     // 通过构造一个临时 Interpreter 不方便；实际此函数是 Interpreter 的成员
     // 但上面我们在 Interpreter 类里已经实现了 call_user_function_with_env；此处为转发

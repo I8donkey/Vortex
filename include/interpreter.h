@@ -1,5 +1,5 @@
-#ifndef NEWCODERING_INTERPRETER_H
-#define NEWCODERING_INTERPRETER_H
+#ifndef VORTEX_INTERPRETER_H
+#define VORTEX_INTERPRETER_H
 
 #include "value.h"
 #include "ast.h"
@@ -10,7 +10,7 @@
 #include <memory>
 #include <functional>
 
-namespace ncr {
+namespace vortex {
 
 // 控制流信号
 enum class CtrlFlow { None, Break, Continue, Return };
@@ -157,6 +157,6 @@ private:
     void perform_assign(ValuePtr& target_ref, const std::string& op, ValuePtr rhs);
 };
 
-} // namespace ncr
+} // namespace vortex
 
-#endif // NEWCODERING_INTERPRETER_H
+#endif // VORTEX_INTERPRETER_H

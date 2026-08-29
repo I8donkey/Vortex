@@ -8,7 +8,7 @@
 #include <string>
 #include <cstring>
 
-using namespace ncr;
+using namespace vortex;
 
 static std::string read_file(const std::string& path) {
     std::ifstream f(path, std::ios::binary);
@@ -21,7 +21,7 @@ static std::string read_file(const std::string& path) {
 }
 
 static void print_usage(const char* prog) {
-    std::cout << "NewCodeRing Compiler & Interpreter\n";
+    std::cout << "Vortex Compiler & Interpreter\n";
     std::cout << "Usage: \n";
     std::cout << "  " << prog << " run <file.ncr>       Interpret and run source file\n";
     std::cout << "  " << prog << " compile <file.ncr>   Lex + Parse, print AST dump\n";
@@ -309,12 +309,12 @@ static bool compile_dump(const std::string& src, const std::string& name) {
 }
 
 static void run_repl() {
-    std::cout << "NewCodeRing REPL. Type 'exit' to quit, 'dump <stmt>' to dump AST.\n";
+    std::cout << "Vortex REPL. Type 'exit' to quit, 'dump <stmt>' to dump AST.\n";
     Interpreter interp;
     std::string line;
     int count = 0;
     while (true) {
-        std::cout << "ncr[" << count++ << "]> " << std::flush;
+        std::cout << "vortex[" << count++ << "]> " << std::flush;
         if (!std::getline(std::cin, line)) break;
         if (line == "exit" || line == "quit") break;
         if (line.empty()) continue;

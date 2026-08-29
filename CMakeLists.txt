@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15)
-project(newcodering LANGUAGES CXX)
+project(vortex LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -19,7 +19,7 @@ endif()
 include_directories(${CMAKE_SOURCE_DIR}/include)
 
 # 源文件
-set(NEWCODERING_SOURCES
+set(VORTEX_SOURCES
     src/lexer.cpp
     src/value.cpp
     src/parser.cpp
@@ -27,14 +27,14 @@ set(NEWCODERING_SOURCES
 )
 
 # 静态库：编译器核心
-add_library(newcodering_core STATIC ${NEWCODERING_SOURCES})
-target_include_directories(newcodering_core PUBLIC ${CMAKE_SOURCE_DIR}/include)
+add_library(vortex_core STATIC ${VORTEX_SOURCES})
+target_include_directories(vortex_core PUBLIC ${CMAKE_SOURCE_DIR}/include)
 
 # 可执行文件：编译器&解释器入口
-add_executable(newcodering src/main.cpp)
-target_link_libraries(newcodering PRIVATE newcodering_core)
+add_executable(vortex src/main.cpp)
+target_link_libraries(vortex PRIVATE vortex_core)
 
 # 若为 MinGW，静态链接标准库（避免依赖 libgcc/libstdc++ dll）
 if(MINGW)
-    target_link_options(newcodering PRIVATE -static -static-libgcc -static-libstdc++)
+    target_link_options(vortex PRIVATE -static -static-libgcc -static-libstdc++)
 endif()

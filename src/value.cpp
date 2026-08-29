@@ -4,7 +4,7 @@
 #include <cstring>
 #include <iomanip>
 
-namespace ncr {
+namespace vortex {
 
 // ================ Value factory ================
 ValuePtr Value::make_none()     { auto p = std::make_shared<Value>(ValueType::None); return p; }
@@ -670,4 +670,4 @@ std::string format_value(const ValuePtr& v, const std::string& spec) {
     return v->to_string();
 }
 
-} // namespace ncr
+} // namespace vortex

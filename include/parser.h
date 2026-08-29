@@ -1,5 +1,5 @@
-#ifndef NEWCODERING_PARSER_H
-#define NEWCODERING_PARSER_H
+#ifndef VORTEX_PARSER_H
+#define VORTEX_PARSER_H
 
 #include "lexer.h"
 #include "ast.h"
@@ -7,7 +7,7 @@
 #include <string>
 #include <memory>
 
-namespace ncr {
+namespace vortex {
 
 class Parser {
 public:
@@ -74,6 +74,6 @@ private:
     ExprPtr parse_lambda();
 };
 
-} // namespace ncr
+} // namespace vortex
 
-#endif // NEWCODERING_PARSER_H
+#endif // VORTEX_PARSER_H
