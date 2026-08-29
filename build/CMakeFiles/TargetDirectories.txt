@@ -1,0 +1,4 @@
+C:/Users/peter/.trae-cn/worktrees/newcodering/feat-compiler-interpreter-Kv26uy/build/CMakeFiles/newcodering_core.dir
+C:/Users/peter/.trae-cn/worktrees/newcodering/feat-compiler-interpreter-Kv26uy/build/CMakeFiles/newcodering.dir
+C:/Users/peter/.trae-cn/worktrees/newcodering/feat-compiler-interpreter-Kv26uy/build/CMakeFiles/edit_cache.dir
+C:/Users/peter/.trae-cn/worktrees/newcodering/feat-compiler-interpreter-Kv26uy/build/CMakeFiles/rebuild_cache.dir
