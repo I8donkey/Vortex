@@ -39,6 +39,21 @@ const char* vor_str_cstr(VStr* s);
 // 整型/浮点 -> str（供 print/cast）
 VStr* vor_i64_to_str(long long v);
 VStr* vor_double_to_str(double v);
+VStr* vor_bool_to_str(int b);
+// str -> 标量（解析失败时抛异常，供 int()/float() 转换）
+long long vor_cast_i64(VStr* s);
+double    vor_cast_f64(VStr* s);
+
+// ========== 异常（P3 try/catch，setjmp/longjmp） ==========
+// codegen 在 try 入口对本地 jmp_buf 回调 setjmp 后调用 push 注册；
+// throw 时 longjmp 回该 frame，catch 读取 msg。
+void    vor_ex_push(void* jb);
+void    vor_ex_pop(void);
+void    vor_throw_str(VStr* msg);
+VStr*   vor_ex_caught(void);
+// 低层 setjmp/longjmp（runtime 内自实现，Win64）
+int     vor_ex_setjmp(void* jb);
+void    vor_ex_longjmp(void* jb, int val);
 
 // ========== 列表（引用计数，变长数组）==========
 // 元素为 64 位盒(标量直存 / 指针)，内部仅按字拷贝，不感知类型。
@@ -156,6 +171,61 @@ double vor_cos(double a);
 double vor_tan(double a);
 long long vor_floor(double a);
 long long vor_ceil(double a);
+
+// ========== time 模块转发（P4 批A） ==========
+double vor_time_now(void);
+void   vor_sleep(double sec);
+double vor_counter(void);
+void   vor_counter_reset(void);
+double vor_process_time(void);
+
+// ========== random 模块转发（P4 批A） ==========
+void vor_rng_seed(unsigned long long seed);
+double vor_rng_random(void);
+double vor_rng_uniform(double a, double b);
+long long vor_rng_randint(long long lo, long long hi);
+long long vor_rng_randrange(long long start, long long stop, long long step);
+double vor_rng_gauss(double mu, double sigma);
+double vor_rng_expovariate(double lambda);
+double vor_rng_triangular(double lo, double hi, double mode);
+VStr* vor_rng_getstate(void);
+void  vor_rng_setstate(VStr* s);
+
+// ========== log 模块转发（P4 批A） ==========
+void vor_log_emit(int level, VStr* msg);
+void vor_log_level(VStr* name);
+VStr* vor_log_get_level(void);
+void vor_log_format(VStr* fmt);
+void vor_log_file(VStr* path);
+void vor_log_console(int on);
+
+// ========== time 批B：tuple 交互 ==========
+VTuple* vor_time_gmtime(double ts);
+VTuple* vor_time_localtime(double ts);
+double  vor_time_mktime(const VTuple* tr);
+VStr*   vor_time_strftime(VStr* fmt, const VTuple* tr);
+
+// ========== random 批B：list 交互 ==========
+long long vor_rng_choice(const VList* pop);
+VList* vor_rng_choices(const VList* pop, const VList* weights, long long k);
+void vor_rng_shuffle(VList* l);
+VList* vor_rng_sample(const VList* pop, long long k);
+
+// ========== thread 模块转发（P4）==========
+// 线程句柄与互斥锁/原子均为不透明指针，句柄生命周期归运行时管理。
+void* vor_thread_run(void (*fn)(void)); // 启动线程执行无参函数
+void  vor_thread_join(void* h);         // 等待线程结束
+void  vor_thread_yield(void);
+void  vor_thread_sleep(long long ms);
+long long vor_thread_hardware(void);
+void* vor_thread_mutex(void);
+void  vor_thread_lock(void* m);
+void  vor_thread_unlock(void* m);
+int   vor_thread_trylock(void* m);
+void* vor_thread_atomic(long long v);
+long long vor_thread_atomic_get(void* a);
+void  vor_thread_atomic_set(void* a, long long v);
+long long vor_thread_atomic_add(void* a, long long v);
 
 #ifdef __cplusplus
 }

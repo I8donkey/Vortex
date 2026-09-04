@@ -49,12 +49,13 @@ static bool block_has_term(llvm::BasicBlock* bb) {
 }
 
 // ==================== 静态类型 ====================
-enum class VType { Int, Float, Bool, Str, List, Dict, Set, Pair, Tuple, Void };
+enum class VType { Int, Float, Bool, Str, List, Dict, Set, Pair, Tuple, Ref, Void };
 
 struct LVal {
     VType type;
     llvm::Value* val = nullptr;     // 值 (标量) 或指针 (Str)
-    llvm::AllocaInst* slot = nullptr; // 变量槽（用于读写）
+    llvm::Value* slot = nullptr;    // 变量槽（alloca 或模块全局，用于读写）
+    VType ref_pointee = VType::Void;  // type==Ref 时的被引用变量类型（Void 表未知/非引用）
 };
 
 // ==================== 代码生成器 ====================
@@ -80,6 +81,8 @@ private:
 
     // 当前函数的变量表: name -> (type, alloca 指针)
     std::vector<std::unordered_map<std::string, LVal>> scopes_;
+    // 是否位于顶层(全局)作用域：为 true 时变量提升为模块全局，供函数跨作用域访问
+    bool top_level_ = false;
     // 当前函数返回类型
     VType fn_ret_ = VType::Void;
     llvm::Function* cur_fn_ = nullptr;
@@ -192,17 +195,74 @@ LVal Gen::gen_expr(const Expr* e) {
             }
             break;
         }
+        case ExprKind::Cast: {
+            auto* ce = static_cast<const CastExpr*>(e);
+            std::string t = ce->target_type;
+            LVal sv = gen_expr(ce->value.get());
+            if (t == "int" || t == "long") {
+                if (sv.type == VType::Int) return sv;
+                if (sv.type == VType::Bool) return {VType::Int, B->CreateZExt(sv.val, B->getInt64Ty())};
+                if (sv.type == VType::Float) return {VType::Int, B->CreateFPToSI(sv.val, B->getInt64Ty(), "i.cast")};
+                if (sv.type == VType::Str) {
+                    llvm::Value* fn = decl_vor("vor_cast_i64", VType::Int, {VType::Str});
+                    return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {sv.val})};
+                }
+                return {VType::Int, to_i64(sv)};
+            }
+            if (t == "float" || t == "double") {
+                if (sv.type == VType::Float) return sv;
+                if (sv.type == VType::Str) {
+                    llvm::Value* fn = decl_vor("vor_cast_f64", VType::Float, {VType::Str});
+                    return {VType::Float, B->CreateCall(llvm::cast<llvm::Function>(fn), {sv.val})};
+                }
+                if (sv.type == VType::Bool) return {VType::Float, B->CreateUIToFP(sv.val, B->getDoubleTy())};
+                return {VType::Float, B->CreateSIToFP(to_i64(sv), B->getDoubleTy())};
+            }
+            if (t == "bool") return {VType::Bool, B->CreateICmpNE(to_i64(sv), B->getInt64(0))};
+            if (t == "str") {
+                if (sv.type == VType::Str) return sv;
+                llvm::Value* fn = nullptr;
+                if (sv.type == VType::Int)
+                    fn = decl_vor("vor_i64_to_str", VType::Str, {VType::Int});
+                else if (sv.type == VType::Float)
+                    fn = decl_vor("vor_double_to_str", VType::Str, {VType::Float});
+                else
+                    fn = decl_vor("vor_bool_to_str", VType::Str, {VType::Int});
+                return {VType::Str, B->CreateCall(llvm::cast<llvm::Function>(fn),
+                    {sv.type == VType::Float ? sv.val : to_i64(sv)})};
+            }
+            return {VType::Int, to_i64(sv)};
+        }
         case ExprKind::BinaryOp:
             return gen_binop(static_cast<const BinaryOpExpr*>(e));
         case ExprKind::UnaryOp: {
             auto* u = static_cast<const UnaryOpExpr*>(e);
+            if (u->op == "@") {
+                // @x：取变量槽地址，返回 Ref
+                if (u->operand->kind != ExprKind::Identifier) break;
+                std::string anm = static_cast<const IdentifierExpr*>(u->operand.get())->name;
+                LVal t;
+                if (lookup_var(anm, t) && t.slot) {
+                    LVal ref; ref.type = VType::Ref; ref.val = t.slot; ref.ref_pointee = t.type;
+                    return ref;
+                }
+                break;
+            }
+            if (u->op == "~") {
+                // ~：对 Ref 解引用读取；否则按位取反
+                LVal v = gen_expr(u->operand.get());
+                if (v.type == VType::Ref && v.ref_pointee != VType::Void)
+                    return {v.ref_pointee, B->CreateLoad(llvm_type(v.ref_pointee), v.val)};
+                if (v.type == VType::Int)
+                    return {VType::Int, B->CreateXor(v.val, B->getInt64(-1))};
+                break;
+            }
             LVal v = gen_expr(u->operand.get());
             if (u->op == "!") return {VType::Bool, B->CreateNot(v.val)};
             if (u->op == "-") {
                 if (v.type == VType::Int)  return {VType::Int,   B->CreateNeg(v.val)};
                 if (v.type == VType::Float)return {VType::Float, B->CreateFNeg(v.val)};
             }
-            if (u->op == "@") v = v; // @x 取地址 P1 不支持真实引用
             break;
         }
         case ExprKind::AssignOp: {
@@ -230,27 +290,40 @@ LVal Gen::gen_expr(const Expr* e) {
                 }
                 break;
             }
-            LVal target;
-            if (a->target->kind != ExprKind::Identifier) break;
-            std::string nm = static_cast<const IdentifierExpr*>(a->target.get())->name;
-            if (!lookup_var(nm, target) || !target.slot) break;
+            llvm::Value* storePtr = nullptr;
+            VType ptrType = VType::Void;
+            if (a->target->kind == ExprKind::Identifier) {
+                LVal target;
+                std::string nm = static_cast<const IdentifierExpr*>(a->target.get())->name;
+                if (!lookup_var(nm, target) || !target.slot) break;
+                storePtr = target.slot; ptrType = target.type;
+            } else if (a->target->kind == ExprKind::UnaryOp) {
+                auto* tu = static_cast<const UnaryOpExpr*>(a->target.get());
+                if (tu->op != "~") break;
+                LVal r = gen_expr(tu->operand.get());       // ~@x = v / ~r = v
+                if (r.type != VType::Ref || r.ref_pointee == VType::Void) break;
+                storePtr = r.val; ptrType = r.ref_pointee;
+            } else break;
 
-            llvm::Value* rhs = gen_expr(a->value.get()).val;   // RHS（内联对旧值的引用在本 store 前求值）
-            bool isFloat = (target.type == VType::Float);
+            LVal rvrhs = gen_expr(a->value.get());
+            llvm::Value* rhs = rvrhs.val;                       // RHS（内联对旧值的引用在本 store 前求值）
+            bool isFloat = (ptrType == VType::Float);
+            if (isFloat && rvrhs.type == VType::Int)
+                rhs = B->CreateSIToFP(rvrhs.val, B->getDoubleTy(), "r.f");
             llvm::Value* toStore = rhs;
 
             if (a->op == "=") {
                 toStore = rhs;
             } else {
-                llvm::Value* old = B->CreateLoad(llvm_type(target.type), target.slot);
+                llvm::Value* old = B->CreateLoad(llvm_type(ptrType), storePtr);
                 if (a->op == "+=") toStore = isFloat ? B->CreateFAdd(old, rhs) : B->CreateAdd(old, rhs);
                 else if (a->op == "-=") toStore = isFloat ? B->CreateFSub(old, rhs) : B->CreateSub(old, rhs);
                 else if (a->op == "*=") toStore = isFloat ? B->CreateFMul(old, rhs) : B->CreateMul(old, rhs);
                 else if (a->op == "/=") toStore = isFloat ? B->CreateFDiv(old, rhs) : B->CreateSDiv(old, rhs);
                 else toStore = rhs;
             }
-            B->CreateStore(toStore, target.slot);
-            return {target.type, toStore};
+            B->CreateStore(toStore, storePtr);
+            return {ptrType, toStore};
         }
         case ExprKind::Call:
             return gen_call(static_cast<const CallExpr*>(e));
@@ -342,20 +415,28 @@ LVal Gen::gen_binop(const BinaryOpExpr* b) {
     LVal r = gen_expr(b->right.get());
     const std::string& op = b->op;
     bool isFloat = (l.type == VType::Float || r.type == VType::Float);
+    // 浮点提升：任一为 double，则整型操作数转 double，避免 fadd 操作数类型不一致
+    llvm::Value* lf = l.val;
+    llvm::Value* rf = r.val;
+    if (isFloat) {
+        if (l.type != VType::Float) lf = B->CreateSIToFP(l.val, B->getDoubleTy(), "l.f");
+        if (r.type != VType::Float) rf = B->CreateSIToFP(r.val, B->getDoubleTy(), "r.f");
+    }
 
     // 逻辑短路：&& || 用基本块
     if (op == "&&") {
         llvm::Function* F = cur_bb()->getParent();
         llvm::BasicBlock* rhs = llvm::BasicBlock::Create(B->getContext(), "and.rhs", F);
         llvm::BasicBlock* merge = llvm::BasicBlock::Create(B->getContext(), "and.merge", F);
+        llvm::BasicBlock* from = B->GetInsertBlock();   // 分支前的块
         llvm::Value* lv = B->CreateTrunc(l.val, B->getInt1Ty(), "and.l");
-        B->CreateCondBr(lv, rhs, merge);
+        B->CreateCondBr(lv, rhs, merge);                 // lhs 为假直接 phi=false(from)
         B->SetInsertPoint(rhs);
         llvm::Value* rv = B->CreateTrunc(r.val, B->getInt1Ty(), "and.r");
         B->CreateBr(merge);
         B->SetInsertPoint(merge);
         llvm::PHINode* phi = B->CreatePHI(B->getInt1Ty(), 2, "and");
-        phi->addIncoming(B->getFalse(), cur_bb());
+        phi->addIncoming(B->getFalse(), from);
         phi->addIncoming(rv, rhs);
         return {VType::Bool, phi};
     }
@@ -363,14 +444,15 @@ LVal Gen::gen_binop(const BinaryOpExpr* b) {
         llvm::Function* F = cur_bb()->getParent();
         llvm::BasicBlock* rhs = llvm::BasicBlock::Create(B->getContext(), "or.rhs", F);
         llvm::BasicBlock* merge = llvm::BasicBlock::Create(B->getContext(), "or.merge", F);
+        llvm::BasicBlock* from = B->GetInsertBlock();
         llvm::Value* lv = B->CreateTrunc(l.val, B->getInt1Ty(), "or.l");
-        B->CreateCondBr(lv, merge, rhs);
+        B->CreateCondBr(lv, merge, rhs);                 // lhs 为真直接 phi=true(from)
         B->SetInsertPoint(rhs);
         llvm::Value* rv = B->CreateTrunc(r.val, B->getInt1Ty(), "or.r");
         B->CreateBr(merge);
         B->SetInsertPoint(merge);
         llvm::PHINode* phi = B->CreatePHI(B->getInt1Ty(), 2, "or");
-        phi->addIncoming(B->getTrue(), cur_bb());
+        phi->addIncoming(B->getTrue(), from);
         phi->addIncoming(rv, rhs);
         return {VType::Bool, phi};
     }
@@ -378,35 +460,54 @@ LVal Gen::gen_binop(const BinaryOpExpr* b) {
     // 算术
     llvm::Value* res = nullptr;
     if (op == "+") {
+        if ((l.type == VType::Str) != (r.type == VType::Str)) {
+            // 一侧为 str、另一侧非 str：与解释器一致抛异常
+            llvm::Value* msg = B->CreateGlobalString("Type 'str' is not numeric", "ncat");
+            B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_throw_str", VType::Void, {VType::Str})),
+                          {B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_str_from_cstr", VType::Str, {VType::Str})), {msg})});
+            return {VType::Int, B->getInt64(0)};
+        }
         llvm::Value* pr[2] = {decl_vor("vor_str_concat", VType::Str, {VType::Str, VType::Str}),
                               nullptr};
         if (l.type == VType::Str && r.type == VType::Str) {
             res = B->CreateCall(llvm::cast<llvm::Function>(pr[0]), {l.val, r.val});
             return {VType::Str, res};
         }
-        res = isFloat ? B->CreateFAdd(l.val, r.val, "add") : B->CreateAdd(l.val, r.val, "add");
+        res = isFloat ? B->CreateFAdd(lf, rf, "add") : B->CreateAdd(l.val, r.val, "add");
         return {isFloat ? VType::Float : VType::Int, res};
     }
-    if (op == "-") res = isFloat ? B->CreateFSub(l.val, r.val, "sub") : B->CreateSub(l.val, r.val, "sub");
-    if (op == "*") res = isFloat ? B->CreateFMul(l.val, r.val, "mul") : B->CreateMul(l.val, r.val, "mul");
-    if (op == "/") { // vortex 的 "/" 为浮点除法（与解释器一致），实参转 double
-            res = B->CreateFDiv(B->CreateSIToFP(l.val, B->getDoubleTy()),
-                                B->CreateSIToFP(r.val, B->getDoubleTy()), "fdiv");
+    if (op == "-") res = isFloat ? B->CreateFSub(lf, rf, "sub") : B->CreateSub(l.val, r.val, "sub");
+    if (op == "*") res = isFloat ? B->CreateFMul(lf, rf, "mul") : B->CreateMul(l.val, r.val, "mul");
+    if (op == "/") { // vortex 的 "/" 一律浮点除法
+            res = B->CreateFDiv(isFloat ? lf : B->CreateSIToFP(l.val, B->getDoubleTy()),
+                                isFloat ? rf : B->CreateSIToFP(r.val, B->getDoubleTy()), "fdiv");
             return {VType::Float, res};
         }
-    if (op == "//") res = B->CreateSDiv(l.val, r.val, "idiv"); // "//" 才是整数除法
+    if (op == "//") { // 整数则整除；浮点则 floor(l/r)
+        if (isFloat) {
+            llvm::Value* div = B->CreateFDiv(lf, rf, "fdiv");
+            llvm::Value* fn = decl_vor("vor_floor", VType::Int, {VType::Float});
+            llvm::Value* fl = B->CreateCall(llvm::cast<llvm::Function>(fn), {div});
+            res = B->CreateSIToFP(fl, B->getDoubleTy());
+            return {VType::Float, res};
+        }
+        res = B->CreateSDiv(l.val, r.val, "idiv");
+    }
     if (op == "%") {
-        if (isFloat) { res = B->CreateFRem(l.val, r.val, "frem"); }
+        if (isFloat) { res = B->CreateFRem(lf, rf, "frem"); }
         else res = B->CreateSRem(l.val, r.val, "rem");
     }
     if (op == "**") {
         llvm::Value* fn = decl_vor("vor_pow", VType::Float, {VType::Float, VType::Float});
-        llvm::Value* f1 = B->CreateSIToFP(l.val, B->getDoubleTy());
-        llvm::Value* f2 = B->CreateSIToFP(r.val, B->getDoubleTy());
+        llvm::Value* f1 = isFloat ? lf : B->CreateSIToFP(l.val, B->getDoubleTy());
+        llvm::Value* f2 = isFloat ? rf : B->CreateSIToFP(r.val, B->getDoubleTy());
         res = B->CreateCall(llvm::cast<llvm::Function>(fn), {f1, f2});
         return {VType::Float, res};
     }
-    if (res) return {isFloat ? VType::Float : VType::Int, res};
+    if (res) {
+        if (res->getType()->isDoubleTy()) return {VType::Float, res};
+        return {isFloat ? VType::Float : VType::Int, res};
+    }
 
     // 位运算
     if (op == "&") { res = B->CreateAnd(l.val, r.val, "and"); }
@@ -424,7 +525,7 @@ LVal Gen::gen_binop(const BinaryOpExpr* b) {
     else if (op == ">=") pred = isFloat ? llvm::CmpInst::FCMP_OGE : llvm::CmpInst::ICMP_SGE;
     else return {VType::Int, l.val};
 
-    res = isFloat ? B->CreateFCmp(pred, l.val, r.val, "cmp") : B->CreateICmp(pred, l.val, r.val, "cmp");
+    res = isFloat ? B->CreateFCmp(pred, lf, rf, "cmp") : B->CreateICmp(pred, l.val, r.val, "cmp");
     return {VType::Bool, res};
 }
 
@@ -445,7 +546,17 @@ LVal Gen::gen_call(const CallExpr* c) {
     if (it != fns_.end()) {
         // print / math 内置
         if (it->second.second == Builtin::Print) {
+            // 多参 print 以单个空格分隔，与解释器对齐
+            llvm::Value* comma = nullptr;
+            bool first = true;
             for (auto& a : c->args) {
+                if (!first) {
+                    if (!comma)
+                        comma = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_str_from_cstr", VType::Str, {VType::Str})),
+                                              {B->CreateGlobalString(" ", "sep")});
+                    B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_print_str", VType::Void, {VType::Str})), {comma});
+                }
+                first = false;
                 LVal v = gen_expr(a.get());
                 emit_any(v);
             }
@@ -468,6 +579,341 @@ LVal Gen::gen_call(const CallExpr* c) {
             llvm::Value* f = B->CreateSIToFP(a0.val, B->getDoubleTy());
             return {VType::Float, B->CreateCall(llvm::cast<llvm::Function>(fn), {f})};
         }
+    }
+
+    // ---- 扩展模块转发：time./random./log.（P4 批A） ----
+    // 标量/str 参数与返回 float/int/str；参数 int->float 自动提升。
+    auto to_fp = [&](LVal v) -> llvm::Value* {
+        if (v.type == VType::Float) return v.val;
+        return B->CreateSIToFP(v.val, B->getDoubleTy(), "a.f");
+    };
+    auto nothing = [&]() { return LVal{VType::Void, nullptr}; };
+
+    // len(String) / len(List) / len(Dict)：转发运行时长度
+    if (fname == "len") {
+        LVal v = gen_expr(c->args[0].get());
+        if (v.type == VType::Str) {
+            llvm::Value* fn = decl_vor("vor_str_len", VType::Int, {VType::Str});
+            return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {v.val})};
+        }
+        if (v.type == VType::List) {
+            llvm::Value* fn = decl_vor("vor_list_len", VType::Int, {VType::List});
+            return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {v.val})};
+        }
+    }
+
+    if (fname == "time.time") {
+        llvm::Value* fn = decl_vor("vor_time_now", VType::Float, {});
+        return {VType::Float, B->CreateCall(llvm::cast<llvm::Function>(fn), {})};
+    }
+    if (fname == "time.sleep") {
+        LVal a0 = gen_expr(c->args[0].get());
+        llvm::Value* fn = decl_vor("vor_sleep", VType::Void, {VType::Float});
+        B->CreateCall(llvm::cast<llvm::Function>(fn), {to_fp(a0)});
+        return nothing();
+    }
+    if (fname == "time.counter") {
+        llvm::Value* fn = decl_vor("vor_counter", VType::Float, {});
+        return {VType::Float, B->CreateCall(llvm::cast<llvm::Function>(fn), {})};
+    }
+    if (fname == "time.reset_counter") {
+        llvm::Value* fn = decl_vor("vor_counter_reset", VType::Void, {});
+        B->CreateCall(llvm::cast<llvm::Function>(fn), {});
+        return nothing();
+    }
+    if (fname == "time.process_time") {
+        llvm::Value* fn = decl_vor("vor_process_time", VType::Float, {});
+        return {VType::Float, B->CreateCall(llvm::cast<llvm::Function>(fn), {})};
+    }
+
+    if (fname == "random.seed") {
+        LVal a0 = gen_expr(c->args[0].get());
+        llvm::Value* fn = decl_vor("vor_rng_seed", VType::Void, {VType::Int});
+        B->CreateCall(llvm::cast<llvm::Function>(fn), {to_i64(a0)});
+        return nothing();
+    }
+    if (fname == "random.random") {
+        llvm::Value* fn = decl_vor("vor_rng_random", VType::Float, {});
+        return {VType::Float, B->CreateCall(llvm::cast<llvm::Function>(fn), {})};
+    }
+    if (fname == "random.uniform") {
+        LVal a0 = gen_expr(c->args[0].get()); LVal a1 = gen_expr(c->args[1].get());
+        llvm::Value* fn = decl_vor("vor_rng_uniform", VType::Float, {VType::Float, VType::Float});
+        return {VType::Float, B->CreateCall(llvm::cast<llvm::Function>(fn), {to_fp(a0), to_fp(a1)})};
+    }
+    if (fname == "random.randint") {
+        LVal a0 = gen_expr(c->args[0].get()); LVal a1 = gen_expr(c->args[1].get());
+        llvm::Value* fn = decl_vor("vor_rng_randint", VType::Int, {VType::Int, VType::Int});
+        return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {to_i64(a0), to_i64(a1)})};
+    }
+    if (fname == "random.randrange") {
+        LVal a0 = gen_expr(c->args[0].get()); LVal a1 = gen_expr(c->args[1].get());
+        llvm::Value* step = c->args.size() >= 3 ? to_i64(gen_expr(c->args[2].get())) : B->getInt64(1);
+        llvm::Value* fn = decl_vor("vor_rng_randrange", VType::Int, {VType::Int, VType::Int, VType::Int});
+        return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {to_i64(a0), to_i64(a1), step})};
+    }
+    if (fname == "random.gauss" || fname == "random.normalvariate") {
+        LVal a0 = gen_expr(c->args[0].get()); LVal a1 = gen_expr(c->args[1].get());
+        llvm::Value* fn = decl_vor("vor_rng_gauss", VType::Float, {VType::Float, VType::Float});
+        return {VType::Float, B->CreateCall(llvm::cast<llvm::Function>(fn), {to_fp(a0), to_fp(a1)})};
+    }
+    if (fname == "random.expovariate") {
+        LVal a0 = gen_expr(c->args[0].get());
+        llvm::Value* fn = decl_vor("vor_rng_expovariate", VType::Float, {VType::Float});
+        return {VType::Float, B->CreateCall(llvm::cast<llvm::Function>(fn), {to_fp(a0)})};
+    }
+    if (fname == "random.triangular") {
+        LVal a0 = gen_expr(c->args[0].get()); LVal a1 = gen_expr(c->args[1].get());
+        llvm::Value* mode = c->args.size() >= 3
+            ? to_fp(gen_expr(c->args[2].get()))
+            : B->CreateFMul(B->CreateFAdd(to_fp(a0), to_fp(a1)), llvm::ConstantFP::get(B->getDoubleTy(), 0.5), "mid");
+        llvm::Value* fn = decl_vor("vor_rng_triangular", VType::Float, {VType::Float, VType::Float, VType::Float});
+        return {VType::Float, B->CreateCall(llvm::cast<llvm::Function>(fn), {to_fp(a0), to_fp(a1), mode})};
+    }
+    if (fname == "random.getstate") {
+        llvm::Value* fn = decl_vor("vor_rng_getstate", VType::Str, {});
+        return {VType::Str, B->CreateCall(llvm::cast<llvm::Function>(fn), {})};
+    }
+    if (fname == "random.setstate") {
+        LVal a0 = gen_expr(c->args[0].get());
+        llvm::Value* fn = decl_vor("vor_rng_setstate", VType::Void, {VType::Str});
+        B->CreateCall(llvm::cast<llvm::Function>(fn), {a0.val});
+        return nothing();
+    }
+
+    // log 发射：可标量/str 参数，空格拼接
+    auto val_to_str = [&](LVal v) -> llvm::Value* {
+        if (v.type == VType::Str) return v.val;
+        if (v.type == VType::Int) {
+            llvm::Value* fn = decl_vor("vor_i64_to_str", VType::Str, {VType::Int});
+            return B->CreateCall(llvm::cast<llvm::Function>(fn), {v.val});
+        }
+        if (v.type == VType::Float) {
+            llvm::Value* fn = decl_vor("vor_double_to_str", VType::Str, {VType::Float});
+            return B->CreateCall(llvm::cast<llvm::Function>(fn), {v.val});
+        }
+        if (v.type == VType::Bool) {
+            llvm::Value* tstr = B->CreateGlobalString("true", "bstr");
+            llvm::Value* fstr = B->CreateGlobalString("false", "bstr");
+            llvm::Value* sel = B->CreateSelect(v.val, tstr, fstr);
+            llvm::Value* fn = decl_vor("vor_str_from_cstr", VType::Str, {VType::Str});
+            return B->CreateCall(llvm::cast<llvm::Function>(fn), {sel});
+        }
+        return B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_str_from_cstr", VType::Str, {VType::Str})),
+                             {B->CreateGlobalString("", "estr")});
+    };
+    auto join_log = [&](std::vector<llvm::Value*>& parts) -> llvm::Value* {
+        llvm::Value* acc = parts[0];
+        for (size_t i = 1; i < parts.size(); ++i) {
+            llvm::Value* sp = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_str_from_cstr", VType::Str, {VType::Str})),
+                                            {B->CreateGlobalString(" ", "sp")});
+            llvm::Value* t1 = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_str_concat", VType::Str, {VType::Str, VType::Str})), {acc, sp});
+            llvm::Value* t2 = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_str_concat", VType::Str, {VType::Str, VType::Str})), {t1, parts[i]});
+            acc = t2;
+        }
+        return acc;
+    };
+    static const int LOG_LEVELS[5] = {10, 20, 30, 40, 50};
+    const char* log_emit_names[5] = {"log.debug", "log.info", "log.warn", "log.error", "log.fatal"};
+    for (int li = 0; li < 5; ++li) {
+        if (fname == log_emit_names[li]) {
+            std::vector<llvm::Value*> parts;
+            for (auto& a : c->args) parts.push_back(val_to_str(gen_expr(a.get())));
+            llvm::Value* msg = join_log(parts);
+            llvm::Value* fn = decl_vor("vor_log_emit", VType::Void, {VType::Int, VType::Str});
+            B->CreateCall(llvm::cast<llvm::Function>(fn), {B->getInt64(LOG_LEVELS[li]), msg});
+            return nothing();
+        }
+    }
+    if (fname == "log.level") {
+        LVal a0 = gen_expr(c->args[0].get());
+        llvm::Value* fn = decl_vor("vor_log_level", VType::Void, {VType::Str});
+        B->CreateCall(llvm::cast<llvm::Function>(fn), {val_to_str(a0)});
+        return nothing();
+    }
+    if (fname == "log.get_level") {
+        llvm::Value* fn = decl_vor("vor_log_get_level", VType::Str, {});
+        return {VType::Str, B->CreateCall(llvm::cast<llvm::Function>(fn), {})};
+    }
+    if (fname == "log.format") {
+        LVal a0 = gen_expr(c->args[0].get());
+        llvm::Value* fn = decl_vor("vor_log_format", VType::Void, {VType::Str});
+        B->CreateCall(llvm::cast<llvm::Function>(fn), {val_to_str(a0)});
+        return nothing();
+    }
+    if (fname == "log.file") {
+        LVal a0 = gen_expr(c->args[0].get());
+        llvm::Value* fn = decl_vor("vor_log_file", VType::Void, {VType::Str});
+        B->CreateCall(llvm::cast<llvm::Function>(fn), {val_to_str(a0)});
+        return nothing();
+    }
+    if (fname == "log.console") {
+        LVal a0 = gen_expr(c->args[0].get());
+        llvm::Value* fn = decl_vor("vor_log_console", VType::Void, {VType::Int});
+        B->CreateCall(llvm::cast<llvm::Function>(fn), {to_i64(a0)});
+        return nothing();
+    }
+
+    // 把任意 LVal 字符串化为 VStr*
+    auto toStre = [&](LVal v) -> llvm::Value* {
+        if (v.type == VType::Str) return v.val;
+        if (v.type == VType::Float) {
+            llvm::Value* f = decl_vor("vor_double_to_str", VType::Str, {VType::Float});
+            return B->CreateCall(llvm::cast<llvm::Function>(f), {v.val});
+        }
+        if (v.type == VType::Bool) {
+            llvm::Value* f = decl_vor("vor_bool_to_str", VType::Str, {VType::Int});
+            return B->CreateCall(llvm::cast<llvm::Function>(f), {to_i64(v)});
+        }
+        llvm::Value* f = decl_vor("vor_i64_to_str", VType::Str, {VType::Int});
+        return B->CreateCall(llvm::cast<llvm::Function>(f), {to_i64(v)});
+    };
+    // log 输出函数（debug/info/warn/error/fatal）：vararg 空格拼接后记录
+    auto log_emit = [&](int lv) {
+        llvm::Value* msg = nullptr;
+        llvm::Value* space = nullptr;
+        bool first = true;
+        bool any = false;
+        for (auto& a : c->args) {
+            if (first) first = false;
+            else {
+                if (!space)
+                    space = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_str_from_cstr", VType::Str, {VType::Str})),
+                                          {B->CreateGlobalString(" ", "lsep")});
+                llvm::Value* c1 = decl_vor("vor_str_concat", VType::Str, {VType::Str, VType::Str});
+                msg = B->CreateCall(llvm::cast<llvm::Function>(c1), {msg, space});
+            }
+            any = true;
+            llvm::Value* part = toStre(gen_expr(a.get()));
+            if (msg)
+                msg = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_str_concat", VType::Str, {VType::Str, VType::Str})), {msg, part});
+            else
+                msg = part;
+        }
+        if (!any)
+            msg = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_str_from_cstr", VType::Str, {VType::Str})), {B->CreateGlobalString("", "lempty")});
+        B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_log_emit", VType::Void, {VType::Int, VType::Str})), {B->getInt64(lv), msg});
+        return nothing();
+    };
+    if (fname == "log.debug") return log_emit(10);
+    if (fname == "log.info")  return log_emit(20);
+    if (fname == "log.warn")  return log_emit(30);
+    if (fname == "log.error") return log_emit(40);
+    if (fname == "log.fatal") return log_emit(50);
+
+    // ---- 扩展模块转发批B：time tuple / random list 交互 ----
+    if (fname == "time.gmtime" || fname == "time.localtime") {
+        LVal ts = c->args.empty() ? LVal{} : gen_expr(c->args[0].get());
+        llvm::Value* tnow = ts.val ? to_fp(ts) : B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_time_now", VType::Float, {})), {});
+        const char* nm = fname == "time.gmtime" ? "vor_time_gmtime" : "vor_time_localtime";
+        llvm::Value* fn = decl_vor(nm, VType::Tuple, {VType::Float});
+        return {VType::Tuple, B->CreateCall(llvm::cast<llvm::Function>(fn), {tnow})};
+    }
+    if (fname == "time.mktime") {
+        LVal a0 = gen_expr(c->args[0].get());
+        llvm::Value* fn = decl_vor("vor_time_mktime", VType::Float, {VType::Tuple});
+        return {VType::Float, B->CreateCall(llvm::cast<llvm::Function>(fn), {a0.val})};
+    }
+    if (fname == "time.strftime") {
+        LVal a0 = gen_expr(c->args[0].get()); LVal a1 = gen_expr(c->args[1].get());
+        llvm::Value* fn = decl_vor("vor_time_strftime", VType::Str, {VType::Str, VType::Tuple});
+        return {VType::Str, B->CreateCall(llvm::cast<llvm::Function>(fn), {a0.val, a1.val})};
+    }
+    if (fname == "random.choice") {
+        LVal a0 = gen_expr(c->args[0].get());
+        llvm::Value* fn = decl_vor("vor_rng_choice", VType::Int, {VType::List});
+        return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {a0.val})};
+    }
+    if (fname == "random.choices") {
+        LVal pop = gen_expr(c->args[0].get());
+        llvm::Value* w = (c->args.size() >= 2)
+            ? gen_expr(c->args[1].get()).val
+            : llvm::Constant::getNullValue(B->getPtrTy());
+        llvm::Value* k = c->args.size() >= 3 ? to_i64(gen_expr(c->args[2].get())) : B->getInt64(1);
+        llvm::Value* fn = decl_vor("vor_rng_choices", VType::List, {VType::List, VType::List, VType::Int});
+        return {VType::List, B->CreateCall(llvm::cast<llvm::Function>(fn), {pop.val, w, k})};
+    }
+    if (fname == "random.shuffle") {
+        LVal a0 = gen_expr(c->args[0].get());
+        llvm::Value* fn = decl_vor("vor_rng_shuffle", VType::Void, {VType::List});
+        B->CreateCall(llvm::cast<llvm::Function>(fn), {a0.val});
+        return nothing();
+    }
+    if (fname == "random.sample") {
+        LVal a0 = gen_expr(c->args[0].get()); LVal a1 = gen_expr(c->args[1].get());
+        llvm::Value* fn = decl_vor("vor_rng_sample", VType::List, {VType::List, VType::Int});
+        return {VType::List, B->CreateCall(llvm::cast<llvm::Function>(fn), {a0.val, to_i64(a1)})};
+    }
+
+    // ---- 扩展模块转发：thread.（P4） ----
+    // 不透明句柄统一复用 Str(指针) 槽传递。
+    if (fname == "thread.run") {
+        // arg0 必须是已知用户函数名（静态分派，函数编译为原生 i64(void)）
+        auto* id = dynamic_cast<const IdentifierExpr*>(c->args[0].get());
+        llvm::Function* ufn = id ? mod_->getFunction(id->name) : nullptr;
+        if (!ufn) return {VType::Void, nullptr};
+        llvm::FunctionType* vft = llvm::FunctionType::get(B->getVoidTy(), {}, false);
+        llvm::Value* fn = declare_runtime("vor_thread_run", B->getPtrTy(), {vft->getPointerTo()});
+        llvm::Value* fp = B->CreateBitCast(ufn, vft->getPointerTo());
+        return {VType::Str, B->CreateCall(llvm::cast<llvm::Function>(fn), {fp})};
+    }
+    if (fname == "thread.join") {
+        LVal a0 = gen_expr(c->args[0].get());
+        B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_thread_join", VType::Void, {VType::Str})), {a0.val});
+        return {VType::Void, nullptr};
+    }
+    if (fname == "thread.yield") {
+        B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_thread_yield", VType::Void, {})), {});
+        return {VType::Void, nullptr};
+    }
+    if (fname == "thread.sleep") {
+        LVal a0 = gen_expr(c->args[0].get());
+        B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_thread_sleep", VType::Void, {VType::Int})), {to_i64(a0)});
+        return {VType::Void, nullptr};
+    }
+    if (fname == "thread.hardware") {
+        llvm::Value* fn = decl_vor("vor_thread_hardware", VType::Int, {});
+        return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {})};
+    }
+    if (fname == "thread.mutex") {
+        llvm::Value* fn = decl_vor("vor_thread_mutex", VType::Str, {});
+        return {VType::Str, B->CreateCall(llvm::cast<llvm::Function>(fn), {})};
+    }
+    if (fname == "thread.lock") {
+        LVal a0 = gen_expr(c->args[0].get());
+        B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_thread_lock", VType::Void, {VType::Str})), {a0.val});
+        return {VType::Void, nullptr};
+    }
+    if (fname == "thread.unlock") {
+        LVal a0 = gen_expr(c->args[0].get());
+        B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_thread_unlock", VType::Void, {VType::Str})), {a0.val});
+        return {VType::Void, nullptr};
+    }
+    if (fname == "thread.trylock") {
+        LVal a0 = gen_expr(c->args[0].get());
+        llvm::Value* fn = decl_vor("vor_thread_trylock", VType::Int, {VType::Str});
+        llvm::Value* r = B->CreateCall(llvm::cast<llvm::Function>(fn), {a0.val});
+        return {VType::Bool, B->CreateICmpNE(r, B->getInt64(0))};
+    }
+    if (fname == "thread.atomic") {
+        LVal a0 = gen_expr(c->args[0].get());
+        llvm::Value* fn = decl_vor("vor_thread_atomic", VType::Str, {VType::Int});
+        return {VType::Str, B->CreateCall(llvm::cast<llvm::Function>(fn), {to_i64(a0)})};
+    }
+    if (fname == "thread.atomic_get") {
+        LVal a0 = gen_expr(c->args[0].get());
+        llvm::Value* fn = decl_vor("vor_thread_atomic_get", VType::Int, {VType::Str});
+        return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {a0.val})};
+    }
+    if (fname == "thread.atomic_set") {
+        LVal a0 = gen_expr(c->args[0].get()); LVal a1 = gen_expr(c->args[1].get());
+        B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_thread_atomic_set", VType::Void, {VType::Str, VType::Int})), {a0.val, to_i64(a1)});
+        return {VType::Void, nullptr};
+    }
+    if (fname == "thread.atomic_add") {
+        LVal a0 = gen_expr(c->args[0].get()); LVal a1 = gen_expr(c->args[1].get());
+        llvm::Value* fn = decl_vor("vor_thread_atomic_add", VType::Int, {VType::Str, VType::Int});
+        return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {a0.val, to_i64(a1)})};
     }
 
     // 容器构造内置（set/pair/tuple/__set_literal__）
@@ -726,12 +1172,22 @@ void Gen::gen_stmt(const Stmt* s) {
                 VType tEff = t;
                 if (init && (sv.type == VType::List || sv.type == VType::Str || sv.type == VType::Dict
                              || sv.type == VType::Set || sv.type == VType::Pair || sv.type == VType::Tuple)) tEff = sv.type;
-                llvm::AllocaInst* alloca = make_alloca(tEff, cur_bb()->getParent(), nm.c_str());
                 llvm::Value* store = sv.val;
                 if (tEff == VType::Bool && sv.type != VType::Bool) store = B->CreateICmpNE(sv.val, B->getInt64(0));
-                B->CreateStore(store, alloca);
+                llvm::Value* slot = nullptr;
+                if (top_level_) {
+                    // 顶层变量提升为模块全局，使函数可跨作用域访问
+                    auto* gv = new llvm::GlobalVariable(*mod_, llvm_type(tEff), false,
+                                                        llvm::GlobalValue::InternalLinkage,
+                                                        llvm::Constant::getNullValue(llvm_type(tEff)), "g_" + nm);
+                    B->CreateStore(store, gv);
+                    slot = gv;
+                } else {
+                    slot = make_alloca(tEff, cur_bb()->getParent(), nm.c_str());
+                    B->CreateStore(store, slot);
+                }
                 // 记录槽 + 类型；标识符访问时按需重新 load
-                scopes_.back()[nm] = LVal{tEff, B->CreateLoad(llvm_type(tEff), alloca), alloca};
+                scopes_.back()[nm] = LVal{tEff, B->CreateLoad(llvm_type(tEff), slot), slot};
             }
             break;
         }
@@ -742,26 +1198,35 @@ void Gen::gen_stmt(const Stmt* s) {
         case StmtKind::If: {
             auto* ifs = static_cast<const IfStmt*>(s);
             llvm::Function* F = cur_bb()->getParent();
-            llvm::BasicBlock* thenBB = llvm::BasicBlock::Create(B->getContext(), "if.then", F);
-            llvm::BasicBlock* elseBB = llvm::BasicBlock::Create(B->getContext(), "if.else", F);
-            llvm::BasicBlock* mergeBB = llvm::BasicBlock::Create(B->getContext(), "if.end", F);
-
+            auto mkBB = [&](const char* n) { return llvm::BasicBlock::Create(B->getContext(), n, F); };
+            llvm::BasicBlock* mergeBB = mkBB("if.end");
+            // 主 if
+            llvm::BasicBlock* thenBB = mkBB("if.then");
+            llvm::BasicBlock* nextBB = mkBB("if.next");
             LVal cond = gen_expr(ifs->cond.get());
-            B->CreateCondBr(cond.val, thenBB, elseBB);
-
+            B->CreateCondBr(cond.val, thenBB, nextBB);
             B->SetInsertPoint(thenBB);
             for (auto& st : ifs->then_body->stmts) gen_stmt(st.get());
             if (!block_has_term(cur_bb())) B->CreateBr(mergeBB);
-
-            B->SetInsertPoint(elseBB);
+            // elif 链：各自独立 cond->body 块，串在 next 上
+            llvm::BasicBlock* cur = nextBB;
             for (auto& el : ifs->elif_list) {
-                // 仅支持单一 elif→简化成嵌套 if，不完整
+                llvm::BasicBlock* eThen = mkBB("elif.then");
+                llvm::BasicBlock* eNext = mkBB("elif.next");
+                B->SetInsertPoint(cur);
+                LVal ec = gen_expr(el.cond.get());
+                B->CreateCondBr(ec.val, eThen, eNext);
+                B->SetInsertPoint(eThen);
+                for (auto& st : el.body->stmts) gen_stmt(st.get());
+                if (!block_has_term(cur_bb())) B->CreateBr(mergeBB);
+                cur = eNext;
             }
+            // else（或缺省）汇入 merge
+            B->SetInsertPoint(cur);
             if (ifs->else_body) {
                 for (auto& st : ifs->else_body->stmts) gen_stmt(st.get());
             }
             if (!block_has_term(cur_bb())) B->CreateBr(mergeBB);
-
             B->SetInsertPoint(mergeBB);
             break;
         }
@@ -847,6 +1312,84 @@ void Gen::gen_stmt(const Stmt* s) {
             B->SetInsertPoint(endBB);
             break;
         }
+        case StmtKind::TryCatch: {
+            auto* tc = static_cast<const TryCatchStmt*>(s);
+            llvm::Function* F = cur_bb()->getParent();
+            auto mkBB = [&](const char* n) { return llvm::BasicBlock::Create(B->getContext(), n, F); };
+            llvm::BasicBlock* tryBB = mkBB("try.body");
+            llvm::BasicBlock* catchBB = mkBB("try.catch");
+            llvm::BasicBlock* endBB = mkBB("try.end");
+            llvm::AllocaInst* jb = B->CreateAlloca(B->getInt64Ty(), B->getInt64(512), "jb");
+            // int vor_ex_setjmp(void*) —— runtime 自实现，返回 0 首次/非 0 异常
+            llvm::Function* sjf = llvm::cast<llvm::Function>(
+                declare_runtime("vor_ex_setjmp", B->getInt32Ty(), {B->getPtrTy()}));
+            llvm::Value* sj = B->CreateCall(sjf, {jb});
+            llvm::Value* isexc = B->CreateICmpEQ(sj, B->getInt32(0), "isexc");
+            B->CreateCondBr(isexc, tryBB, catchBB);
+
+            auto gen_finally = [&]() {
+                if (tc->finally_body) {
+                    for (auto& st : tc->finally_body->stmts) {
+                        if (block_has_term(B->GetInsertBlock())) break;
+                        gen_stmt(st.get());
+                    }
+                }
+            };
+
+            // ---- try 体：注册 handler，执行，弹出 ----
+            B->SetInsertPoint(tryBB);
+            B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_ex_push", VType::Void, {VType::Str})),
+                          {B->CreatePointerCast(jb, B->getPtrTy())});
+            for (auto& st : tc->try_body->stmts) {
+                if (block_has_term(B->GetInsertBlock())) break;
+                gen_stmt(st.get());
+            }
+            if (!block_has_term(B->GetInsertBlock())) {
+                B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_ex_pop", VType::Void, {})), {});
+                gen_finally();
+                B->CreateBr(endBB);
+            }
+
+            // ---- catch 分支 ----
+            B->SetInsertPoint(catchBB);
+            if (tc->catch_body) {
+                llvm::Value* msgv = B->CreateCall(
+                    llvm::cast<llvm::Function>(decl_vor("vor_ex_caught", VType::Str, {})), {});
+                bool has_var = !tc->exception_var.empty();
+                bool saved_top = top_level_;
+                top_level_ = false;
+                scopes_.emplace_back();
+                if (has_var) {
+                    llvm::AllocaInst* slot = make_alloca(VType::Str, F, tc->exception_var.c_str());
+                    B->CreateStore(msgv, slot);
+                    scopes_.back()[tc->exception_var] =
+                        LVal{VType::Str, B->CreateLoad(B->getPtrTy(), slot), slot};
+                }
+                for (auto& st : tc->catch_body->stmts) {
+                    if (block_has_term(B->GetInsertBlock())) break;
+                    gen_stmt(st.get());
+                }
+                scopes_.pop_back();
+                top_level_ = saved_top;
+                if (!block_has_term(B->GetInsertBlock())) {
+                    B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_ex_pop", VType::Void, {})), {});
+                    gen_finally();
+                    B->CreateBr(endBB);
+                }
+            } else {
+                // 无 catch：运行 finally 后重新抛出（对父级 handler）
+                gen_finally();
+                llvm::Value* msgv = B->CreateCall(
+                    llvm::cast<llvm::Function>(decl_vor("vor_ex_caught", VType::Str, {})), {});
+                B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_ex_pop", VType::Void, {})), {});
+                B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_throw_str", VType::Void, {VType::Str})),
+                              {msgv});
+                B->CreateUnreachable();
+            }
+
+            B->SetInsertPoint(endBB);
+            break;
+        }
         case StmtKind::Return:
             gen_return(static_cast<const ReturnStmt*>(s));
             break;
@@ -876,6 +1419,8 @@ void Gen::gen_stmt(const Stmt* s) {
             llvm::BasicBlock* entry = llvm::BasicBlock::Create(B->getContext(), "entry", fn);
             B->SetInsertPoint(entry);
             scopes_.emplace_back();
+            bool saved_toplevel = top_level_;
+            top_level_ = false;   // 函数体内变量为局部
             unsigned i = 0;
             for (auto& p : fd->params) {
                 llvm::Argument* arg = fn->arg_begin() + i;
@@ -891,6 +1436,7 @@ void Gen::gen_stmt(const Stmt* s) {
             }
             if (!block_has_term(B->GetInsertBlock())) B->CreateRet(B->getInt64(0));
             scopes_.pop_back();
+            top_level_ = saved_toplevel;
             cur_fn_ = saved;
             fn_ret_ = VType::Int;
             break;
@@ -918,6 +1464,7 @@ std::string Gen::run(llvm::Module& mod) {
     B->SetInsertPoint(entry);
 
     // 全局作用域
+    top_level_ = true;
     scopes_.emplace_back();
 
     // 遍历顶层语句（P1：顺序生成，函数定义内置在 gen_stmt 中）
@@ -1040,7 +1587,7 @@ std::string build_vortex_exe(const std::string& src, const BuildConfig& cfg) {
     else rtLib = "libvortex_runtime.a";
 #endif
     std::string cmd = "g++ \"" + objPath + "\" \"" + rtLib +
-                      "\" -o \"" + cfg.output + "\" -static -static-libgcc -static-libstdc++";
+                      "\" -o \"" + cfg.output + "\" -static -static-libgcc -static-libstdc++ -pthread";
     int rc = std::system(cmd.c_str());
     if (rc != 0) return "[Link] g++ failed (code " + std::to_string(rc) + ")";
     return {};

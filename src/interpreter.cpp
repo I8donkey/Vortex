@@ -843,6 +843,9 @@ ControlSignal Interpreter::exec_import(const ImportStmt* s) {
     return {};
 }
 ControlSignal Interpreter::exec_try(const TryCatchStmt* s) {
+    // 进入 try 前的环境，异常展开会跳过 execute_block 的 current_env_ 恢复，
+    // 因此必须在此处固定记录，避免捕获后 current_env_ 悬空指向已析构作用域。
+    Environment* entry_env = current_env_;
     try {
         auto cs = execute_block(s->try_body->stmts);
         if (s->finally_body) execute_block(s->finally_body->stmts);
@@ -850,14 +853,20 @@ ControlSignal Interpreter::exec_try(const TryCatchStmt* s) {
     } catch (const RuntimeError& e) {
         ControlSignal cs;
         if (s->catch_body) {
-            Environment* saved_env = current_env_;
-            Environment scope(current_env_);
+            Environment scope(entry_env);
             current_env_ = &scope;
             if (!s->exception_var.empty()) {
                 scope.define(s->exception_var, Value::make_str(e.message()), false);
             }
-            cs = execute_block(s->catch_body->stmts);
-            current_env_ = saved_env;
+            try {
+                cs = execute_block(s->catch_body->stmts);
+            } catch (...) {
+                current_env_ = entry_env;
+                throw;
+            }
+            current_env_ = entry_env;
+        } else {
+            current_env_ = entry_env;
         }
         if (s->finally_body) execute_block(s->finally_body->stmts);
         if (!s->catch_body) throw;
