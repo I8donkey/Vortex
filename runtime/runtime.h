@@ -98,6 +98,39 @@ long long vor_dict_int_key_at(const VDict* d, int j);
 // 打印 dict，形如 {k: v, k2: v2}（格式与解释器对齐）
 void vor_print_dict(VDict* d);
 
+// ========== 集合（复用 VList 布局 + 去重，元素 int）==========
+void vor_set_add(VList* s, long long e);
+int  vor_set_contains(const VList* s, long long e);
+int  vor_set_len(const VList* s);
+void vor_set_remove(VList* s, long long e);
+VList* vor_set_from_list(const VList* l);   // 去重拷贝为集合
+void vor_print_set(const VList* s);          // 打印 {1, 2, 3}（与解释器对齐）
+
+// ========== 序对 pair (a, b) ==========
+typedef struct VPair {
+    VObject hdr;
+    long long first;
+    long long second;
+} VPair;
+VPair* vor_pair_new(long long a, long long b);
+long long vor_pair_first(const VPair* p);
+long long vor_pair_second(const VPair* p);
+void vor_print_pair(const VPair* p);
+
+// ========== 元组 tuple (a, b, ...) ==========
+typedef struct VTuple {
+    VObject hdr;
+    int len;
+    int cap;
+    long long* elems;
+} VTuple;
+VTuple* vor_tuple_new(int n);
+VTuple* vor_tuple_from_list(const VList* l);
+void vor_tuple_set(VTuple* t, int idx, long long e);
+long long vor_tuple_at(const VTuple* t, long long idx);
+int  vor_tuple_len(const VTuple* t);
+void vor_print_tuple(const VTuple* t);
+
 // ========== 引用计数 ==========
 void vor_obj_retain(void* obj);   // hdr 必须在对象首部
 void vor_obj_release(void* obj);

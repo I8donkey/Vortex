@@ -49,7 +49,7 @@ static bool block_has_term(llvm::BasicBlock* bb) {
 }
 
 // ==================== 静态类型 ====================
-enum class VType { Int, Float, Bool, Str, List, Dict, Void };
+enum class VType { Int, Float, Bool, Str, List, Dict, Set, Pair, Tuple, Void };
 
 struct LVal {
     VType type;
@@ -126,6 +126,9 @@ llvm::Type* Gen::llvm_type(VType t) const {
         case VType::Str:   return B->getPtrTy();          // VStr*
         case VType::List:  return B->getPtrTy();          // VList*
         case VType::Dict:  return B->getPtrTy();          // VDict*
+        case VType::Set:   return B->getPtrTy();          // VList* (集合复用)
+        case VType::Pair:  return B->getPtrTy();          // VPair*
+        case VType::Tuple: return B->getPtrTy();          // VTuple*
         case VType::Void:  return B->getVoidTy();
     }
     return B->getVoidTy();
@@ -298,6 +301,10 @@ LVal Gen::gen_expr(const Expr* e) {
                 return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(g),
                                                   {obj.val, B->CreateSExt(idx.val, B->getInt64Ty())})};
             }
+            if (obj.type == VType::Tuple) {
+                llvm::Value* g = decl_vor("vor_tuple_at", VType::Int, {VType::Tuple, VType::Int});
+                return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(g), {obj.val, idx.val})};
+            }
             if (obj.type == VType::Dict) {
                 // d[int] / d[str] -> int 值
                 if (idx.type == VType::Str) {
@@ -306,6 +313,20 @@ LVal Gen::gen_expr(const Expr* e) {
                 }
                 llvm::Value* g = decl_vor("vor_dict_get_int", VType::Int, {VType::Dict, VType::Int});
                 return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(g), {obj.val, idx.val})};
+            }
+            break;
+        }
+        case ExprKind::MemberAccess: {
+            // pair.first / pair.second（作为值表达式，非调用）
+            auto* m = static_cast<const MemberAccessExpr*>(e);
+            LVal obj = gen_expr(m->object.get());
+            if (obj.type == VType::Pair && m->member == "first") {
+                llvm::Value* fn = decl_vor("vor_pair_first", VType::Int, {VType::Pair});
+                return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {obj.val})};
+            }
+            if (obj.type == VType::Pair && m->member == "second") {
+                llvm::Value* fn = decl_vor("vor_pair_second", VType::Int, {VType::Pair});
+                return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {obj.val})};
             }
             break;
         }
@@ -449,6 +470,62 @@ LVal Gen::gen_call(const CallExpr* c) {
         }
     }
 
+    // 容器构造内置（set/pair/tuple/__set_literal__）
+    if (c->callee->kind == ExprKind::Identifier) {
+        if (fname == "__set_literal__" && !c->args.empty()) {
+            LVal lst = gen_expr(c->args[0].get());
+            llvm::Value* fn = decl_vor("vor_set_from_list", VType::Set, {VType::List});
+            return {VType::Set, B->CreateCall(llvm::cast<llvm::Function>(fn), {lst.val})};
+        }
+        if (fname == "set") {
+            if (c->args.size() == 1) {
+                LVal a = gen_expr(c->args[0].get());
+                if (a.type == VType::List) {
+                    llvm::Value* fn = decl_vor("vor_set_from_list", VType::Set, {VType::List});
+                    return {VType::Set, B->CreateCall(llvm::cast<llvm::Function>(fn), {a.val})};
+                }
+            }
+            llvm::Value* ns = decl_vor("vor_list_new", VType::List, {});
+            llvm::Value* s = B->CreateCall(llvm::cast<llvm::Function>(ns), {});
+            for (auto& a : c->args) {
+                LVal v = gen_expr(a.get());
+                B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_set_add", VType::Void, {VType::List, VType::Int})),
+                              {s, to_i64(v)});
+            }
+            return {VType::Set, s};
+        }
+        if ((fname == "pair" || fname == "make_pair") && c->args.size() >= 2) {
+            LVal a = gen_expr(c->args[0].get());
+            LVal b = gen_expr(c->args[1].get());
+            llvm::Value* fn = decl_vor("vor_pair_new", VType::Pair, {VType::Int, VType::Int});
+            return {VType::Pair, B->CreateCall(llvm::cast<llvm::Function>(fn), {to_i64(a), to_i64(b)})};
+        }
+        if (fname == "tuple" && !c->args.empty()) {
+            LVal a = gen_expr(c->args[0].get());
+            if (a.type == VType::List) {
+                llvm::Value* fn = decl_vor("vor_tuple_from_list", VType::Tuple, {VType::List});
+                return {VType::Tuple, B->CreateCall(llvm::cast<llvm::Function>(fn), {a.val})};
+            }
+            // 单元素 -> 1 元组
+            llvm::Value* fn = decl_vor("vor_tuple_new", VType::Tuple, {VType::Int});
+            llvm::Value* t = B->CreateCall(llvm::cast<llvm::Function>(fn), {B->getInt64(1)});
+            B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_tuple_set", VType::Void, {VType::Tuple, VType::Int, VType::Int})),
+                          {t, B->getInt64(0), to_i64(a)});
+            return {VType::Tuple, t};
+        }
+        if (fname == "make_tuple") {
+            int n = (int)c->args.size();
+            llvm::Value* fn = decl_vor("vor_tuple_new", VType::Tuple, {VType::Int});
+            llvm::Value* t = B->CreateCall(llvm::cast<llvm::Function>(fn), {B->getInt64(n)});
+            for (int i = 0; i < n; ++i) {
+                LVal v = gen_expr(c->args[i].get());
+                B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_tuple_set", VType::Void, {VType::Tuple, VType::Int, VType::Int})),
+                              {t, B->getInt64(i), to_i64(v)});
+            }
+            return {VType::Tuple, t};
+        }
+    }
+
     // 容器成员方法（P2：list.append）
     if (c->callee->kind == ExprKind::MemberAccess) {
         auto* m = static_cast<const MemberAccessExpr*>(c->callee.get());
@@ -458,6 +535,10 @@ LVal Gen::gen_call(const CallExpr* c) {
             B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_list_push", VType::Void, {VType::List, VType::Int})),
                           {obj.val, to_i64(a0)});
             return {VType::Void, nullptr};
+        }
+        if (obj.type == VType::List && (m->member == "len" || m->member == "length")) {
+            llvm::Value* fn = decl_vor("vor_list_len", VType::Int, {VType::List});
+            return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {obj.val})};
         }
         // dict 方法：len / contains / get / get_str
         if (obj.type == VType::Dict) {
@@ -508,6 +589,36 @@ LVal Gen::gen_call(const CallExpr* c) {
                 return {VType::Str, B->CreateCall(llvm::cast<llvm::Function>(fn), {obj.val, k.val})};
             }
         }
+        // set 方法：add / contains / len / remove
+        if (obj.type == VType::Set) {
+            if (m->member == "add" || m->member == "insert") {
+                LVal v = gen_expr(c->args[0].get());
+                B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_set_add", VType::Void, {VType::List, VType::Int})),
+                              {obj.val, to_i64(v)});
+                return {VType::Void, nullptr};
+            }
+            if (m->member == "contains" || m->member == "has") {
+                LVal v = gen_expr(c->args[0].get());
+                llvm::Value* fn = decl_vor("vor_set_contains", VType::Int, {VType::List, VType::Int});
+                llvm::Value* r = B->CreateCall(llvm::cast<llvm::Function>(fn), {obj.val, to_i64(v)});
+                return {VType::Bool, B->CreateICmpNE(r, B->getInt64(0))};
+            }
+            if (m->member == "len" || m->member == "length") {
+                llvm::Value* fn = decl_vor("vor_set_len", VType::Int, {VType::List});
+                return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {obj.val})};
+            }
+            if (m->member == "remove" || m->member == "erase") {
+                LVal v = gen_expr(c->args[0].get());
+                B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_set_remove", VType::Void, {VType::List, VType::Int})),
+                              {obj.val, to_i64(v)});
+                return {VType::Void, nullptr};
+            }
+        }
+        // tuple 方法：len
+        if (obj.type == VType::Tuple && (m->member == "len" || m->member == "length")) {
+            llvm::Value* fn = decl_vor("vor_tuple_len", VType::Int, {VType::Tuple});
+            return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {obj.val})};
+        }
     }
 
     // 用户函数
@@ -553,6 +664,15 @@ void Gen::emit_any(LVal v) {
         case VType::Dict:
             B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_print_dict", VType::Void, {VType::Dict})), {v.val});
             break;
+        case VType::Set:
+            B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_print_set", VType::Void, {VType::Set})), {v.val});
+            break;
+        case VType::Pair:
+            B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_print_pair", VType::Void, {VType::Pair})), {v.val});
+            break;
+        case VType::Tuple:
+            B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_print_tuple", VType::Void, {VType::Tuple})), {v.val});
+            break;
         case VType::Void:
         default: break;
     }
@@ -595,13 +715,17 @@ void Gen::gen_stmt(const Stmt* s) {
                 else if (vd->type->base_name == "str" || vd->type->base_name == "string") t = VType::Str;
                 else if (vd->type->base_name == "list") t = VType::List;
                 else if (vd->type->base_name == "dict") t = VType::Dict;
+                else if (vd->type->base_name == "set") t = VType::Set;
+                else if (vd->type->base_name == "pair") t = VType::Pair;
+                else if (vd->type->base_name == "tuple") t = VType::Tuple;
                 else t = VType::Int;
             }
             for (auto& [nm, init] : vd->names) {
                 LVal sv = init ? gen_expr(init.get()) : LVal{t, llvm::Constant::getNullValue(llvm_type(t)), nullptr};
                 // 动态绑定：容器/字符串按初值实际类型（list 声明等）
                 VType tEff = t;
-                if (init && (sv.type == VType::List || sv.type == VType::Str || sv.type == VType::Dict)) tEff = sv.type;
+                if (init && (sv.type == VType::List || sv.type == VType::Str || sv.type == VType::Dict
+                             || sv.type == VType::Set || sv.type == VType::Pair || sv.type == VType::Tuple)) tEff = sv.type;
                 llvm::AllocaInst* alloca = make_alloca(tEff, cur_bb()->getParent(), nm.c_str());
                 llvm::Value* store = sv.val;
                 if (tEff == VType::Bool && sv.type != VType::Bool) store = B->CreateICmpNE(sv.val, B->getInt64(0));
@@ -664,9 +788,11 @@ void Gen::gen_stmt(const Stmt* s) {
             auto* fi = static_cast<const ForInStmt*>(s);
             llvm::Function* F = cur_bb()->getParent();
             LVal cont = gen_expr(fi->container.get());
-            // 仅支持遍历 int list / int-key dict
-            if (cont.type != VType::List && cont.type != VType::Dict) break;
+            // 支持遍历 int list / set / tuple / int-key dict
+            if (cont.type != VType::List && cont.type != VType::Dict
+                && cont.type != VType::Set && cont.type != VType::Tuple) break;
             const bool isDict = (cont.type == VType::Dict);
+            const bool isTuple = (cont.type == VType::Tuple);
 
             llvm::BasicBlock* condBB = llvm::BasicBlock::Create(B->getContext(), "for.cond", F);
             llvm::BasicBlock* bodyBB = llvm::BasicBlock::Create(B->getContext(), "for.body", F);
@@ -687,8 +813,11 @@ void Gen::gen_stmt(const Stmt* s) {
             llvm::Value* len = isDict
                 ? B->CreateCall(llvm::cast<llvm::Function>(
                     decl_vor("vor_dict_int_key_count", VType::Int, {VType::Dict})), {cont.val})
-                : B->CreateCall(llvm::cast<llvm::Function>(
-                    decl_vor("vor_list_len", VType::Int, {VType::List})), {cont.val});
+                : (isTuple
+                   ? B->CreateCall(llvm::cast<llvm::Function>(
+                       decl_vor("vor_tuple_len", VType::Int, {VType::Tuple})), {cont.val})
+                   : B->CreateCall(llvm::cast<llvm::Function>(
+                       decl_vor("vor_list_len", VType::Int, {VType::List})), {cont.val}));
             llvm::Value* ic = B->CreateLoad(B->getInt64Ty(), idxSlot);
             llvm::Value* less = B->CreateICmpSLT(ic, len);
             B->CreateCondBr(less, bodyBB, endBB);
@@ -700,8 +829,11 @@ void Gen::gen_stmt(const Stmt* s) {
             llvm::Value* elem = isDict
                 ? B->CreateCall(llvm::cast<llvm::Function>(
                     decl_vor("vor_dict_int_key_at", VType::Int, {VType::Dict, VType::Int})), {cont.val, idxv})
-                : B->CreateCall(llvm::cast<llvm::Function>(
-                    decl_vor("vor_list_get", VType::Int, {VType::List, VType::Int})), {cont.val, idxv});
+                : (isTuple
+                   ? B->CreateCall(llvm::cast<llvm::Function>(
+                       decl_vor("vor_tuple_at", VType::Int, {VType::Tuple, VType::Int})), {cont.val, idxv})
+                   : B->CreateCall(llvm::cast<llvm::Function>(
+                       decl_vor("vor_list_get", VType::Int, {VType::List, VType::Int})), {cont.val, idxv}));
             B->CreateStore(elem, varSlot);
             scopes_.emplace_back();
             scopes_.back()[fi->var] = LVal{VType::Int, B->CreateLoad(B->getInt64Ty(), varSlot), varSlot};

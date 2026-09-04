@@ -36,6 +36,9 @@ void vor_obj_release(void* obj) {
                 if (e->vkind == VK_STR) vor_obj_release(e->vstr);
             }
             std::free(d->entries);
+        } else if (o->tag == 4) {
+            VTuple* t = (VTuple*)o;
+            std::free(t->elems);
         }
         std::free(o);
     }
@@ -239,6 +242,94 @@ void vor_print_dict(VDict* d) {
         else std::fprintf(stdout, "%lld", e->vint);
     }
     std::fputc('}', stdout);
+}
+
+// ========== 集合（复用 VList + 去重，元素 int）==========
+int vor_set_contains(const VList* s, long long e) {
+    if (!s) return 0;
+    for (int i = 0; i < s->len; ++i) if (s->elems[i] == e) return 1;
+    return 0;
+}
+void vor_set_add(VList* s, long long e) {
+    if (!s || vor_set_contains(s, e)) return;
+    vor_list_push(s, e);
+}
+void vor_set_remove(VList* s, long long e) {
+    if (!s) return;
+    for (int i = 0; i < s->len; ++i)
+        if (s->elems[i] == e) {
+            for (int j = i; j < s->len - 1; ++j) s->elems[j] = s->elems[j + 1];
+            s->len--;
+            return;
+        }
+}
+int vor_set_len(const VList* s) { return s ? s->len : 0; }
+VList* vor_set_from_list(const VList* l) {
+    VList* s = vor_list_new();
+    if (l) for (int i = 0; i < l->len; ++i) vor_set_add(s, l->elems[i]);
+    return s;
+}
+void vor_print_set(const VList* s) {
+    if (!s) { std::fputs("{}", stdout); return; }
+    std::fputc('{', stdout);
+    for (int i = 0; i < s->len; ++i) {
+        if (i) std::fputs(", ", stdout);
+        std::fprintf(stdout, "%lld", s->elems[i]);
+    }
+    std::fputc('}', stdout);
+}
+
+// ========== 序对 ==========
+VPair* vor_pair_new(long long a, long long b) {
+    VPair* p = (VPair*)xmalloc(sizeof(VPair));
+    p->hdr.refcount = 1;
+    p->hdr.tag = 5;
+    p->hdr.next = nullptr;
+    p->first = a;
+    p->second = b;
+    return p;
+}
+long long vor_pair_first(const VPair* p)  { return p ? p->first : 0; }
+long long vor_pair_second(const VPair* p) { return p ? p->second : 0; }
+void vor_print_pair(const VPair* p) {
+    if (!p) { std::fputs("(0, 0)", stdout); return; }
+    std::fprintf(stdout, "(%lld, %lld)", p->first, p->second);
+}
+
+// ========== 元组 ==========
+VTuple* vor_tuple_new(int n) {
+    VTuple* t = (VTuple*)xmalloc(sizeof(VTuple));
+    t->hdr.refcount = 1;
+    t->hdr.tag = 4;
+    t->hdr.next = nullptr;
+    t->len = n > 0 ? n : 0;
+    t->cap = t->len;
+    t->elems = t->cap ? (long long*)xmalloc((size_t)t->cap * sizeof(long long)) : nullptr;
+    if (t->elems) std::memset(t->elems, 0, (size_t)t->len * sizeof(long long));
+    return t;
+}
+VTuple* vor_tuple_from_list(const VList* l) {
+    int n = l ? l->len : 0;
+    VTuple* t = vor_tuple_new(n);
+    if (l) for (int i = 0; i < l->len; ++i) t->elems[i] = l->elems[i];
+    return t;
+}
+void vor_tuple_set(VTuple* t, int idx, long long e) {
+    if (t && idx >= 0 && idx < t->len) t->elems[idx] = e;
+}
+long long vor_tuple_at(const VTuple* t, long long idx) {
+    if (!t || idx < 0 || idx >= t->len) return 0;
+    return t->elems[idx];
+}
+int vor_tuple_len(const VTuple* t) { return t ? t->len : 0; }
+void vor_print_tuple(const VTuple* t) {
+    if (!t) { std::fputs("()", stdout); return; }
+    std::fputc('(', stdout);
+    for (int i = 0; i < t->len; ++i) {
+        if (i) std::fputs(", ", stdout);
+        std::fprintf(stdout, "%lld", t->elems[i]);
+    }
+    std::fputc(')', stdout);
 }
 void vor_print_str(VStr* s) {
     if (s) std::fwrite(s->data, 1, (size_t)s->len, stdout);
