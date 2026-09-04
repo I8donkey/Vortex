@@ -236,6 +236,8 @@ void* vor_thread_pool(long long n);
 void  vor_thread_pool_submit(void* h, void (*fn)(void));
 long long vor_thread_pool_size(void* h);
 void  vor_thread_pool_shutdown(void* h);
+// 闭包值（P3）：分配 (n+1) 个 i64，[0]=唤起指针，[1..]=捕获槽地址
+void* vor_closure_new(long long n);
 
 #ifdef __cplusplus
 }

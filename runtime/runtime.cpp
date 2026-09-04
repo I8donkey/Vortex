@@ -820,3 +820,11 @@ void vor_thread_pool_shutdown(void* h) {
     for (auto& w : p->workers) if (w.joinable()) w.join();
     p->workers.clear();
 }
+
+// ---- 闭包值（P3）：([0]=唤起指针, [1..]=各捕获变量槽地址) ----
+void* vor_closure_new(long long n) {
+    size_t nw = (size_t)std::max(0LL, n) + 1;
+    long long* p = (long long*)std::calloc(nw, sizeof(long long));
+    if (!p) std::abort();
+    return (void*)p;
+}

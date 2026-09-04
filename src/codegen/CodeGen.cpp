@@ -36,6 +36,8 @@
 #include <string>
 #include <vector>
 #include <optional>
+#include <set>
+#include <algorithm>
 
 namespace vortex {
 namespace cg {
@@ -49,7 +51,7 @@ static bool block_has_term(llvm::BasicBlock* bb) {
 }
 
 // ==================== 静态类型 ====================
-enum class VType { Int, Float, Bool, Str, List, Dict, Set, Pair, Tuple, Ref, Void };
+enum class VType { Int, Float, Bool, Str, List, Dict, Set, Pair, Tuple, Ref, Closure, Void };
 
 struct LVal {
     VType type;
@@ -86,6 +88,8 @@ private:
     // 当前函数返回类型
     VType fn_ret_ = VType::Void;
     llvm::Function* cur_fn_ = nullptr;
+    // lambda 序列号（生成唯一匿名函数名）
+    int lam_seq_ = 0;
     // 内建函数表
     std::unordered_map<std::string, std::pair<VType, Builtin>> fns_;
 
@@ -97,6 +101,8 @@ private:
     LVal gen_expr(const Expr* e);
     void gen_stmt(const Stmt* s);
     void gen_block(const std::vector<StmtPtr>& body);
+    // 闭包（P3）：生成 lambda 匿名函数并构造闭包值
+    LVal gen_lambda(const LambdaExpr* le);
     void gen_return(const ReturnStmt* s);
 
     // 变量
@@ -132,6 +138,7 @@ llvm::Type* Gen::llvm_type(VType t) const {
         case VType::Set:   return B->getPtrTy();          // VList* (集合复用)
         case VType::Pair:  return B->getPtrTy();          // VPair*
         case VType::Tuple: return B->getPtrTy();          // VTuple*
+        case VType::Closure: return B->getPtrTy();        // RT_Closure*
         case VType::Void:  return B->getVoidTy();
     }
     return B->getVoidTy();
@@ -403,6 +410,8 @@ LVal Gen::gen_expr(const Expr* e) {
             }
             break;
         }
+        case ExprKind::Lambda:
+            return gen_lambda(static_cast<const LambdaExpr*>(e));
         default:
             break;
     }
@@ -1131,6 +1140,24 @@ LVal Gen::gen_call(const CallExpr* c) {
         argTypes.push_back(v.type);
     }
     (void)argTypes;
+    // 闭包调用：fname 是闭包变量时经函数指针间接调用（P3）
+    {
+        LVal cv;
+        if (lookup_var(fname, cv) && cv.type == VType::Closure) {
+            llvm::Value* closure = cv.slot ? B->CreateLoad(B->getPtrTy(), cv.slot) : cv.val;
+            llvm::Value* clI64 = B->CreateBitCast(closure, B->getInt64Ty()->getPointerTo());
+            llvm::Value* fnraw = B->CreateLoad(B->getInt64Ty(), B->CreateGEP(B->getInt64Ty(), clI64, B->getInt64(0)));
+            std::vector<llvm::Type*> ft;
+            ft.push_back(B->getPtrTy()); // 闭包指针
+            for (auto& t : argTypes) ft.push_back(llvm_type(t));
+            llvm::FunctionType* Ftype = llvm::FunctionType::get(llvm_type(VType::Int), ft, false);
+            llvm::Value* fn = B->CreateIntToPtr(fnraw, Ftype->getPointerTo());
+            std::vector<llvm::Value*> callArgs;
+            callArgs.push_back(closure);
+            for (auto& a : args) callArgs.push_back(a);
+            return {VType::Int, B->CreateCall(Ftype, fn, callArgs, "call")};
+        }
+    }
     // 目标 Function
     llvm::Function* callee = mod_->getFunction(fname);
     if (callee) {
@@ -1204,6 +1231,106 @@ void Gen::gen_return(const ReturnStmt* s) {
     B->CreateRet(v.val);
 }
 
+// 闭包（P3）：生成 lambda 匿名函数并构造闭包值
+// 捕获策略：把生成时当前作用域所有具槽变量按引用（槽地址）打包进闭包；
+// 闭包结构 [0]=函数指针,[i+1]=第 i 个捕获变量的槽地址。lambda 函数第 0 参为闭包指针，
+// 捕获变量经闭包槽地址读写，与解释器"环境链实时取值"语义一致。
+LVal Gen::gen_lambda(const LambdaExpr* le) {
+    // 1) 收集捕获候选（当前可见、具槽、非闭包、非 lambda 参数）
+    std::vector<std::string> cap_names;
+    std::vector<VType> cap_types;
+    std::vector<llvm::Value*> cap_slots;
+    {
+        std::set<std::string> params;
+        for (auto& p : le->params) params.insert(p->name);
+        std::set<std::string> seen;
+        for (auto it = scopes_.rbegin(); it != scopes_.rend(); ++it) {
+            for (auto& kv : *it) {
+                const std::string& nm = kv.first;
+                LVal lv = kv.second;
+                if (!lv.slot || lv.type == VType::Closure || params.count(nm) || seen.count(nm)) continue;
+                seen.insert(nm);
+                cap_names.push_back(nm);
+                cap_types.push_back(lv.type);
+                cap_slots.push_back(lv.slot);
+            }
+        }
+    }
+    size_t nc = cap_names.size();
+
+    // 2) 匿名函数原型：i64 __lamN(ptr closure, <params...>)
+    std::string fname = "__lam" + std::to_string(lam_seq_++);
+    std::vector<llvm::Type*> argT;
+    argT.push_back(B->getPtrTy()); // 闭包指针
+    std::vector<VType> ptypes;
+    for (auto& p : le->params) {
+        VType t = VType::Int;
+        if (p->type) {
+            if (p->type->base_name == "float") t = VType::Float;
+            else if (p->type->base_name == "bool") t = VType::Bool;
+            else if (p->type->base_name == "str") t = VType::Str;
+        }
+        argT.push_back(llvm_type(t));
+        ptypes.push_back(t);
+    }
+    llvm::FunctionType* FT = llvm::FunctionType::get(llvm_type(VType::Int), argT, false);
+    llvm::Function* fn = llvm::Function::Create(FT, llvm::Function::InternalLinkage, fname, mod_);
+
+    // 2b) 在 lambda 函数内绑定捕获与参数并生成函数体（作用域内替换 Builder 插入点，
+    //     块结束时由 InsertPointGuard 恢复调用点位置，供第 3 步在当前上下文构造闭包值）
+    {
+        llvm::Function* saved = cur_fn_;
+        cur_fn_ = fn;
+        llvm::IRBuilderBase::InsertPointGuard guard(*B);
+        llvm::BasicBlock* entry = llvm::BasicBlock::Create(B->getContext(), "entry", fn);
+        B->SetInsertPoint(entry);
+        scopes_.emplace_back();
+        bool saved_toplevel = top_level_;
+        top_level_ = false;
+
+        llvm::Value* closPtr = fn->arg_begin();          // 闭包指针
+        closPtr->setName("$closure");
+        llvm::Value* clI64 = B->CreateBitCast(closPtr, B->getInt64Ty()->getPointerTo(), "cl.bits");
+        // 捕获变量绑定：闭包槽[j+1] 存槽地址，据此实时读写
+        for (size_t j = 0; j < nc; ++j) {
+            llvm::Value* elem = B->CreateGEP(B->getInt64Ty(), clI64, B->getInt64((long long)(j + 1)));
+            llvm::Value* raw = B->CreateLoad(B->getInt64Ty(), elem);
+            llvm::Value* slot = B->CreateIntToPtr(raw, B->getPtrTy());
+            scopes_.back()[cap_names[j]] =
+                LVal{cap_types[j], B->CreateLoad(llvm_type(cap_types[j]), slot), slot};
+        }
+        // 参数绑定
+        for (size_t i = 0; i < le->params.size(); ++i) {
+            llvm::Argument* a = fn->arg_begin() + (i + 1);
+            a->setName(le->params[i]->name);
+            llvm::AllocaInst* aa = make_alloca(ptypes[i], fn, le->params[i]->name.c_str());
+            B->CreateStore(a, aa);
+            scopes_.back()[le->params[i]->name] = LVal{ptypes[i], B->CreateLoad(llvm_type(ptypes[i]), aa), aa};
+        }
+        for (auto& st : le->body) {
+            if (block_has_term(B->GetInsertBlock())) break;
+            gen_stmt(st.get());
+        }
+        if (!block_has_term(B->GetInsertBlock())) B->CreateRet(B->getInt64(0));
+        scopes_.pop_back();
+        top_level_ = saved_toplevel;
+        cur_fn_ = saved;
+        fn_ret_ = VType::Int;
+    }
+
+    // 3) 构造闭包值：vor_closure_new(n) 分配 (n+1) 个 i64，[0]=fn 指针，[i+1]=槽地址
+    llvm::Value* alloc = B->CreateCall(
+        llvm::cast<llvm::Function>(declare_runtime("vor_closure_new", B->getPtrTy(), {B->getInt64Ty()})),
+        {B->getInt64((long long)nc)});
+    llvm::Value* cl = B->CreateBitCast(alloc, B->getInt64Ty()->getPointerTo(), "cl");
+    B->CreateStore(B->CreatePtrToInt(fn, B->getInt64Ty()), B->CreateGEP(B->getInt64Ty(), cl, B->getInt64(0)));
+    for (size_t j = 0; j < nc; ++j) {
+        B->CreateStore(B->CreatePtrToInt(cap_slots[j], B->getInt64Ty()),
+                       B->CreateGEP(B->getInt64Ty(), cl, B->getInt64((long long)(j + 1))));
+    }
+    return {VType::Closure, alloc};
+}
+
 void Gen::gen_stmt(const Stmt* s) {
     switch (s->kind) {
         case StmtKind::VarDecl: {
@@ -1225,7 +1352,8 @@ void Gen::gen_stmt(const Stmt* s) {
                 // 动态绑定：容器/字符串按初值实际类型（list 声明等）
                 VType tEff = t;
                 if (init && (sv.type == VType::List || sv.type == VType::Str || sv.type == VType::Dict
-                             || sv.type == VType::Set || sv.type == VType::Pair || sv.type == VType::Tuple)) tEff = sv.type;
+                             || sv.type == VType::Set || sv.type == VType::Pair || sv.type == VType::Tuple
+                             || sv.type == VType::Closure)) tEff = sv.type;
                 llvm::Value* store = sv.val;
                 if (tEff == VType::Bool && sv.type != VType::Bool) store = B->CreateICmpNE(sv.val, B->getInt64(0));
                 llvm::Value* slot = nullptr;
