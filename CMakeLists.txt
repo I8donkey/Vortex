@@ -12,11 +12,71 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
 # 编译选项 - GCC/MinGW
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -O2)
+    add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-unused-variable
+                        -Wno-unused-but-set-variable -Wno-missing-field-initializers
+                        -O2)
+endif()
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    add_compile_options(-Wno-unused-parameter -Wno-unused-variable -O2)
+endif()
+if(MSVC)
+    add_compile_options(/wd4100 /wd4189 /wd4201 /wd4244 /wd4267 /wd4458 /wd4838 /O2)
 endif()
 
 # 头文件目录
 include_directories(${CMAKE_SOURCE_DIR}/include)
+
+# ============= 扩展模块开关（默认 ON，即使依赖缺失仍可编译为 fallback） =============
+option(VORTEX_WITH_CUDA    "Build CUDA compute module (real GPU path requires CUDA toolkit)" ON)
+option(VORTEX_WITH_GAME2D  "Build 2D game module (real window requires SDL2)"          ON)
+option(VORTEX_WITH_RENDER3D "Build 3D rendering module (GPU path requires OpenGL/GLEW)" ON)
+
+# 尝试查找真实 GPU / 多媒体 SDK（找到则启用真实路径宏，否则继续 fallback 编译）
+set(VORTEX_HAS_REAL_CUDA OFF)
+set(VORTEX_HAS_SDL2 OFF)
+set(VORTEX_HAS_GL OFF)
+
+if(VORTEX_WITH_CUDA)
+    include(CheckLanguage)
+    check_language(CUDA)
+    if(CMAKE_CUDA_COMPILER)
+        enable_language(CUDA)
+        find_package(CUDAToolkit)
+        if(CUDAToolkit_FOUND)
+            set(VORTEX_HAS_REAL_CUDA ON)
+            message(STATUS "Vortex CUDA: real CUDA toolkit ${CUDAToolkit_VERSION} found")
+        else()
+            message(STATUS "Vortex CUDA: CUDA compiler found but CUDAToolkit not fully available, using CPU fallback")
+        endif()
+    else()
+        message(STATUS "Vortex CUDA: CUDA compiler not found, using multi-threaded CPU fallback")
+    endif()
+endif()
+
+if(VORTEX_WITH_GAME2D)
+    find_package(SDL2 QUIET)
+    find_package(SDL2_image QUIET)
+    find_package(SDL2_mixer QUIET)
+    find_package(SDL2_ttf QUIET)
+    if(SDL2_FOUND)
+        set(VORTEX_HAS_SDL2 ON)
+        message(STATUS "Vortex Game2D: SDL2 found, real window backend enabled")
+    else()
+        message(STATUS "Vortex Game2D: SDL2 not found, using headless software-rendered fallback")
+    endif()
+endif()
+
+if(VORTEX_WITH_RENDER3D)
+    # 尝试 OpenGL / GLEW
+    find_package(OpenGL QUIET)
+    find_package(GLEW QUIET)
+    if(OpenGL_FOUND AND GLEW_FOUND)
+        set(VORTEX_HAS_GL ON)
+        message(STATUS "Vortex Render3D: OpenGL+GLEW found, GPU pipeline enabled")
+    else()
+        message(STATUS "Vortex Render3D: OpenGL/GLEW not fully available, using CPU rasterizer fallback")
+    endif()
+endif()
 
 # 源文件
 set(VORTEX_SOURCES
@@ -24,11 +84,57 @@ set(VORTEX_SOURCES
     src/value.cpp
     src/parser.cpp
     src/interpreter.cpp
+    src/vortex_modules.cpp
 )
+
+# 扩展模块源文件
+if(VORTEX_WITH_CUDA)
+    list(APPEND VORTEX_SOURCES src/cuda_module.cpp)
+endif()
+if(VORTEX_WITH_GAME2D)
+    list(APPEND VORTEX_SOURCES src/game2d_module.cpp)
+endif()
+if(VORTEX_WITH_RENDER3D)
+    list(APPEND VORTEX_SOURCES src/render3d_module.cpp)
+endif()
+# 新模块：thread / log / gui（始终编译，gui 需要 Qt）
+list(APPEND VORTEX_SOURCES src/thread_module.cpp src/log_module.cpp src/gui_module.cpp)
 
 # 静态库：编译器核心
 add_library(vortex_core STATIC ${VORTEX_SOURCES})
 target_include_directories(vortex_core PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_compile_features(vortex_core PUBLIC cxx_std_17)
+
+# 扩展功能宏：真实 SDK 存在时开启
+if(VORTEX_HAS_REAL_CUDA)
+    target_compile_definitions(vortex_core PUBLIC VORTEX_WITH_CUDA_REAL)
+    target_link_libraries(vortex_core PUBLIC CUDA::cudart CUDA::cublas)
+endif()
+if(VORTEX_HAS_SDL2)
+    target_compile_definitions(vortex_core PUBLIC VORTEX_WITH_SDL2_REAL)
+    target_link_libraries(vortex_core PUBLIC SDL2::SDL2)
+    if(TARGET SDL2_image::SDL2_image)
+        target_link_libraries(vortex_core PUBLIC SDL2_image::SDL2_image)
+    endif()
+    if(TARGET SDL2_mixer::SDL2_mixer)
+        target_link_libraries(vortex_core PUBLIC SDL2_mixer::SDL2_mixer)
+    endif()
+    if(TARGET SDL2_ttf::SDL2_ttf)
+        target_link_libraries(vortex_core PUBLIC SDL2_ttf::SDL2_ttf)
+    endif()
+endif()
+if(VORTEX_HAS_GL)
+    target_compile_definitions(vortex_core PUBLIC VORTEX_WITH_OPENGL_REAL)
+    target_link_libraries(vortex_core PUBLIC OpenGL::GL GLEW::GLEW)
+endif()
+
+# 给 MinGW 下的多线程链接支持（cuda / game2d / render3d / thread 模块用到 std::thread 等）
+if(MINGW)
+    find_package(Threads REQUIRED)
+    target_link_libraries(vortex_core PUBLIC Threads::Threads)
+    # posix 线程模型下 std::thread 依赖 winpthread，显式链接以确保符号可用
+    target_link_libraries(vortex_core PUBLIC winpthread)
+endif()
 
 # 可执行文件：编译器&解释器入口
 add_executable(vortex src/main.cpp)
@@ -37,4 +143,105 @@ target_link_libraries(vortex PRIVATE vortex_core)
 # 若为 MinGW，静态链接标准库（避免依赖 libgcc/libstdc++ dll）
 if(MINGW)
     target_link_options(vortex PRIVATE -static -static-libgcc -static-libstdc++)
+endif()
+
+# ============ 原生编译器运行时（引用计数，C ABI） ============
+# vortexcc 链路生成的可执行文件会链接此库。
+add_library(vortex_runtime STATIC runtime/runtime.cpp)
+target_include_directories(vortex_runtime PUBLIC ${CMAKE_SOURCE_DIR}/runtime)
+if(MSVC)
+    target_compile_options(vortex_runtime PRIVATE /wd4201)
+endif()
+
+# ==================== Qt 编辑器 ====================
+option(VORTEX_BUILD_EDITOR "Build the Qt-based Vortex code editor" ON)
+
+if(VORTEX_BUILD_EDITOR)
+    # 查找 Qt5/Qt6 Widgets 模块
+    find_package(QT NAMES Qt6 Qt5 COMPONENTS Widgets)
+    find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Widgets)
+
+    if(Qt${QT_VERSION_MAJOR}Widgets_FOUND)
+        message(STATUS "Vortex Editor: Found Qt${QT_VERSION_MAJOR} Widgets, building editor...")
+
+        # gui_module.cpp 依赖 Qt Widgets，需让 vortex_core 链接 Qt
+        target_link_libraries(vortex_core PUBLIC Qt${QT_VERSION_MAJOR}::Widgets)
+
+        set(CMAKE_AUTOMOC ON)
+        set(CMAKE_AUTORCC ON)
+        set(CMAKE_AUTOUIC ON)
+
+        set(VORTEX_EDITOR_SOURCES
+            editor/editor_main.cpp
+            editor/MainWindow.cpp
+            editor/CodeEditor.cpp
+            editor/SyntaxHighlighter.cpp
+        )
+        set(VORTEX_EDITOR_HEADERS
+            editor/MainWindow.h
+            editor/CodeEditor.h
+            editor/SyntaxHighlighter.h
+        )
+
+        add_executable(vortex_editor
+            ${VORTEX_EDITOR_SOURCES}
+            ${VORTEX_EDITOR_HEADERS}
+        )
+        target_include_directories(vortex_editor PRIVATE ${CMAKE_SOURCE_DIR}/editor)
+        target_link_libraries(vortex_editor PRIVATE
+            vortex_core
+            Qt${QT_VERSION_MAJOR}::Widgets
+        )
+        if(MINGW)
+            target_link_options(vortex_editor PRIVATE -static -static-libgcc -static-libstdc++)
+        endif()
+    else()
+        message(STATUS "Vortex Editor: Qt Widgets NOT found, skipping editor build.")
+        message(STATUS "  Install Qt5 or Qt6 with Widgets module and set CMAKE_PREFIX_PATH to its location.")
+    endif()
+endif()
+
+# ==================== 原生编译器后端（LLVM） ====================
+# vortexcc：把 .vt 编译为原生 exe。需 LLVM 库可用。
+option(VORTEX_WITH_LLVM "Build the LLVM-based native compiler backend (vortexcc)" OFF)
+
+if(VORTEX_WITH_LLVM)
+    if(NOT DEFINED LLVM_DIR)
+        set(LLVM_DIR ${CMAKE_SOURCE_DIR}/.vortex-deps/llvm-build/lib/cmake/llvm)
+    endif()
+    find_package(LLVM CONFIG PATHS ${LLVM_DIR} NO_DEFAULT_PATH QUIET)
+    if(NOT LLVM_FOUND)
+        find_package(LLVM CONFIG QUIET)
+    endif()
+    if(LLVM_FOUND)
+        message(STATUS "Vortex LLVM: found LLVM ${LLVM_VERSION_MAJOR}.${LLVM_VERSION_MINOR} at ${LLVM_DIR}")
+        set(VORTEX_LLVM_SRC_INCLUDE ${CMAKE_SOURCE_DIR}/.vortex-deps/llvm-src/llvm-project-23.1.0.src/llvm/include)
+        set(VORTEX_LLVM_BUILD_INCLUDE ${CMAKE_SOURCE_DIR}/.vortex-deps/llvm-build/include)
+        add_executable(vortexcc
+            src/cc/main.cpp
+            src/codegen/CodeGen.cpp
+        )
+        target_include_directories(vortexcc PRIVATE
+            ${CMAKE_SOURCE_DIR}/src
+            ${VORTEX_LLVM_SRC_INCLUDE}
+            ${VORTEX_LLVM_BUILD_INCLUDE}
+        )
+        # vortexcc 编译产物链接 vortex_runtime 库时使用其绝对路径
+        target_compile_definitions(vortexcc PRIVATE VORTEX_RT_LIB="$<TARGET_FILE:vortex_runtime>")
+        # 静态 LLVM 组件库存在循环依赖，用 --start-group/--end-group 包裹以整体解析
+        file(GLOB VORTEX_LLVM_ARCHIVES "${CMAKE_SOURCE_DIR}/.vortex-deps/llvm-build/lib/libLLVM*.a")
+        list(PREPEND VORTEX_LLVM_ARCHIVES "-Wl,--start-group")
+        list(APPEND  VORTEX_LLVM_ARCHIVES "-Wl,--end-group")
+        target_link_libraries(vortexcc PRIVATE
+            vortex_core
+            vortex_runtime
+            ${VORTEX_LLVM_ARCHIVES}
+            -lntdll -lpsapi -lshlwapi -lversion -lshell32 -lole32 -luuid -lws2_32
+        )
+        if(MINGW)
+            target_link_options(vortexcc PRIVATE -static -static-libgcc -static-libstdc++)
+        endif()
+    else()
+        message(STATUS "Vortex LLVM: LLVM NOT found. Set LLVM_DIR to the llvm cmake dir to enable vortexcc.")
+    endif()
 endif()

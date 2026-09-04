@@ -1,9 +1,26 @@
 build/
+build_ninja/
 newcodering.md
-*.ncr
+*.vt
+
+# 构建产物
+lib/
+.qt/
+vortex_editor_autogen/
+.ninja_deps
+.ninja_log
 
 # 根目录 CMake 生成产物
 CMakeCache.txt
 CMakeFiles/
 build.ninja
 cmake_install.cmake
+
+# LLVM 原生编译后端依赖（自编译，体积巨大）
+.vortex-deps/
+build_ninja/
+
+# vortexcc 编译产物
+*.o
+*.exe.ll
+*.exe

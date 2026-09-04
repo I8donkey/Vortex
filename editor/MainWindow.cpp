@@ -1,0 +1,746 @@
+#include "MainWindow.h"
+#include "CodeEditor.h"
+
+#include "interpreter.h"
+#include "lexer.h"
+#include "parser.h"
+#include "ast.h"
+
+#include <QApplication>
+#include <QCoreApplication>
+#include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QHBoxLayout>
+#include <QVBoxLayout>
+#include <QMessageBox>
+#include <QPlainTextEdit>
+#include <QTabWidget>
+#include <QToolBar>
+#include <QToolButton>
+#include <QStatusBar>
+#include <QLabel>
+#include <QSplitter>
+#include <QCloseEvent>
+#include <QTextStream>
+#include <QTextCursor>
+#include <QIcon>
+#include <QFontDatabase>
+#include <QComboBox>
+#include <QDebug>
+#include <QProcess>
+#include <QDir>
+#include <functional>
+#include <sstream>
+
+// ============================================================
+// 主题样式表
+// ============================================================
+static const char* kLightTheme = R"(
+QWidget { background: #ffffff; color: #1a1a2e; }
+QPlainTextEdit, QTextEdit { background: #ffffff; color: #1a1a2e; border: 1px solid #e0e0e0; }
+QTabWidget::pane { border: 1px solid #d0d0d0; }
+QTabBar::tab { background: #f0f0f0; color: #555; padding: 6px 12px; border: 1px solid #d0d0d0; }
+QTabBar::tab:selected { background: #ffffff; color: #1a1a2e; }
+QToolBar { background: #f5f5f5; border: none; spacing: 2px; }
+QStatusBar { background: #f5f5f5; color: #555; }
+QComboBox { background: #ffffff; border: 1px solid #ccc; padding: 2px 6px; }
+QLabel { color: #1a1a2e; }
+)";
+
+static const char* kDarkTheme = R"(
+QWidget { background: #1e1e2e; color: #cdd6f4; }
+QPlainTextEdit, QTextEdit { background: #1a1a2a; color: #cdd6f4; border: 1px solid #313244; }
+QTabWidget::pane { border: 1px solid #313244; }
+QTabBar::tab { background: #181825; color: #6c7086; padding: 6px 12px; border: 1px solid #313244; }
+QTabBar::tab:selected { background: #313244; color: #cdd6f4; }
+QToolBar { background: #181825; border: none; spacing: 2px; }
+QStatusBar { background: #181825; color: #6c7086; }
+QComboBox { background: #313244; color: #cdd6f4; border: 1px solid #45475a; padding: 2px 6px; }
+QLabel { color: #cdd6f4; }
+QMessageBox { background: #1e1e2e; }
+)";
+
+// ============================================================
+// MainWindow 实现
+// ============================================================
+
+MainWindow::MainWindow(QWidget *parent)
+    : QMainWindow(parent)
+    , settings_("VortexLang", "VortexEditor")
+{
+    loadSettings();
+    setWindowTitle(QStringLiteral("Vortex Editor"));
+    resize(1024, 720);
+
+    createActions();
+    createToolBar();
+    createStatusBar();
+    createCentralWidget();
+
+    applyTheme(theme_);
+    retranslateUi();
+
+    newFile();
+}
+
+MainWindow::~MainWindow() {
+    saveSettings();
+}
+
+// ---------- 设置持久化 ----------
+
+void MainWindow::saveSettings() {
+    settings_.setValue("language", language_);
+    settings_.setValue("theme", theme_);
+}
+
+void MainWindow::loadSettings() {
+    language_ = settings_.value("language", 0).toInt();  // 默认 English
+    theme_ = settings_.value("theme", 0).toInt();         // 默认 Light
+}
+
+// ---------- UI 构建 ----------
+
+void MainWindow::createActions() {
+    actNew_ = new QAction(this);
+    actNew_->setShortcut(QKeySequence::New);
+    connect(actNew_, &QAction::triggered, this, &MainWindow::newFile);
+
+    actOpen_ = new QAction(this);
+    actOpen_->setShortcut(QKeySequence::Open);
+    connect(actOpen_, &QAction::triggered, this, &MainWindow::openFile);
+
+    actSave_ = new QAction(this);
+    actSave_->setShortcut(QKeySequence::Save);
+    connect(actSave_, &QAction::triggered, this, &MainWindow::save);
+
+    actSaveAs_ = new QAction(this);
+    actSaveAs_->setShortcut(QKeySequence::SaveAs);
+    connect(actSaveAs_, &QAction::triggered, this, &MainWindow::saveAs);
+
+    actSaveAll_ = new QAction(this);
+    connect(actSaveAll_, &QAction::triggered, this, &MainWindow::saveAll);
+
+    actCompile_ = new QAction(this);
+    actCompile_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_B));
+    connect(actCompile_, &QAction::triggered, this, &MainWindow::compileCurrent);
+
+    actRun_ = new QAction(this);
+    actRun_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_R));
+    connect(actRun_, &QAction::triggered, this, &MainWindow::runCurrent);
+
+    actCloseTab_ = new QAction(this);
+    actCloseTab_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_W));
+    connect(actCloseTab_, &QAction::triggered, this, [this]() {
+        if (tabWidget_->count() > 0)
+            closeTab(tabWidget_->currentIndex());
+    });
+
+    actUndo_ = new QAction(this);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    actUndo_->setShortcut(QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_Z)));
+    actRedo_ = new QAction(this);
+    actRedo_->setShortcut(QKeySequence(QKeyCombination(Qt::ControlModifier | Qt::ShiftModifier, Qt::Key_Z)));
+#else
+    actUndo_->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_Z));
+    actRedo_ = new QAction(this);
+    actRedo_->setShortcut(QKeySequence(Qt::CTRL + Qt::SHIFT + Qt::Key_Z));
+#endif
+    actUndo_->setShortcutContext(Qt::WindowShortcut);
+    actRedo_->setShortcutContext(Qt::WindowShortcut);
+    connect(actUndo_, &QAction::triggered, this, &MainWindow::undo);
+    connect(actRedo_, &QAction::triggered, this, &MainWindow::redo);
+}
+
+void MainWindow::createToolBar() {
+    toolBar_ = addToolBar(QStringLiteral("toolbar"));
+    toolBar_->setMovable(false);
+    toolBar_->setIconSize(QSize(20, 20));
+
+    toolBar_->addAction(actNew_);
+    toolBar_->addAction(actOpen_);
+    toolBar_->addAction(actSave_);
+    toolBar_->addAction(actSaveAs_);
+    toolBar_->addAction(actSaveAll_);
+    toolBar_->addSeparator();
+    toolBar_->addAction(actUndo_);
+    toolBar_->addAction(actRedo_);
+    toolBar_->addSeparator();
+    toolBar_->addAction(actCompile_);
+    toolBar_->addAction(actRun_);
+    toolBar_->addSeparator();
+    toolBar_->addAction(actCloseTab_);
+
+    // 语言和主题选择器
+    toolBar_->addSeparator();
+    langCombo_ = new QComboBox(toolBar_);
+    langCombo_->addItem("English");
+    langCombo_->addItem("中文");
+    langCombo_->setCurrentIndex(language_);
+    connect(langCombo_, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onLanguageChanged);
+    toolBar_->addWidget(langCombo_);
+
+    themeCombo_ = new QComboBox(toolBar_);
+    themeCombo_->addItem("Light");
+    themeCombo_->addItem("Dark");
+    themeCombo_->setCurrentIndex(theme_);
+    connect(themeCombo_, qOverload<int>(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onThemeChanged);
+    toolBar_->addWidget(themeCombo_);
+}
+
+void MainWindow::createStatusBar() {
+    statusMsg_ = new QLabel(this);
+    statusMsg_->setMinimumWidth(300);
+    statusPos_ = new QLabel(this);
+
+    statusBar()->addWidget(statusMsg_, 1);
+    statusBar()->addPermanentWidget(statusPos_);
+}
+
+void MainWindow::createCentralWidget() {
+    auto *splitter = new QSplitter(Qt::Vertical, this);
+
+    tabWidget_ = new QTabWidget(this);
+    tabWidget_->setTabsClosable(true);
+    tabWidget_->setMovable(true);
+    tabWidget_->setDocumentMode(true);
+    tabWidget_->setElideMode(Qt::ElideMiddle);
+
+    auto *newTabBtn = new QToolButton(tabWidget_);
+    newTabBtn->setText(QStringLiteral("+"));
+    newTabBtn->setAutoRaise(true);
+    newTabBtn->setFixedSize(QSize(22, 22));
+    connect(newTabBtn, &QToolButton::clicked, this, &MainWindow::newFile);
+    tabWidget_->setCornerWidget(newTabBtn, Qt::TopRightCorner);
+
+    connect(tabWidget_, &QTabWidget::currentChanged, this, &MainWindow::currentTabChanged);
+    connect(tabWidget_, &QTabWidget::tabCloseRequested, this, &MainWindow::closeTab);
+
+    output_ = new QPlainTextEdit(this);
+    output_->setReadOnly(true);
+    output_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    output_->setMaximumBlockCount(5000);
+
+    splitter->addWidget(tabWidget_);
+    splitter->addWidget(output_);
+    splitter->setStretchFactor(0, 4);
+    splitter->setStretchFactor(1, 1);
+    splitter->setSizes({560, 160});
+
+    setCentralWidget(splitter);
+}
+
+// ---------- 语言/主题切换 ----------
+
+void MainWindow::onLanguageChanged(int idx) {
+    language_ = idx;
+    retranslateUi();
+    saveSettings();
+}
+
+void MainWindow::onThemeChanged(int idx) {
+    theme_ = idx;
+    applyTheme(idx);
+    saveSettings();
+}
+
+void MainWindow::applyTheme(int idx) {
+    if (idx == 1) {
+        qApp->setStyleSheet(QString::fromLatin1(kDarkTheme));
+    } else {
+        qApp->setStyleSheet(QString::fromLatin1(kLightTheme));
+    }
+}
+
+void MainWindow::retranslateUi() {
+    // 仅 0=English / 1=中文
+    if (language_ == 1) {
+        // 中文
+        actNew_->setText(tr("新建(&N)"));
+        actOpen_->setText(tr("打开(&O)"));
+        actSave_->setText(tr("保存(&S)"));
+        actSaveAs_->setText(tr("另存为(&A)..."));
+        actSaveAll_->setText(tr("全部保存"));
+        actCompile_->setText(tr("编译(&B)"));
+        actRun_->setText(tr("运行(&R)"));
+        actUndo_->setText(tr("撤销(&U)"));
+        actRedo_->setText(tr("重做(&D)"));
+        actCloseTab_->setText(tr("关闭标签"));
+
+        actNew_->setStatusTip(tr("创建新的 Vortex 源文件"));
+        actOpen_->setStatusTip(tr("打开已存在的 Vortex 源文件"));
+        actSave_->setStatusTip(tr("保存当前文档"));
+        actSaveAs_->setStatusTip(tr("将当前文档另存为新的文件"));
+        actSaveAll_->setStatusTip(tr("保存所有打开的文档"));
+        actCompile_->setStatusTip(tr("编译当前代码（检查词法/语法）(Ctrl+B)"));
+        actRun_->setStatusTip(tr("编译并运行当前 Vortex 代码 (Ctrl+R)"));
+        actUndo_->setStatusTip(tr("撤销上一步操作 (Ctrl+Z)"));
+        actRedo_->setStatusTip(tr("重做被撤销的操作 (Ctrl+Shift+Z)"));
+        actCloseTab_->setStatusTip(tr("关闭当前标签"));
+
+        statusMsg_->setText(tr("就绪"));
+        statusPos_->setText(tr("行: 1   列: 1"));
+        output_->setPlaceholderText(tr("运行输出将显示在这里... (Ctrl+R 运行当前代码)"));
+        toolBar_->window()->setWindowTitle(tr("Vortex 编辑器"));
+    } else {
+        // English
+        actNew_->setText(QStringLiteral("New (&N)"));
+        actOpen_->setText(QStringLiteral("Open (&O)"));
+        actSave_->setText(QStringLiteral("Save (&S)"));
+        actSaveAs_->setText(QStringLiteral("Save As... (&A)"));
+        actSaveAll_->setText(QStringLiteral("Save All"));
+        actCompile_->setText(QStringLiteral("Compile (&B)"));
+        actRun_->setText(QStringLiteral("Run (&R)"));
+        actUndo_->setText(QStringLiteral("Undo (&U)"));
+        actRedo_->setText(QStringLiteral("Redo (&D)"));
+        actCloseTab_->setText(QStringLiteral("Close Tab"));
+
+        actNew_->setStatusTip(QStringLiteral("Create a new Vortex source file"));
+        actOpen_->setStatusTip(QStringLiteral("Open an existing Vortex source file"));
+        actSave_->setStatusTip(QStringLiteral("Save the current document"));
+        actSaveAs_->setStatusTip(QStringLiteral("Save the current document as a new file"));
+        actSaveAll_->setStatusTip(QStringLiteral("Save all open documents"));
+        actCompile_->setStatusTip(QStringLiteral("Compile current code (lex/parse check) (Ctrl+B)"));
+        actRun_->setStatusTip(QStringLiteral("Compile and run current Vortex code (Ctrl+R)"));
+        actUndo_->setStatusTip(QStringLiteral("Undo last action (Ctrl+Z)"));
+        actRedo_->setStatusTip(QStringLiteral("Redo undone action (Ctrl+Shift+Z)"));
+        actCloseTab_->setStatusTip(QStringLiteral("Close current tab"));
+
+        statusMsg_->setText(QStringLiteral("Ready"));
+        statusPos_->setText(QStringLiteral("Ln: 1   Col: 1"));
+        output_->setPlaceholderText(QStringLiteral("Run output will appear here... (Ctrl+R to run)"));
+        setWindowTitle(QStringLiteral("Vortex Editor"));
+    }
+    // 刷新标签标题
+    for (int i = 0; i < tabWidget_->count(); ++i)
+        refreshTabTitle(i);
+}
+
+// ---------- 标签页辅助 ----------
+
+CodeEditor *MainWindow::currentEditor() const {
+    return qobject_cast<CodeEditor *>(tabWidget_->currentWidget());
+}
+
+CodeEditor *MainWindow::editorAt(int index) const {
+    if (index < 0 || index >= tabWidget_->count()) return nullptr;
+    return qobject_cast<CodeEditor *>(tabWidget_->widget(index));
+}
+
+int MainWindow::findTabByPath(const QString &filePath) const {
+    if (filePath.isEmpty()) return -1;
+    for (int i = 0; i < tabWidget_->count(); ++i) {
+        auto *ed = editorAt(i);
+        if (ed && ed->filePath() == filePath) return i;
+    }
+    return -1;
+}
+
+int MainWindow::addEditorTab(CodeEditor *editor, const QString &title) {
+    QString t = title;
+    if (t.isEmpty()) t = (language_ == 1) ? tr("未命名") : QStringLiteral("Untitled");
+    const int idx = tabWidget_->addTab(editor, t);
+    tabWidget_->setCurrentIndex(idx);
+    connect(editor, &CodeEditor::tabTitleNeedsRefresh, this, [this, editor]() {
+        int idx = tabWidget_->indexOf(editor);
+        if (idx >= 0) refreshTabTitle(idx);
+    });
+    connect(editor, &CodeEditor::cursorPositionChanged, this, &MainWindow::cursorPositionChanged);
+    connect(editor->document(), &QTextDocument::modificationChanged, this, &MainWindow::documentModifiedChanged);
+    refreshTabTitle(idx);
+    return idx;
+}
+
+void MainWindow::refreshTabTitle(int index) {
+    auto *ed = editorAt(index);
+    if (!ed) return;
+    tabWidget_->setTabText(index, tabTitleFor(ed));
+    tabWidget_->setTabToolTip(index, ed->filePath().isEmpty()
+        ? (language_ == 1 ? tr("未保存的新文件") : QStringLiteral("Unsaved new file"))
+        : QDir::toNativeSeparators(ed->filePath()));
+    if (index == tabWidget_->currentIndex())
+        setWindowTitle(QStringLiteral("%1 — Vortex Editor").arg(tabTitleFor(ed)));
+}
+
+QString MainWindow::tabTitleFor(CodeEditor *editor) const {
+    const bool modified = editor->document()->isModified();
+    QString base;
+    if (editor->filePath().isEmpty()) {
+        int untitledIdx = 1;
+        for (int i = 0; i < tabWidget_->count(); ++i) {
+            auto *other = editorAt(i);
+            if (other == editor) break;
+            if (other && other->filePath().isEmpty()) ++untitledIdx;
+        }
+        base = (language_ == 1) ? tr("未命名-%1").arg(untitledIdx)
+                                : QStringLiteral("Untitled-%1").arg(untitledIdx);
+    } else {
+        base = QFileInfo(editor->filePath()).fileName();
+    }
+    return modified ? base + QStringLiteral(" *") : base;
+}
+
+void MainWindow::currentTabChanged(int index) {
+    auto *ed = editorAt(index);
+    if (!ed) {
+        statusMsg_->setText(language_ == 1 ? tr("就绪") : QStringLiteral("Ready"));
+        setWindowTitle(QStringLiteral("Vortex Editor"));
+        return;
+    }
+    setWindowTitle(QStringLiteral("%1 — Vortex Editor").arg(tabTitleFor(ed)));
+    cursorPositionChanged();
+}
+
+void MainWindow::documentModifiedChanged(bool) {
+    auto *doc = qobject_cast<QTextDocument *>(sender());
+    if (!doc) return;
+    for (int i = 0; i < tabWidget_->count(); ++i) {
+        auto *ed = editorAt(i);
+        if (ed && ed->document() == doc) { refreshTabTitle(i); break; }
+    }
+}
+
+void MainWindow::cursorPositionChanged() {
+    auto *ed = currentEditor();
+    if (!ed) {
+        statusPos_->setText(language_ == 1 ? tr("行: -   列: -") : QStringLiteral("Ln: -   Col: -"));
+        return;
+    }
+    const QTextCursor cursor = ed->textCursor();
+    if (language_ == 1)
+        statusPos_->setText(tr("行: %1   列: %2").arg(cursor.blockNumber() + 1).arg(cursor.columnNumber() + 1));
+    else
+        statusPos_->setText(QStringLiteral("Ln: %1   Col: %2").arg(cursor.blockNumber() + 1).arg(cursor.columnNumber() + 1));
+}
+
+// ---------- 文件操作 ----------
+
+void MainWindow::newFile() {
+    auto *ed = new CodeEditor(this);
+    addEditorTab(ed);
+    ed->setFocus();
+    statusMsg_->setText(language_ == 1 ? tr("已创建新文件") : QStringLiteral("New file created"));
+}
+
+void MainWindow::openFile() {
+    const QString path = QFileDialog::getOpenFileName(
+        this,
+        language_ == 1 ? tr("打开 Vortex 源文件") : QStringLiteral("Open Vortex Source File"),
+        QString(),
+        language_ == 1 ? tr("Vortex 源文件 (*.vt *.vtx *.vortex);;所有文件 (*)")
+                       : QStringLiteral("Vortex Source (*.vt *.vtx *.vortex);;All Files (*)")
+    );
+    if (!path.isEmpty()) loadFile(path);
+}
+
+void MainWindow::openFiles(const QStringList &paths) {
+    for (const QString &p : paths) loadFile(p);
+}
+
+bool MainWindow::loadFile(const QString &filePath) {
+    const int exist = findTabByPath(filePath);
+    if (exist >= 0) {
+        tabWidget_->setCurrentIndex(exist);
+        statusMsg_->setText((language_ == 1 ? tr("已打开: %1") : QStringLiteral("Opened: %1"))
+                            .arg(QFileInfo(filePath).fileName()));
+        return true;
+    }
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QMessageBox::warning(this,
+            language_ == 1 ? tr("打开失败") : QStringLiteral("Open Failed"),
+            (language_ == 1 ? tr("无法读取文件 '%1':\n%2") : QStringLiteral("Cannot read file '%1':\n%2"))
+                .arg(QDir::toNativeSeparators(filePath), file.errorString()));
+        return false;
+    }
+    const QString content = QString::fromUtf8(file.readAll());
+    auto *ed = new CodeEditor(this);
+    ed->setPlainText(content);
+    ed->setFilePath(filePath);
+    ed->document()->setModified(false);
+    addEditorTab(ed, QFileInfo(filePath).fileName());
+    ed->setFocus();
+    statusMsg_->setText((language_ == 1 ? tr("已加载: %1") : QStringLiteral("Loaded: %1"))
+                        .arg(QDir::toNativeSeparators(filePath)));
+    return true;
+}
+
+bool MainWindow::save() {
+    auto *ed = currentEditor();
+    if (!ed) return false;
+    if (ed->filePath().isEmpty()) return saveAs();
+    return saveFile(ed, ed->filePath());
+}
+
+bool MainWindow::saveAs() {
+    auto *ed = currentEditor();
+    if (!ed) return false;
+    const QString defaultName = ed->filePath().isEmpty()
+        ? QStringLiteral("untitled.vt") : ed->filePath();
+    const QString path = QFileDialog::getSaveFileName(
+        this,
+        language_ == 1 ? tr("另存为") : QStringLiteral("Save As"),
+        defaultName,
+        language_ == 1 ? tr("Vortex 源文件 (*.vt *.vtx *.vortex);;所有文件 (*)")
+                       : QStringLiteral("Vortex Source (*.vt *.vtx *.vortex);;All Files (*)")
+    );
+    if (path.isEmpty()) return false;
+    return saveFile(ed, path);
+}
+
+bool MainWindow::saveAll() {
+    bool ok = true;
+    for (int i = 0; i < tabWidget_->count(); ++i) {
+        auto *ed = editorAt(i);
+        if (!ed || !ed->document()->isModified()) continue;
+        if (ed->filePath().isEmpty()) { tabWidget_->setCurrentIndex(i); if (!saveAs()) { ok = false; continue; } }
+        else if (!saveFile(ed, ed->filePath())) ok = false;
+    }
+    return ok;
+}
+
+bool MainWindow::saveFile(CodeEditor *editor, const QString &filePath) {
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+        QMessageBox::warning(this,
+            language_ == 1 ? tr("保存失败") : QStringLiteral("Save Failed"),
+            (language_ == 1 ? tr("无法写入文件 '%1':\n%2") : QStringLiteral("Cannot write file '%1':\n%2"))
+                .arg(QDir::toNativeSeparators(filePath), file.errorString()));
+        return false;
+    }
+    file.write(editor->toPlainText().toUtf8());
+    file.close();
+    editor->setFilePath(filePath);
+    editor->document()->setModified(false);
+    const int idx = tabWidget_->indexOf(editor);
+    if (idx >= 0) refreshTabTitle(idx);
+    statusMsg_->setText((language_ == 1 ? tr("已保存: %1") : QStringLiteral("Saved: %1"))
+                        .arg(QDir::toNativeSeparators(filePath)));
+    return true;
+}
+
+bool MainWindow::maybeSave(CodeEditor *editor) {
+    if (!editor || !editor->document()->isModified()) return true;
+    const QString title = tabTitleFor(editor);
+    const QMessageBox::StandardButton ret = QMessageBox::warning(
+        this,
+        language_ == 1 ? tr("未保存的修改") : QStringLiteral("Unsaved Changes"),
+        (language_ == 1 ? tr("文档 '%1' 有未保存的修改。\n是否保存？") : QStringLiteral("Document '%1' has unsaved changes.\nSave?"))
+            .arg(title),
+        QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel
+    );
+    switch (ret) {
+    case QMessageBox::Save: {
+        const int idx = tabWidget_->indexOf(editor);
+        if (idx >= 0) tabWidget_->setCurrentIndex(idx);
+        return editor->filePath().isEmpty() ? saveAs() : saveFile(editor, editor->filePath());
+    }
+    case QMessageBox::Discard: return true;
+    default: return false;
+    }
+}
+
+bool MainWindow::maybeSaveAll() {
+    for (int i = tabWidget_->count() - 1; i >= 0; --i)
+        if (!maybeSave(editorAt(i))) return false;
+    return true;
+}
+
+void MainWindow::closeTab(int index) {
+    auto *ed = editorAt(index);
+    if (!ed) return;
+    if (!maybeSave(ed)) return;
+    tabWidget_->removeTab(index);
+    ed->deleteLater();
+    if (tabWidget_->count() == 0)
+        setWindowTitle(QStringLiteral("Vortex Editor"));
+}
+
+// ---------- 撤销 / 重做 ----------
+
+void MainWindow::undo() {
+    auto *ed = currentEditor();
+    if (!ed || !ed->isUndoRedoEnabled()) return;
+    ed->undo();
+    statusMsg_->setText(language_ == 1 ? tr("已撤销一步") : QStringLiteral("Undo"));
+}
+
+void MainWindow::redo() {
+    auto *ed = currentEditor();
+    if (!ed || !ed->isUndoRedoEnabled()) return;
+    ed->redo();
+    statusMsg_->setText(language_ == 1 ? tr("已重做一步") : QStringLiteral("Redo"));
+}
+
+// ---------- 输出面板 ----------
+
+void MainWindow::appendOutput(const QString &text, bool isError) {
+    if (text.isEmpty()) return;
+    QTextCursor c = output_->textCursor();
+    c.movePosition(QTextCursor::End);
+    output_->setTextCursor(c);
+    if (isError) {
+        QTextCharFormat errFmt;
+        errFmt.setForeground(QColor(theme_ == 1 ? "#f38ba8" : "#ff0000"));
+        c.insertText(text, errFmt);
+    } else {
+        c.insertText(text);
+    }
+    output_->ensureCursorVisible();
+}
+
+void MainWindow::clearOutput() { output_->clear(); }
+
+// ---------- 编译（仅检查词法/语法） ----------
+
+void MainWindow::compileCurrent() {
+    auto *ed = currentEditor();
+    if (!ed) {
+        statusMsg_->setText(language_ == 1 ? tr("没有可编译的文档") : QStringLiteral("No document to compile"));
+        return;
+    }
+    clearOutput();
+    const QString name = ed->filePath().isEmpty() ? tabTitleFor(ed) : QFileInfo(ed->filePath()).fileName();
+    appendOutput((language_ == 1 ? tr("=== 编译: %1 ===\n") : QStringLiteral("=== Compile: %1 ===\n")).arg(name));
+
+    const std::string src = ed->toPlainText().toStdString();
+    vortex::Lexer lex(src);
+    auto toks = lex.tokenize();
+    if (!lex.errors().empty()) {
+        for (const auto &e : lex.errors())
+            appendOutput(QString::fromStdString("[Lex] " + e + "\n"), true);
+    }
+
+    bool parseOk = false;
+    if (lex.errors().empty()) {
+        vortex::Parser parser(toks);
+        try {
+            auto prog = parser.parse_program();
+            parseOk = prog != nullptr;
+        } catch (const std::runtime_error &e) {
+            appendOutput(QString::fromStdString(name.toStdString() + ": [Parse] " + e.what() + "\n"), true);
+        }
+        if (!parser.errors().empty()) {
+            for (const auto &e : parser.errors())
+                appendOutput(QString::fromStdString(name.toStdString() + ": [Parse] " + e + "\n"), true);
+            parseOk = false;
+        }
+    }
+
+    appendOutput((language_ == 1 ? tr("=== 编译: %1 ===\n") : QStringLiteral("=== Compile: %1 ===\n")).arg(name));
+    if (parseOk) {
+        // 生成本地 .vt 文件
+        QString inPath = ed->filePath();
+        if (inPath.isEmpty()) {
+            inPath = QDir::temp().absoluteFilePath("vortex_" + QString::number(QCoreApplication::applicationPid()) + ".vt");
+        }
+        QFile f(inPath);
+        if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QTextStream ts(&f); ts << ed->toPlainText(); f.flush(); f.close();
+        }
+
+        // 找到 vortexcc.exe（同目录或 PATH）
+        QString cc = QCoreApplication::applicationDirPath() + "/vortexcc.exe";
+        if (!QFileInfo::exists(cc)) cc = QStringLiteral("vortexcc");
+
+        // 输出 exe 路径：与源同目录同名 .exe
+        QString outPath = inPath;
+        if (outPath.endsWith(".vt", Qt::CaseInsensitive)) outPath.chop(3);
+        outPath += ".exe";
+
+        QProcess proc;
+        proc.start(cc, {QStringLiteral("build"), inPath, QStringLiteral("-o"), outPath});
+        proc.waitForFinished(-1);
+        const QString pout = QString::fromUtf8(proc.readAllStandardOutput());
+        const QString perr = QString::fromUtf8(proc.readAllStandardError());
+        if (!pout.isEmpty()) appendOutput(pout, false);
+        if (!perr.isEmpty()) appendOutput(perr, true);
+        if (proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0) {
+            appendOutput((language_ == 1 ? tr("=== 已生成可执行文件: %1 ===\n")
+                                         : QStringLiteral("=== EXE created: %1 ===\n")).arg(outPath), false);
+            statusMsg_->setText(language_ == 1 ? tr("编译成功，已生成 exe") : QStringLiteral("Compiled to exe"));
+        } else {
+            statusMsg_->setText(language_ == 1 ? tr("编译为 exe 失败") : QStringLiteral("Compile to exe failed"));
+        }
+    }
+    appendOutput((language_ == 1 ? tr("=== 编译结束: %1 ===\n") : QStringLiteral("=== Compile Done: %1 ===\n")).arg(name));
+}
+
+// ---------- 编译并运行 ----------
+
+void MainWindow::runCurrent() {
+    auto *ed = currentEditor();
+    if (!ed) {
+        statusMsg_->setText(language_ == 1 ? tr("没有可运行的文档") : QStringLiteral("No document to run"));
+        return;
+    }
+    clearOutput();
+    const QString name = ed->filePath().isEmpty() ? tabTitleFor(ed) : QFileInfo(ed->filePath()).fileName();
+    appendOutput((language_ == 1 ? tr("=== 开始运行: %1 ===\n") : QStringLiteral("=== Running: %1 ===\n")).arg(name));
+
+    const std::string srcStd = ed->toPlainText().toStdString();
+    const std::string nameStd = name.toStdString();
+
+    std::ostringstream outStream, errStream;
+
+    vortex::Lexer lex(srcStd);
+    auto toks = lex.tokenize();
+    if (!lex.errors().empty())
+        for (const auto &e : lex.errors()) errStream << "[Lex] " << e << "\n";
+
+    std::unique_ptr<vortex::Program> prog;
+    bool parseOk = false;
+    if (lex.errors().empty()) {
+        vortex::Parser parser(toks);
+        try {
+            prog = parser.parse_program();
+            parseOk = prog != nullptr;
+        } catch (const std::runtime_error &e) {
+            errStream << nameStd << ": [Parse] " << e.what() << "\n";
+        }
+        if (!parser.errors().empty()) {
+            for (const auto &e : parser.errors())
+                errStream << nameStd << ": [Parse] " << e << "\n";
+            parseOk = false;
+        }
+    }
+
+    if (parseOk && prog) {
+        vortex::Interpreter interp;
+        interp.print_output = [&outStream](const std::string &s) { outStream << s; };
+        interp.read_input = [&outStream, &errStream](const std::string &prompt) -> std::string {
+            outStream << prompt;
+            errStream << "\n[Note] Console input not available in GUI mode; returning empty string.\n";
+            return {};
+        };
+        try {
+            interp.run(*prog);
+        } catch (const std::exception &e) {
+            errStream << nameStd << ": [Runtime] " << e.what() << "\n";
+        } catch (...) {
+            errStream << nameStd << ": [Runtime] Unknown exception\n";
+        }
+    }
+
+    const QString stdoutText = QString::fromStdString(outStream.str());
+    const QString stderrText = QString::fromStdString(errStream.str());
+    if (!stdoutText.isEmpty()) appendOutput(stdoutText, false);
+    if (!stderrText.isEmpty()) appendOutput(stderrText, true);
+    appendOutput((language_ == 1 ? tr("=== 运行结束: %1 ===\n") : QStringLiteral("=== Done: %1 ===\n")).arg(name));
+
+    if (stderrText.isEmpty())
+        statusMsg_->setText(language_ == 1 ? tr("运行完成") : QStringLiteral("Run finished"));
+    else
+        statusMsg_->setText(language_ == 1 ? tr("运行出现错误") : QStringLiteral("Errors occurred"));
+}
+
+// ---------- 关闭窗口 ----------
+
+void MainWindow::closeEvent(QCloseEvent *event) {
+    if (!maybeSaveAll()) { event->ignore(); return; }
+    saveSettings();
+    event->accept();
+}

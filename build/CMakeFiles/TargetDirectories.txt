@@ -1,4 +1,0 @@
-E:/newcodering/build/CMakeFiles/vortex_core.dir
-E:/newcodering/build/CMakeFiles/vortex.dir
-E:/newcodering/build/CMakeFiles/edit_cache.dir
-E:/newcodering/build/CMakeFiles/rebuild_cache.dir

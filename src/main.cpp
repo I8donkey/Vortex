@@ -23,9 +23,9 @@ static std::string read_file(const std::string& path) {
 static void print_usage(const char* prog) {
     std::cout << "Vortex Compiler & Interpreter\n";
     std::cout << "Usage: \n";
-    std::cout << "  " << prog << " run <file.ncr>       Interpret and run source file\n";
-    std::cout << "  " << prog << " compile <file.ncr>   Lex + Parse, print AST dump\n";
-    std::cout << "  " << prog << " <file.ncr>            Same as 'run'\n";
+    std::cout << "  " << prog << " run <file.vt>        Interpret and run source file\n";
+    std::cout << "  " << prog << " compile <file.vt>    Lex + Parse, print AST dump\n";
+    std::cout << "  " << prog << " <file.vt>             Same as 'run'\n";
     std::cout << "  " << prog << " repl                 Interactive REPL\n";
     std::cout << "  " << prog << " -h | --help          Show this message\n";
 }

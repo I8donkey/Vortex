@@ -41,6 +41,7 @@ enum class ValueType {
     Tuple,      // fixed tuple
     Function,   // user-defined / built-in
     Module,     // 标准库模块（math / time / random）
+    Opaque,     // 不透明句柄：GPU资源 / 2D精灵 / 3D节点 等扩展对象
 };
 
 struct Value;
@@ -88,6 +89,26 @@ struct PairRep { ValuePtr first; ValuePtr second; };
 using TupleRep  = std::vector<ValuePtr>;
 using ModuleRep = std::unordered_map<std::string, ValuePtr>; // 模块成员：常量或函数
 
+// ========== Opaque：不透明扩展对象（GPU / 2D / 3D 等资源句柄） ==========
+// 具体资源由各模块分配与释放，解释器仅负责生命周期与传递。
+// kind 以字符串标识资源类型（如 "cuda_tensor","g2d_sprite","r3d_mesh"），
+// 便于运行时类型检查。
+struct OpaqueResource {
+    std::string kind;
+    std::any payload;
+    std::function<void(OpaqueResource*)> deleter; // 可选自定义析构
+
+    explicit OpaqueResource(std::string k) : kind(std::move(k)) {}
+    template<class T>
+    OpaqueResource(std::string k, T&& p, std::function<void(OpaqueResource*)> d = nullptr)
+        : kind(std::move(k)), payload(std::forward<T>(p)), deleter(std::move(d)) {}
+    ~OpaqueResource() { if (deleter) deleter(this); }
+
+    template<class T> T& as() { return *std::any_cast<T>(&payload); }
+    template<class T> const T& as() const { return *std::any_cast<T>(&payload); }
+    template<class T> T* try_as() { return std::any_cast<T>(&payload); }
+};
+
 // ========== 哈希与比较 functors ==========
 struct ValueHash {
     size_t operator()(const ValuePtr& v) const;
@@ -123,6 +144,7 @@ struct Value : std::enable_shared_from_this<Value> {
     std::shared_ptr<FunctionValue> fn_rep;
     std::shared_ptr<MemAdrValue> adr_rep;
     std::shared_ptr<ModuleRep> module_rep;
+    std::shared_ptr<OpaqueResource> opaque_rep;  // 扩展对象句柄
 
     bool is_const = false;
 
@@ -149,6 +171,7 @@ struct Value : std::enable_shared_from_this<Value> {
     static ValuePtr make_tuple(std::vector<ValuePtr> items);
     static ValuePtr make_adr(std::string name, Environment* env);
     static ValuePtr make_module();
+    static ValuePtr make_opaque(std::shared_ptr<OpaqueResource> res);
 
     // clone（深拷贝容器，浅拷贝元素）
     ValuePtr clone() const;

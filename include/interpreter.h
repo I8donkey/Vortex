@@ -74,6 +74,10 @@ public:
     // 解析并执行字符串源
     void exec_source(const std::string& src);
 
+    // 用户定义函数调用（供扩展模块在子线程/回调中调用用户函数）
+    ValuePtr call_user_function(const FunctionValue* fn, const ValueVec& args);
+    ValuePtr call_user_function_with_env(const FunctionDefStmt* def, const ValueVec& args, Environment* parent_env);
+
 private:
     Environment globals_;
     Environment* current_env_ = &globals_;
@@ -147,10 +151,6 @@ private:
     void init_builtins();
     // 初始化标准库模块（math / time / random）
     void init_modules();
-
-    // 用户定义函数调用
-    ValuePtr call_user_function(const FunctionValue* fn, const ValueVec& args);
-    ValuePtr call_user_function_with_env(const FunctionDefStmt* def, const ValueVec& args, Environment* parent_env);
 
     // 左值地址保存（@var）
     // 解释器辅助：赋值

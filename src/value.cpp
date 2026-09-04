@@ -27,6 +27,7 @@ ValuePtr Value::make_pair(ValuePtr a, ValuePtr b) { auto p = std::make_shared<Va
 ValuePtr Value::make_tuple(std::vector<ValuePtr> items) { auto p = std::make_shared<Value>(ValueType::Tuple); p->tuple_rep = std::make_shared<TupleRep>(std::move(items)); return p; }
 ValuePtr Value::make_adr(std::string name, Environment* env) { auto p = std::make_shared<Value>(ValueType::MemAdr); p->adr_rep = std::make_shared<MemAdrValue>(); p->adr_rep->var_name = std::move(name); p->adr_rep->env = env; return p; }
 ValuePtr Value::make_module() { auto p = std::make_shared<Value>(ValueType::Module); p->module_rep = std::make_shared<ModuleRep>(); return p; }
+ValuePtr Value::make_opaque(std::shared_ptr<OpaqueResource> res) { auto p = std::make_shared<Value>(ValueType::Opaque); p->opaque_rep = std::move(res); return p; }
 
 std::string Value::type_name() const {
     switch (type) {
@@ -51,6 +52,8 @@ std::string Value::type_name() const {
         case ValueType::MemAdr: return "memadr";
         case ValueType::Function: return "function";
         case ValueType::Module: return "module";
+        case ValueType::Opaque:
+            return opaque_rep ? ("opaque<" + opaque_rep->kind + ">") : "opaque";
     }
     return "unknown";
 }
@@ -62,7 +65,7 @@ std::string Value::to_string() const {
         case ValueType::Bool: return bool_val ? "true" : "false";
         case ValueType::Int: oss << int_val; return oss.str();
         case ValueType::UInt: oss << uint_val; return oss.str();
-        case ValueType::Float: oss << float_val; return oss.str();
+        case ValueType::Float: oss << std::setprecision(15) << float_val; return oss.str();
         case ValueType::Char: return std::string(1, (char)char_val);
         case ValueType::Unichar: {
             // 简易转 UTF-8
@@ -136,6 +139,8 @@ std::string Value::to_string() const {
         case ValueType::MemAdr: return "<memadr " + adr_rep->var_name + ">";
         case ValueType::Function: return "<fn " + fn_rep->name + ">";
         case ValueType::Module: return "<module " + std::to_string(module_rep->size()) + " members>";
+        case ValueType::Opaque:
+            return opaque_rep ? ("<" + opaque_rep->kind + ">") : std::string("<opaque>");
     }
     return "?";
 }
@@ -158,6 +163,7 @@ bool Value::truthy() const {
         case ValueType::Dict: return !dict_rep->empty();
         case ValueType::Pair: case ValueType::Tuple: return true;
         case ValueType::MemAdr: case ValueType::Function: return true;
+        case ValueType::Opaque: return opaque_rep != nullptr;
     }
     return false;
 }

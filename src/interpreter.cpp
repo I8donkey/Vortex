@@ -1,6 +1,11 @@
 #include "interpreter.h"
 #include "lexer.h"
 #include "parser.h"
+#include "vortex_modules.h"
+#include "game2d_module.h"
+#include "thread_module.h"
+#include "log_module.h"
+#include "gui_module.h"
 #include <iostream>
 #include <sstream>
 #include <iomanip>
@@ -66,6 +71,12 @@ Interpreter::Interpreter() {
     current_env_ = &globals_;
     init_builtins();
     init_modules();
+    game2d::Game::bind_interpreter(this);
+    // 绑定 thread / gui 模块的全局解释器指针
+    extern Interpreter* g_thread_active_interpreter;
+    extern Interpreter* g_gui_active_interpreter;
+    g_thread_active_interpreter = this;
+    g_gui_active_interpreter = this;
 }
 
 void Interpreter::init_builtins() {
@@ -361,9 +372,12 @@ void Interpreter::init_modules() {
                        std::function<ValuePtr(const ValueVec&)> f) {
             u[n] = mk_fn("math", n, a0, a1, std::move(f));
         };
-        add_const("pi", 3.141592653589793);
-        add_const("e", 2.718281828459045);
-        add_const("tau", 6.283185307179586);
+        add_const("pi", 3.141592653589793238462643383279502884197169399375105820974944);
+        add_const("e", 2.718281828459045235360287471352662497757247093699959574966967);
+        add_const("tau", 6.283185307179586476925286766559005768394338798750211641949888);
+        add_const("phi", 1.618033988749894848204586834365638117720309179805762862135448);
+        add_const("sqrt2", 1.414213562373095048801688724209698078569671875376948073176680);
+        add_const("ln2", 0.693147180559945309417232121458176568075500134360255254120680);
         add_const("inf", HUGE_VAL);
         add_const("nan", NAN);
         add("sqrt", 1,1, [&](const ValueVec& a){ return Value::make_float(std::sqrt(D(a[0]))); });
@@ -604,6 +618,9 @@ void Interpreter::init_modules() {
             });
         std_modules_["random"] = mod;
     }
+
+    // ================= 扩展模块：cuda / game2d / render3d =================
+    register_extension_modules(std_modules_);
 }
 
 bool Interpreter::is_builtin(const std::string&) const { return false; } // not used
