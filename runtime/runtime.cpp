@@ -19,6 +19,9 @@
 #include <string>
 #include <memory>
 #include <algorithm>
+#include <queue>
+#include <condition_variable>
+#include <functional>
 
 // ========== 内存分配助手 ==========
 static void* xmalloc(size_t n) {
@@ -683,6 +686,23 @@ void vor_rt_shutdown(void) {}
 struct RT_Thread { std::thread th; };
 struct RT_Mutex  { std::mutex mtx; };
 struct RT_Atomic { std::atomic<long long> v; explicit RT_Atomic(long long x) : v(x) {} };
+// 编译后端通道：int 负载子集（静态类型，无法承载任意动态值）
+struct RT_Channel {
+    std::queue<long long> q;
+    std::mutex mtx;
+    std::condition_variable cv;
+    bool closed = false;
+    size_t capacity = 0; // 0 = 无界
+};
+struct RT_Pool {
+    std::vector<std::thread> workers;
+    std::queue<std::function<void()>> tasks;
+    std::mutex mtx;
+    std::condition_variable cv;
+    std::atomic<bool> stop{false};
+    std::atomic<int> active{0};
+    std::atomic<int> pending{0};
+};
 
 void* vor_thread_run(void (*fn)(void)) {
     if (!fn) return nullptr;
@@ -710,3 +730,93 @@ void* vor_thread_atomic(long long v) { return new RT_Atomic(v); }
 long long vor_thread_atomic_get(void* a) { return a ? ((RT_Atomic*)a)->v.load() : 0; }
 void vor_thread_atomic_set(void* a, long long v) { if (a) ((RT_Atomic*)a)->v.store(v); }
 long long vor_thread_atomic_add(void* a, long long v) { return a ? ((RT_Atomic*)a)->v.fetch_add(v) : 0; }
+
+// ---- 通道（int 负载子集，P4） ----
+void* vor_thread_channel(long long cap) {
+    RT_Channel* c = new RT_Channel();
+    c->capacity = (size_t)std::max(0LL, cap);
+    return c;
+}
+void vor_thread_channel_send(void* h, long long v) {
+    RT_Channel* c = (RT_Channel*)h;
+    if (!c) return;
+    std::unique_lock<std::mutex> lk(c->mtx);
+    if (c->closed) { throw_rt("thread.send: channel closed"); return; }
+    if (c->capacity > 0) {
+        c->cv.wait(lk, [&]{ return c->q.size() < c->capacity || c->closed; });
+        if (c->closed) { throw_rt("thread.send: channel closed"); return; }
+    }
+    c->q.push(v);
+    c->cv.notify_one();
+}
+long long vor_thread_channel_recv(void* h) {
+    RT_Channel* c = (RT_Channel*)h;
+    if (!c) return 0;
+    std::unique_lock<std::mutex> lk(c->mtx);
+    c->cv.wait(lk, [&]{ return !c->q.empty() || c->closed; });
+    if (c->q.empty()) { throw_rt("thread.recv: channel closed and empty"); return 0; }
+    long long v = c->q.front();
+    c->q.pop();
+    c->cv.notify_one();
+    return v;
+}
+void vor_thread_channel_close(void* h) {
+    RT_Channel* c = (RT_Channel*)h;
+    if (!c) return;
+    { std::lock_guard<std::mutex> lk(c->mtx); c->closed = true; }
+    c->cv.notify_all();
+}
+long long vor_thread_channel_len(void* h) {
+    RT_Channel* c = (RT_Channel*)h;
+    if (!c) return 0;
+    std::lock_guard<std::mutex> lk(c->mtx);
+    return (long long)c->q.size();
+}
+
+// ---- 线程池（P4） ----
+void* vor_thread_pool(long long n) {
+    RT_Pool* p = new RT_Pool();
+    size_t workers = (size_t)std::max(1LL, n);
+    for (size_t i = 0; i < workers; ++i) {
+        p->workers.emplace_back([p]() {
+            while (true) {
+                std::function<void()> task;
+                {
+                    std::unique_lock<std::mutex> lk(p->mtx);
+                    p->cv.wait(lk, [p]{ return p->stop.load() || !p->tasks.empty(); });
+                    if (p->stop.load() && p->tasks.empty()) return;
+                    task = std::move(p->tasks.front());
+                    p->tasks.pop();
+                    p->pending.fetch_sub(1);
+                }
+                p->active.fetch_add(1);
+                task();
+                p->active.fetch_sub(1);
+            }
+        });
+    }
+    return p;
+}
+void vor_thread_pool_submit(void* h, void (*fn)(void)) {
+    RT_Pool* p = (RT_Pool*)h;
+    if (!p || !fn) return;
+    {
+        std::lock_guard<std::mutex> lk(p->mtx);
+        p->tasks.push([fn]() { fn(); });
+        p->pending.fetch_add(1);
+    }
+    p->cv.notify_one();
+}
+long long vor_thread_pool_size(void* h) {
+    RT_Pool* p = (RT_Pool*)h;
+    if (!p) return 0;
+    return (long long)(p->active.load() + p->pending.load());
+}
+void vor_thread_pool_shutdown(void* h) {
+    RT_Pool* p = (RT_Pool*)h;
+    if (!p) return;
+    { std::lock_guard<std::mutex> lk(p->mtx); p->stop.store(true); }
+    p->cv.notify_all();
+    for (auto& w : p->workers) if (w.joinable()) w.join();
+    p->workers.clear();
+}

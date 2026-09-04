@@ -915,6 +915,60 @@ LVal Gen::gen_call(const CallExpr* c) {
         llvm::Value* fn = decl_vor("vor_thread_atomic_add", VType::Int, {VType::Str, VType::Int});
         return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {a0.val, to_i64(a1)})};
     }
+    // 通道（int 负载子集，P4）：句柄复用 Str(指针) 槽
+    if (fname == "thread.channel") {
+        LVal a0 = c->args.empty() ? LVal{} : gen_expr(c->args[0].get());
+        llvm::Value* fn = decl_vor("vor_thread_channel", VType::Str, {VType::Int});
+        llvm::Value* cap = c->args.empty() ? B->getInt64(0) : to_i64(a0);
+        return {VType::Str, B->CreateCall(llvm::cast<llvm::Function>(fn), {cap})};
+    }
+    if (fname == "thread.send") {
+        LVal a0 = gen_expr(c->args[0].get()); LVal a1 = gen_expr(c->args[1].get());
+        B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_thread_channel_send", VType::Void, {VType::Str, VType::Int})), {a0.val, to_i64(a1)});
+        return {VType::Void, nullptr};
+    }
+    if (fname == "thread.recv") {
+        LVal a0 = gen_expr(c->args[0].get());
+        llvm::Value* fn = decl_vor("vor_thread_channel_recv", VType::Int, {VType::Str});
+        return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {a0.val})};
+    }
+    if (fname == "thread.close") {
+        LVal a0 = gen_expr(c->args[0].get());
+        B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_thread_channel_close", VType::Void, {VType::Str})), {a0.val});
+        return {VType::Void, nullptr};
+    }
+    if (fname == "thread.channel_len" || fname == "thread.len") {
+        LVal a0 = gen_expr(c->args[0].get());
+        llvm::Value* fn = decl_vor("vor_thread_channel_len", VType::Int, {VType::Str});
+        return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {a0.val})};
+    }
+    // 线程池（P4）：submit 使用静态函数指针（同 thread.run）
+    if (fname == "thread.pool") {
+        LVal a0 = gen_expr(c->args[0].get());
+        llvm::Value* fn = decl_vor("vor_thread_pool", VType::Str, {VType::Int});
+        return {VType::Str, B->CreateCall(llvm::cast<llvm::Function>(fn), {to_i64(a0)})};
+    }
+    if (fname == "thread.pool_submit") {
+        LVal a0 = gen_expr(c->args[0].get());
+        auto* id = dynamic_cast<const IdentifierExpr*>(c->args[1].get());
+        llvm::Function* ufn = id ? mod_->getFunction(id->name) : nullptr;
+        if (!ufn) return {VType::Void, nullptr};
+        llvm::FunctionType* vft = llvm::FunctionType::get(B->getVoidTy(), {}, false);
+        llvm::Value* fn = declare_runtime("vor_thread_pool_submit", B->getVoidTy(), {B->getPtrTy(), vft->getPointerTo()});
+        llvm::Value* fp = B->CreateBitCast(ufn, vft->getPointerTo());
+        B->CreateCall(llvm::cast<llvm::Function>(fn), {a0.val, fp});
+        return {VType::Void, nullptr};
+    }
+    if (fname == "thread.pool_size") {
+        LVal a0 = gen_expr(c->args[0].get());
+        llvm::Value* fn = decl_vor("vor_thread_pool_size", VType::Int, {VType::Str});
+        return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {a0.val})};
+    }
+    if (fname == "thread.pool_shutdown") {
+        LVal a0 = gen_expr(c->args[0].get());
+        B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_thread_pool_shutdown", VType::Void, {VType::Str})), {a0.val});
+        return {VType::Void, nullptr};
+    }
 
     // 容器构造内置（set/pair/tuple/__set_literal__）
     if (c->callee->kind == ExprKind::Identifier) {

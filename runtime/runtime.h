@@ -226,6 +226,16 @@ void* vor_thread_atomic(long long v);
 long long vor_thread_atomic_get(void* a);
 void  vor_thread_atomic_set(void* a, long long v);
 long long vor_thread_atomic_add(void* a, long long v);
+// 通道（int 负载子集）与线程池（P4）
+void* vor_thread_channel(long long cap);
+void  vor_thread_channel_send(void* h, long long v);
+long long vor_thread_channel_recv(void* h);
+void  vor_thread_channel_close(void* h);
+long long vor_thread_channel_len(void* h);
+void* vor_thread_pool(long long n);
+void  vor_thread_pool_submit(void* h, void (*fn)(void));
+long long vor_thread_pool_size(void* h);
+void  vor_thread_pool_shutdown(void* h);
 
 #ifdef __cplusplus
 }
