@@ -24,7 +24,7 @@ static std::string read_file(const std::string& path, std::string& err) {
 static void print_usage(const char* prog) {
     std::printf("Vortex Native Compiler (LLVM backend)\n");
     std::printf("Usage:\n");
-    std::printf("  %s build <file.vt> [-o out.exe] [-O0..-O3] [--asm]\n", prog);
+    std::printf("  %s build <file.vt> [-o out.exe] [-O0..-O3] [--asm] [--debug]\n", prog);
     std::printf("  %s --help\n", prog);
 }
 
@@ -50,6 +50,7 @@ int main(int argc, char** argv) {
         std::string a = argv[i];
         if (a == "-o" && i + 1 < argc) cfg.output = argv[++i];
         else if (a == "--asm") cfg.emit_asm = true;
+        else if (a == "--debug") cfg.debug = true;
         else if (a == "-O0") cfg.opt_level = 0;
         else if (a == "-O1") cfg.opt_level = 1;
         else if (a == "-O2") cfg.opt_level = 2;

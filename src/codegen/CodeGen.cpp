@@ -29,6 +29,8 @@
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/TargetParser/Triple.h>
 #include <llvm/Support/CodeGen.h>
+#include <llvm/IR/DIBuilder.h>
+#include <llvm/IR/DebugInfoMetadata.h>
 
 #include <cstdio>
 #include <memory>
@@ -93,6 +95,14 @@ private:
     // 内建函数表
     std::unordered_map<std::string, std::pair<VType, Builtin>> fns_;
 
+    // ---- 调试信息（P3，DIBuilder 发射 DWARF） ----
+    llvm::DIBuilder* DB = nullptr;
+    llvm::DICompileUnit* CU = nullptr;
+    llvm::DIFile* DIF = nullptr;
+    llvm::DISubprogram* cur_sp_ = nullptr;
+    unsigned dbg_line_ = 0;
+    bool debug_on() const { return cfg_.debug; }
+
     // 运行时函数声明缓存
     llvm::Function* declare_runtime(const char* name, llvm::Type* ret, std::vector<llvm::Type*> params, bool vararg=false);
     llvm::Value* decl_vor(const char* name, VType ret, std::vector<VType> params);
@@ -122,6 +132,15 @@ private:
     // 用户函数推断返回类型（P1 简化：返回最后 return 的类型/当前记录）
     VType fn_ret_of(const std::string& fnname);
 
+    // ---- 调试信息辅助（P3） ----
+    void dbg_begin(llvm::Module& mod);                   // 创建 DIBuilder/CU/DIFile
+    void dbg_end();                                      // finalize + 释放 DIBuilder
+    llvm::DISubprogram* dbg_begin_func(llvm::Function* f, const char* nm);
+    void dbg_step_line();                                // 推进近似行号并设置 DebugLoc
+    void dbg_locate(unsigned line);                      // 以给定行号设置 DebugLoc(作用域=cur_sp_)
+    void dbg_declare(const std::string& nm, VType t, llvm::Value* slot);
+    llvm::DIType* dbg_dtype(VType t);
+
     // 控制流引用
     llvm::BasicBlock* cur_bb() const { return B->GetInsertBlock(); }
 };
@@ -142,6 +161,73 @@ llvm::Type* Gen::llvm_type(VType t) const {
         case VType::Void:  return B->getVoidTy();
     }
     return B->getVoidTy();
+}
+
+// ---------- 调试信息（P3：DIBuilder 发射 DWARF） ----------
+void Gen::dbg_begin(llvm::Module& mod) {
+    DB = new llvm::DIBuilder(mod);
+    dbg_line_ = 0;
+    cur_sp_ = nullptr;
+    // 伪源文件名：扩展名不影响 DWARF 使用（gdb 可据此定位）
+    DIF = DB->createFile("vortex.vt", ".");
+    CU = DB->createCompileUnit(llvm::dwarf::DW_LANG_C99, DIF, "vortexcc", false,
+                               "", 0);
+}
+
+void Gen::dbg_end() {
+    if (!DB) return;
+    DB->finalize();
+    delete DB;
+    DB = nullptr;
+}
+
+// 函数级 DI：为每个函数创建 DISubprogram，并把 DebugLoc 作用域切到该函数
+llvm::DISubprogram* Gen::dbg_begin_func(llvm::Function* f, const char* nm) {
+    if (!DB) return nullptr;
+    ++dbg_line_;
+    llvm::DISubroutineType* st = DB->createSubroutineType(
+        DB->getOrCreateTypeArray(llvm::ArrayRef<llvm::Metadata*>()));
+    llvm::DISubprogram* sp = DB->createFunction(
+        DIF, nm, f->getName(), DIF, dbg_line_,
+        st, dbg_line_, llvm::DINode::FlagZero, llvm::DISubprogram::SPFlagDefinition);
+    f->setSubprogram(sp);
+    cur_sp_ = sp;
+    // 函数入口基本块指令定位到本函数行
+    if (B) B->SetCurrentDebugLocation(llvm::DILocation::get(B->getContext(), dbg_line_, 0, sp));
+    return sp;
+}
+
+// 推进近似行号并设置 DebugLoc（AST 未携带行号，用单调计数器近似）
+void Gen::dbg_step_line() {
+    if (!DB) return;
+    ++dbg_line_;
+    dbg_locate(dbg_line_);
+}
+
+void Gen::dbg_locate(unsigned line) {
+    if (!DB || !cur_sp_) { return; }
+    B->SetCurrentDebugLocation(
+        llvm::DILocation::get(B->getContext(), line, 0, cur_sp_));
+}
+
+llvm::DIType* Gen::dbg_dtype(VType t) {
+    if (!DB) return nullptr;
+    switch (t) {
+        case VType::Int:   return DB->createBasicType("int", 64, llvm::dwarf::DW_ATE_signed);
+        case VType::Float: return DB->createBasicType("float", 64, llvm::dwarf::DW_ATE_float);
+        case VType::Bool:  return DB->createBasicType("bool", 1, llvm::dwarf::DW_ATE_boolean);
+        case VType::Str:   return DB->createBasicType("str", 64, llvm::dwarf::DW_ATE_unsigned);
+        case VType::Void:  return DB->createBasicType("void", 0, llvm::dwarf::DW_ATE_unsigned);
+        default:           return DB->createBasicType("ptr", 64, llvm::dwarf::DW_ATE_unsigned);
+    }
+}
+
+void Gen::dbg_declare(const std::string& nm, VType t, llvm::Value* slot) {
+    // 注：本 LLVM 23 构建的 SelectionDAG 无法低调度旧式 llvm.dbg.declare 内建
+    // （会走 visitTargetIntrinsic 崩溃），且新调试信息格式无经典开关。因此此处
+    // 仅保留函数级 DISubprogram 与 DILocation（行号/断点/调用栈可用），逐变量
+    // 声明由函数级信息替代，暂不发射 if it存在声明冲突。
+    (void)nm; (void)t; (void)slot;
 }
 
 // ---------- 运行时函数 ----------
@@ -1284,6 +1370,9 @@ LVal Gen::gen_lambda(const LambdaExpr* le) {
         llvm::IRBuilderBase::InsertPointGuard guard(*B);
         llvm::BasicBlock* entry = llvm::BasicBlock::Create(B->getContext(), "entry", fn);
         B->SetInsertPoint(entry);
+        llvm::DISubprogram* saved_sp = cur_sp_;
+        unsigned saved_dbg_line = dbg_line_;
+        if (debug_on()) dbg_begin_func(fn, fname.c_str());
         scopes_.emplace_back();
         bool saved_toplevel = top_level_;
         top_level_ = false;
@@ -1306,6 +1395,7 @@ LVal Gen::gen_lambda(const LambdaExpr* le) {
             llvm::AllocaInst* aa = make_alloca(ptypes[i], fn, le->params[i]->name.c_str());
             B->CreateStore(a, aa);
             scopes_.back()[le->params[i]->name] = LVal{ptypes[i], B->CreateLoad(llvm_type(ptypes[i]), aa), aa};
+            if (debug_on()) dbg_declare(le->params[i]->name, ptypes[i], aa);
         }
         for (auto& st : le->body) {
             if (block_has_term(B->GetInsertBlock())) break;
@@ -1313,6 +1403,8 @@ LVal Gen::gen_lambda(const LambdaExpr* le) {
         }
         if (!block_has_term(B->GetInsertBlock())) B->CreateRet(B->getInt64(0));
         scopes_.pop_back();
+        cur_sp_ = saved_sp;
+        dbg_line_ = saved_dbg_line;
         top_level_ = saved_toplevel;
         cur_fn_ = saved;
         fn_ret_ = VType::Int;
@@ -1332,6 +1424,7 @@ LVal Gen::gen_lambda(const LambdaExpr* le) {
 }
 
 void Gen::gen_stmt(const Stmt* s) {
+    dbg_step_line();
     switch (s->kind) {
         case StmtKind::VarDecl: {
             auto* vd = static_cast<const VarDeclStmt*>(s);
@@ -1367,6 +1460,7 @@ void Gen::gen_stmt(const Stmt* s) {
                 } else {
                     slot = make_alloca(tEff, cur_bb()->getParent(), nm.c_str());
                     B->CreateStore(store, slot);
+                    if (debug_on()) dbg_declare(nm, tEff, slot);
                 }
                 // 记录槽 + 类型；标识符访问时按需重新 load
                 scopes_.back()[nm] = LVal{tEff, B->CreateLoad(llvm_type(tEff), slot), slot};
@@ -1600,6 +1694,9 @@ void Gen::gen_stmt(const Stmt* s) {
             llvm::IRBuilderBase::InsertPointGuard guard(*B);
             llvm::BasicBlock* entry = llvm::BasicBlock::Create(B->getContext(), "entry", fn);
             B->SetInsertPoint(entry);
+            llvm::DISubprogram* saved_sp = cur_sp_;
+            unsigned saved_dbg_line = dbg_line_;
+            if (debug_on()) dbg_begin_func(fn, fd->name.c_str());
             scopes_.emplace_back();
             bool saved_toplevel = top_level_;
             top_level_ = false;   // 函数体内变量为局部
@@ -1610,6 +1707,7 @@ void Gen::gen_stmt(const Stmt* s) {
                 llvm::AllocaInst* a = make_alloca(ptypes[i], fn, p->name.c_str());
                 B->CreateStore(arg, a);
                 scopes_.back()[p->name] = {ptypes[i], B->CreateLoad(llvm_type(ptypes[i]), a)};
+                if (debug_on()) dbg_declare(p->name, ptypes[i], a);
                 ++i;
             }
             for (auto& st : fd->body->stmts) {
@@ -1618,6 +1716,8 @@ void Gen::gen_stmt(const Stmt* s) {
             }
             if (!block_has_term(B->GetInsertBlock())) B->CreateRet(B->getInt64(0));
             scopes_.pop_back();
+            cur_sp_ = saved_sp;
+            dbg_line_ = saved_dbg_line;
             top_level_ = saved_toplevel;
             cur_fn_ = saved;
             fn_ret_ = VType::Int;
@@ -1638,12 +1738,14 @@ std::string Gen::run(llvm::Module& mod) {
     mod_ = &mod;
     B = new llvm::IRBuilder<>(mod.getContext());
     (void)cfg_;
+    if (debug_on()) dbg_begin(mod);
 
     // main() -> i32
     llvm::FunctionType* mainFT = llvm::FunctionType::get(B->getInt32Ty(), {B->getPtrTy(), B->getPtrTy()}, false);
     llvm::Function* mainF = llvm::Function::Create(mainFT, llvm::Function::ExternalLinkage, "main", mod_);
     llvm::BasicBlock* entry = llvm::BasicBlock::Create(mod.getContext(), "entry", mainF);
     B->SetInsertPoint(entry);
+    if (debug_on()) dbg_begin_func(mainF, "main");
 
     // 全局作用域
     top_level_ = true;
@@ -1660,6 +1762,7 @@ std::string Gen::run(llvm::Module& mod) {
     llvm::BasicBlock* curBB = B->GetInsertBlock();
     if (curBB && !block_has_term(curBB)) B->CreateRet(B->getInt32(0));
 
+    if (debug_on()) dbg_end();
     delete B; B = nullptr;
     return {};
 }
@@ -1770,6 +1873,7 @@ std::string build_vortex_exe(const std::string& src, const BuildConfig& cfg) {
 #endif
     std::string cmd = "g++ \"" + objPath + "\" \"" + rtLib +
                       "\" -o \"" + cfg.output + "\" -static -static-libgcc -static-libstdc++ -pthread";
+    if (cfg.debug) cmd += " -g";
     int rc = std::system(cmd.c_str());
     if (rc != 0) return "[Link] g++ failed (code " + std::to_string(rc) + ")";
     return {};

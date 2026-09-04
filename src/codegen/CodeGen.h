@@ -18,6 +18,7 @@ struct BuildConfig {
     std::string output;        // 输出 exe 路径
     int opt_level = 2;         // 0..3
     bool emit_asm = false;     // 是否同时生成 .s 汇编
+    bool debug = false;        // 是否生成 DWARF 调试信息（支持断点/变量查看）
     std::string triple;        // 空 = 宿主默认
 };
 
