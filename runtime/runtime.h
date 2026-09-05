@@ -51,7 +51,11 @@ double    vor_cast_f64(VStr* s);
 // throw 时 longjmp 回该 frame，catch 读取 msg。
 void    vor_ex_push(void* jb);
 void    vor_ex_pop(void);
-void    vor_throw_str(VStr* msg);
+#if defined(_MSC_VER)
+void    __declspec(noreturn) vor_throw_str(VStr* msg);
+#else
+void    __attribute__((noreturn)) vor_throw_str(VStr* msg);
+#endif
 VStr*   vor_ex_caught(void);
 // 低层 setjmp/longjmp（runtime 内自实现，Win64）
 int     vor_ex_setjmp(void* jb);

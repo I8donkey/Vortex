@@ -4,6 +4,11 @@
 // ============================================================
 #include "runtime.h"
 #include "net_core.h"
+#if defined(_MSC_VER)
+#define VORTEX_RT_NORETURN __declspec(noreturn)
+#else
+#define VORTEX_RT_NORETURN __attribute__((noreturn))
+#endif
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -127,7 +132,7 @@ VStr* vor_bool_to_str(int b) {
 }
 
 // str -> 标量（解析失败抛异常，与解释器一致）
-static void throw_rt(const char* msg) {
+static VORTEX_RT_NORETURN void throw_rt(const char* msg) {
     VStr* m = vor_str_from_cstr(msg);
     vor_throw_str(m);
     vor_obj_release(m);
@@ -217,7 +222,7 @@ void vor_ex_push(void* jb) {
 void vor_ex_pop(void) {
     if (rt_ex_top_) { RT_ExFrame* p = rt_ex_top_->prev; std::free(rt_ex_top_); rt_ex_top_ = p; }
 }
-void vor_throw_str(VStr* msg) {
+void VORTEX_RT_NORETURN vor_throw_str(VStr* msg) {
     if (rt_ex_top_) {
         std::snprintf(rt_ex_top_->msg, sizeof(rt_ex_top_->msg), "%s",
                       msg ? msg->data : "");
@@ -781,7 +786,7 @@ double vor_time_mktime(const VTuple* tr) {
 VStr* vor_time_strftime(VStr* fmt, const VTuple* tr) {
     std::tm t = tuple_to_tm(tr); std::mktime(&t);
     char buf[256];
-    std::strftime(buf, sizeof(buf), fmt && fmt->data ? fmt->data : "", &t);
+    std::strftime(buf, sizeof(buf), fmt ? fmt->data : "", &t);
     return vor_str_from_cstr(buf);
 }
 
