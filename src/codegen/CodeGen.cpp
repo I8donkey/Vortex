@@ -1250,6 +1250,11 @@ LVal Gen::gen_call(const CallExpr* c) {
         llvm::Value* r = B->CreateCall(callee, args, "call");
         return {fn_ret_of(fname), r};
     }
+    // 未转发扩展模块调用（如 render3d./game2d. 等 P4 按需裁减项）：明确报错而非崩溃
+    if (fname.find('.') != std::string::npos) {
+        throw std::runtime_error("编译错误：不支持的模块调用 '" + fname +
+                                 "'（编译器尚未转发该扩展模块，请改用解释器运行）");
+    }
     return {VType::Void, nullptr};
 }
 
