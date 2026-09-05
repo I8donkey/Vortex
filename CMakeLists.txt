@@ -5,6 +5,39 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# ==================== 依赖管理：CPM.cmake ====================
+# 用 CPM 自动拉取可下载的小型第三方依赖（沿用 CPM 惯例，不含 Qt）。
+# 若无法联网下载，则自动回退到系统 find_package / 本地预编译依赖。
+option(VORTEX_USE_CPM "Fetch small optional dependencies automatically via CPM" ON)
+if(VORTEX_USE_CPM)
+    set(_CPM_DL "${CMAKE_BINARY_DIR}/cmake/CPM.cmake")
+    # 若已存在且非空则直接复用，否则尝试（重新）下载；空/失败视为离线
+    if(NOT EXISTS "${_CPM_DL}")
+        file(DOWNLOAD "https://raw.githubusercontent.com/cpm-cmake/CPM.cmake/v0.40.8/cmake/CPM.cmake"
+                      "${_CPM_DL}" STATUS _cpm_st LOG _cpm_log)
+    endif()
+    set(_CPM_OK 0)
+    if(EXISTS "${_CPM_DL}")
+        file(SIZE "${_CPM_DL}" _cpm_sz)
+        if(_cpm_sz GREATER 0)
+            set(_CPM_OK 1)
+        else()
+            file(REMOVE "${_CPM_DL}")   # 空文件（下载失败残留），丢弃
+        endif()
+    endif()
+    if(_CPM_OK)
+        set(CPM_SOURCE_CACHE "${CMAKE_SOURCE_DIR}/.vortex-deps/cpm")
+        set(CPM_DOWNLOAD_LOCATION "${_CPM_DL}")
+        include("${_CPM_DL}")
+        message(STATUS "Vortex CPM: dependency manager ready")
+        # 由 CPM 自动获取的小型依赖：zlib（zip/file 模块需要用）
+        # 拉取失败会在 CPM 内报错；如需彻底离线可改 -DVORTEX_USE_CPM=OFF 走系统 ZLIB。
+        CPMAddPackage(NAME zlib VERSION 1.3.1 GITHUB_REPOSITORY madler/zlib)
+    else()
+        message(STATUS "Vortex CPM: offline (CPM.cmake unavailable), falling back to system/installed deps")
+    endif()
+endif()
+
 # 输出目录
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
@@ -83,9 +116,11 @@ add_library(vortex_core STATIC ${VORTEX_SOURCES})
 target_include_directories(vortex_core PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_compile_features(vortex_core PUBLIC cxx_std_17)
 
-# zip / file 模块使用 zlib（MinGW 自带头文件与库）
-find_package(ZLIB)
-if(ZLIB_FOUND)
+# zip / file 模块使用 zlib：优先用 CPM 提供的 zlib 目标，否则回退系统 ZLIB / -lz
+find_package(ZLIB QUIET)
+if(TARGET zlib)
+    target_link_libraries(vortex_core PUBLIC zlib)
+elseif(ZLIB_FOUND)
     target_link_libraries(vortex_core PUBLIC ZLIB::ZLIB)
 else()
     target_link_libraries(vortex_core PUBLIC z)
@@ -153,7 +188,9 @@ target_include_directories(vortex_runtime PUBLIC ${CMAKE_SOURCE_DIR}/runtime)
 if(MSVC)
     target_compile_options(vortex_runtime PRIVATE /wd4201)
 endif()
-if(ZLIB_FOUND)
+if(TARGET zlib)
+    target_link_libraries(vortex_runtime PUBLIC zlib)
+elseif(ZLIB_FOUND)
     target_link_libraries(vortex_runtime PUBLIC ZLIB::ZLIB)
 else()
     target_link_libraries(vortex_runtime PUBLIC z)
