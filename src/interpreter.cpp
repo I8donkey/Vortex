@@ -619,7 +619,7 @@ void Interpreter::init_modules() {
         std_modules_["random"] = mod;
     }
 
-    // ================= 扩展模块：cuda / game2d / render3d =================
+    // ================= 扩展模块：game2d / render3d =================
     register_extension_modules(std_modules_);
 }
 

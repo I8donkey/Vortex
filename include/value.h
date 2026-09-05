@@ -91,7 +91,7 @@ using ModuleRep = std::unordered_map<std::string, ValuePtr>; // 模块成员：�
 
 // ========== Opaque：不透明扩展对象（GPU / 2D / 3D 等资源句柄） ==========
 // 具体资源由各模块分配与释放，解释器仅负责生命周期与传递。
-// kind 以字符串标识资源类型（如 "cuda_tensor","g2d_sprite","r3d_mesh"），
+// kind 以字符串标识资源类型（如 "g2d_sprite","r3d_mesh"），
 // 便于运行时类型检查。
 struct OpaqueResource {
     std::string kind;

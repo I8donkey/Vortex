@@ -27,31 +27,12 @@ endif()
 include_directories(${CMAKE_SOURCE_DIR}/include)
 
 # ============= 扩展模块开关（默认 ON，即使依赖缺失仍可编译为 fallback） =============
-option(VORTEX_WITH_CUDA    "Build CUDA compute module (real GPU path requires CUDA toolkit)" ON)
 option(VORTEX_WITH_GAME2D  "Build 2D game module (real window requires SDL2)"          ON)
 option(VORTEX_WITH_RENDER3D "Build 3D rendering module (GPU path requires OpenGL/GLEW)" ON)
 
 # 尝试查找真实 GPU / 多媒体 SDK（找到则启用真实路径宏，否则继续 fallback 编译）
-set(VORTEX_HAS_REAL_CUDA OFF)
 set(VORTEX_HAS_SDL2 OFF)
 set(VORTEX_HAS_GL OFF)
-
-if(VORTEX_WITH_CUDA)
-    include(CheckLanguage)
-    check_language(CUDA)
-    if(CMAKE_CUDA_COMPILER)
-        enable_language(CUDA)
-        find_package(CUDAToolkit)
-        if(CUDAToolkit_FOUND)
-            set(VORTEX_HAS_REAL_CUDA ON)
-            message(STATUS "Vortex CUDA: real CUDA toolkit ${CUDAToolkit_VERSION} found")
-        else()
-            message(STATUS "Vortex CUDA: CUDA compiler found but CUDAToolkit not fully available, using CPU fallback")
-        endif()
-    else()
-        message(STATUS "Vortex CUDA: CUDA compiler not found, using multi-threaded CPU fallback")
-    endif()
-endif()
 
 if(VORTEX_WITH_GAME2D)
     find_package(SDL2 QUIET)
@@ -88,9 +69,6 @@ set(VORTEX_SOURCES
 )
 
 # 扩展模块源文件
-if(VORTEX_WITH_CUDA)
-    list(APPEND VORTEX_SOURCES src/cuda_module.cpp)
-endif()
 if(VORTEX_WITH_GAME2D)
     list(APPEND VORTEX_SOURCES src/game2d_module.cpp)
 endif()
@@ -106,10 +84,6 @@ target_include_directories(vortex_core PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_compile_features(vortex_core PUBLIC cxx_std_17)
 
 # 扩展功能宏：真实 SDK 存在时开启
-if(VORTEX_HAS_REAL_CUDA)
-    target_compile_definitions(vortex_core PUBLIC VORTEX_WITH_CUDA_REAL)
-    target_link_libraries(vortex_core PUBLIC CUDA::cudart CUDA::cublas)
-endif()
 if(VORTEX_HAS_SDL2)
     target_compile_definitions(vortex_core PUBLIC VORTEX_WITH_SDL2_REAL)
     target_link_libraries(vortex_core PUBLIC SDL2::SDL2)
@@ -128,7 +102,7 @@ if(VORTEX_HAS_GL)
     target_link_libraries(vortex_core PUBLIC OpenGL::GL GLEW::GLEW)
 endif()
 
-# 给 MinGW 下的多线程链接支持（cuda / game2d / render3d / thread 模块用到 std::thread 等）
+# 给 MinGW 下的多线程链接支持（game2d / render3d / thread 模块用到 std::thread 等）
 if(MINGW)
     find_package(Threads REQUIRED)
     target_link_libraries(vortex_core PUBLIC Threads::Threads)

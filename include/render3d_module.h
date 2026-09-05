@@ -13,7 +13,7 @@
 // 渲染后端：
 //   * 默认 CPU 光栅化（headless/CI 保证能跑通），输出 Image。
 //   * 启用 OpenGL (VORTEX_WITH_GL) 后切换为 GPU 着色管线，
-//     并可与 CUDA 做资源互操作（在纹理/Buffer层面共享）。
+//     并可与 GPU 做资源互操作（在纹理/Buffer层面共享）。
 //
 // GPU 加速路径的钩子已经预埋：
 //   Scene::render_gpu(Camera*) 会在可用时调用 OpenGL 管线。

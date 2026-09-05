@@ -453,7 +453,7 @@ std::shared_ptr<game2d::Image> Scene::render_software(const CameraPtr& cam, int 
 
 bool Scene::render_gpu(const CameraPtr&, int, int, unsigned int) const {
     // GPU 钩子：如果集成了 OpenGL 上下文，这里负责 VAO / shader / FBO 绑定
-    // 以及 CUDA-OpenGL 互操作资源注册。未启用 OpenGL 时直接返回 false。
+    // 以及 GPU-OpenGL 互操作资源注册。未启用 OpenGL 时直接返回 false。
 #if defined(VORTEX_WITH_OPENGL_REAL)
     // GPU 管线实现占位：真实项目会在此调用 glDrawElements 并返回 true
 #endif
