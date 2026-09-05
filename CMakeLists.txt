@@ -10,31 +10,68 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # 若无法联网下载，则自动回退到系统 find_package / 本地预编译依赖。
 option(VORTEX_USE_CPM "Fetch small optional dependencies automatically via CPM" ON)
 if(VORTEX_USE_CPM)
-    set(_CPM_DL "${CMAKE_BINARY_DIR}/cmake/CPM.cmake")
-    # 若已存在且非空则直接复用，否则尝试（重新）下载；空/失败视为离线
-    if(NOT EXISTS "${_CPM_DL}")
-        file(DOWNLOAD "https://raw.githubusercontent.com/cpm-cmake/CPM.cmake/v0.40.8/cmake/CPM.cmake"
-                      "${_CPM_DL}" STATUS _cpm_st LOG _cpm_log)
-    endif()
+    set(_CPM_VER "v0.40.8")
+    # 完整 CPM.cmake 的最小可信大小（字节）；小于它即视为被截断/损坏，直接离线回退。
+    set(_CPM_MIN_SIZE 40000)
+
+    # 校验某文件是否是一份“可信完整”的 CPM.cmake；结果写回 _CPM_VALID(1/0)
+    function(_cpm_probe _file)
+        set(__valid 0)
+        if(EXISTS "${_file}")
+            file(SIZE "${_file}" __sz)
+            if(__sz GREATER ${_CPM_MIN_SIZE})
+                file(STRINGS "${_file}" __has LIMIT_COUNT 1 REGEX "CPMAddPackage")
+                if(__has)
+                    set(__valid 1)
+                endif()
+            endif()
+        endif()
+        set(_CPM_VALID ${__valid} PARENT_SCOPE)
+    endfunction()
+
     set(_CPM_OK 0)
-    if(EXISTS "${_CPM_DL}")
-        file(SIZE "${_CPM_DL}" _cpm_sz)
-        if(_cpm_sz GREATER 0)
+    set(_CPM_DL "")
+
+    # 1) 优先用仓库内置的完整副本（离线 / 无外网也可用）
+    set(_CPM_BUILTIN "${CMAKE_SOURCE_DIR}/cmake/CPM.cmake")
+    if(EXISTS "${_CPM_BUILTIN}")
+        _cpm_probe("${_CPM_BUILTIN}")
+        if(_CPM_VALID)
+            set(_CPM_DL "${_CPM_BUILTIN}")
             set(_CPM_OK 1)
-        else()
-            file(REMOVE "${_CPM_DL}")   # 空文件（下载失败残留），丢弃
         endif()
     endif()
+
+    # 2) 否则从多个源依次下载，且每次均严格校验；全损坏则离线
+    if(NOT _CPM_OK)
+        set(_CPM_DL "${CMAKE_BINARY_DIR}/cmake/CPM.cmake")
+        foreach(_url
+            "https://github.com/cpm-cmake/CPM.cmake/releases/download/${_CPM_VER}/CPM.cmake"
+            "https://raw.githubusercontent.com/cpm-cmake/CPM.cmake/v0.40.8/cmake/CPM.cmake"
+            "https://gitlab.com/cpm-cmake/CPM.cmake/-/raw/v0.40.8/cmake/CPM.cmake")
+            file(REMOVE "${_CPM_DL}")
+            file(DOWNLOAD "${_url}" "${_CPM_DL}" STATUS _st LOG _lg)
+            _cpm_probe("${_CPM_DL}")
+            if(_CPM_VALID)
+                set(_CPM_OK 1)
+                break()
+            endif()
+        endforeach()
+        if(NOT _CPM_OK)
+            file(REMOVE "${_CPM_DL}")    # 残留损坏文件，丢弃，绝不被 include
+        endif()
+    endif()
+
     if(_CPM_OK)
         set(CPM_SOURCE_CACHE "${CMAKE_SOURCE_DIR}/.vortex-deps/cpm")
         set(CPM_DOWNLOAD_LOCATION "${_CPM_DL}")
         include("${_CPM_DL}")
-        message(STATUS "Vortex CPM: dependency manager ready")
+        message(STATUS "Vortex CPM: dependency manager ready (${_CPM_DL})")
         # 由 CPM 自动获取的小型依赖：zlib（zip/file 模块需要用）
         # 拉取失败会在 CPM 内报错；如需彻底离线可改 -DVORTEX_USE_CPM=OFF 走系统 ZLIB。
         CPMAddPackage(NAME zlib VERSION 1.3.1 GITHUB_REPOSITORY madler/zlib)
     else()
-        message(STATUS "Vortex CPM: offline (CPM.cmake unavailable), falling back to system/installed deps")
+        message(STATUS "Vortex CPM: unavailable (offline/损坏), falling back to system/installed deps")
     endif()
 endif()
 
