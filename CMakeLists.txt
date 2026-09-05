@@ -282,6 +282,34 @@ if(VORTEX_WITH_LLVM)
         )
         # vortexcc 编译产物链接 vortex_runtime 库时使用其绝对路径
         target_compile_definitions(vortexcc PRIVATE VORTEX_RT_LIB="$<TARGET_FILE:vortex_runtime>")
+
+        # ======= LLD：让 vortexcc 生成的 exe 不用外部 g++，改用 LLVM 的 lld 链接 =======
+        option(VORTEX_USE_LLD "Use CPM to build LLD, so generated exes link via lld instead of external g++" ON)
+        if(VORTEX_USE_LLD AND _CPM_OK AND NOT TARGET lld)
+            # 复用本项目已编译的 LLVM 构建（LLVM_DIR），standalone 构建 lld；
+            # 需要能访问网络（GIT_TAG 对应 llvm 23.1）。
+            # 注意: CPMAddPackage 失败(如离线)会让配置报错; 彻底离线请 -DVORTEX_USE_LLD=OFF。
+            CPMAddPackage(NAME lld
+                          VERSION 23.1.0
+                          GITHUB_REPOSITORY llvm/lld
+                          GIT_TAG llvmorg-23.1.0
+                          DOWNLOAD_ONLY NO
+                          OPTIONS
+                            "LLVM_DIR ${LLVM_DIR}"
+                            "LLVM_INCLUDE_TESTS OFF"
+                            "LLVM_INCLUDE_BENCHMARKS OFF"
+                            "LLVM_INCLUDE_EXAMPLES OFF"
+                            "LLVM_INCLUDE_DOCS OFF"
+                            "LLVM_ENABLE_TERMINFO OFF"
+                            "LLVM_ENABLE_ZLIB OFF")
+        endif()
+        if(TARGET lld)
+            # 向 vortexcc 注入 lld 可执行文件路径；CodeGen 据此切换链接命令（不再调 g++）
+            target_compile_definitions(vortexcc PRIVATE VORTEX_LLD="$<TARGET_FILE:lld>")
+            message(STATUS "Vortex LLD: will link generated exes with LLD (no external g++)")
+        else()
+            message(STATUS "Vortex LLD: LLD unavailable (offline or not built), falling back to g++ for linking generated exes")
+        endif()
         # 静态 LLVM 组件库存在循环依赖，用 --start-group/--end-group 包裹以整体解析
         file(GLOB VORTEX_LLVM_ARCHIVES "${CMAKE_SOURCE_DIR}/.vortex-deps/llvm-build/lib/libLLVM*.a")
         list(PREPEND VORTEX_LLVM_ARCHIVES "-Wl,--start-group")

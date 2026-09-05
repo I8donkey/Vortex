@@ -3164,11 +3164,32 @@ std::string build_vortex_exe(const std::string& src, const BuildConfig& cfg) {
     if (const char* rt = std::getenv("VORTEX_RT")) rtLib = rt;
     else rtLib = "libvortex_runtime.a";
 #endif
-    std::string cmd = "g++ \"" + objPath + "\" \"" + rtLib +
-                      "\" -o \"" + cfg.output + "\" -static -static-libgcc -static-libstdc++ -pthread -lz -lsqlite3 -lwinhttp -LD:/gcc/opt/lib";
+    std::string cmd;
+#ifndef VORTEX_DEFAULT_GCC_DIR
+#define VORTEX_DEFAULT_GCC_DIR "D:/gcc"
+#endif
+#ifdef VORTEX_LLD
+    // ---------- 用 LLVM lld 链接（生成 exe 不依赖外部 g++） ----------
+    // 仍需要 MinGW 的 C++ 运行库/启动对象（runtime 是 C++）。其目录默认取
+    // 环境变量 VORTEX_GCC_DIR，否则用编译时注入的默认路径。
+    const char* gp = std::getenv("VORTEX_GCC_DIR");
+    std::string gccDir = gp ? gp : VORTEX_DEFAULT_GCC_DIR;
+    cmd = "\"" + std::string(VORTEX_LLD) + "\" \"" + objPath + "\" \"" + rtLib +
+          "\" -o \"" + cfg.output + "\" -static -L\"" + gccDir + "/lib\" \"" +
+          gccDir + "/lib/crt2.o" +
+          "\" -lmingw32 -lgcc -lstdc++ -lmoldname -lmingwex -lmsvcrt" +
+          " -ladvapi32 -lshell32 -luser32 -lkernel32 -limagehlp -lws2_32" +
+          " -lz -lsqlite3 -lwinhttp -L\"" + gccDir + "/opt/lib\"";
+    if (cfg.debug) cmd += " -g";
+    int rc = std::system(cmd.c_str());
+    if (rc != 0) return "[Link] lld failed (code " + std::to_string(rc) + ")";
+#else
+    cmd = "g++ \"" + objPath + "\" \"" + rtLib +
+          "\" -o \"" + cfg.output + "\" -static -static-libgcc -static-libstdc++ -pthread -lz -lsqlite3 -lwinhttp -LD:/gcc/opt/lib";
     if (cfg.debug) cmd += " -g";
     int rc = std::system(cmd.c_str());
     if (rc != 0) return "[Link] g++ failed (code " + std::to_string(rc) + ")";
+#endif
     return {};
 }
 
