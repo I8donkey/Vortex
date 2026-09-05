@@ -1,0 +1,25 @@
+# test_hash.vt — hash 模块：md5 / sha1 / sha256（解释器 vs 编译器 golden）
+import hash;
+
+# 已知摘要向量：空串
+print(hash.md5(""));
+print(hash.sha1(""));
+print(hash.sha256(""));
+
+# "abc"
+print(hash.md5("abc"));
+print(hash.sha1("abc"));
+print(hash.sha256("abc"));
+
+# 标准MD5向量: "The quick brown fox jumps over the lazy dog"
+str fox = "The quick brown fox jumps over the lazy dog";
+print(hash.md5(fox));
+print(hash.sha1(fox));
+print(hash.sha256(fox));
+
+# 基本/一致性
+print(hash.md5("Vortex") == hash.md5("Vortex"));
+str a = "data"; str b = "data2";
+print(hash.sha256(a) != hash.sha256(b));
+
+print("done");

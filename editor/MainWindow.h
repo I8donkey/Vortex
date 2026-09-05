@@ -4,15 +4,21 @@
 #include <QMainWindow>
 #include <QString>
 #include <QSettings>
+#include <memory>
+#include "CodeEditor.h"
+namespace vortex { class Interpreter; }
 
 QT_BEGIN_NAMESPACE
 class QAction;
 class QToolBar;
 class QTabWidget;
 class QPlainTextEdit;
+class QLineEdit;
 class QLabel;
 class QSplitter;
 class QComboBox;
+class QMenuBar;
+class QMenu;
 class CodeEditor;
 QT_END_NAMESPACE
 
@@ -56,12 +62,17 @@ private slots:
     void cursorPositionChanged();
     void onLanguageChanged(int idx);
     void onThemeChanged(int idx);
+    void showFindDialog(bool replace);
+    void goToLine();
+    void onShellSubmit();
 
 private:
     void createActions();
+    void createMenuBar();
     void createToolBar();
     void createStatusBar();
     void createCentralWidget();
+    void createShell();
     void retranslateUi();
     void applyTheme(int idx);
     void saveSettings();
@@ -81,6 +92,8 @@ private:
 
     void appendOutput(const QString &text, bool isError = false);
     void clearOutput();
+    bool shellNeedsMore(const QString &src) const;
+    QString shellContinuationIndent() const;
 
     // ===== 成员 =====
     QToolBar    *toolBar_   = nullptr;
@@ -90,6 +103,13 @@ private:
     QLabel      *statusMsg_ = nullptr;
     QComboBox   *langCombo_ = nullptr;
     QComboBox   *themeCombo_ = nullptr;
+    QPlainTextEdit *shell_ = nullptr;
+    QLineEdit  *shellInput_ = nullptr;
+    QLabel     *shellPrompt_ = nullptr;
+    QWidget    *shell_holder_ = nullptr;
+    QString    shellBuffer_;        // 多行续行的累积源码
+    bool       shellContinuation_ = false;
+    std::unique_ptr<vortex::Interpreter> shellInterp_;
 
     QAction *actNew_      = nullptr;
     QAction *actOpen_     = nullptr;
@@ -101,6 +121,9 @@ private:
     QAction *actCompile_  = nullptr;
     QAction *actRun_      = nullptr;
     QAction *actCloseTab_ = nullptr;
+    QAction *actFind_     = nullptr;
+    QAction *actReplace_  = nullptr;
+    QAction *actGoToLine_ = nullptr;
 
     int language_ = 0;  // 0=English, 1=中文
     int theme_ = 0;     // 0=Light, 1=Dark

@@ -1,0 +1,42 @@
+import math
+
+int a = 10;
+int b = 3;
+print("a+b =", a + b);
+print("a-b =", a - b);
+print("a*b =", a * b);
+print("a/b =", a / b);
+print("a%b =", a % b);
+print("pow =", math.pow(a, b));
+print("sqrt =", math.sqrt(16.0));
+
+# 比较与布尔
+print("lt", a < b);
+print("gt", a > b);
+print("eq", a == b);
+print("and", true && false);
+print("or", true || false);
+print("not", !true);
+
+# 控制流
+int n = 0;
+int i = 0;
+while (i < 5) {
+    n = n + i;
+    i = i + 1;
+}
+print("loop_sum =", n);
+
+if (a > b) { print("a>b"); } elif (a == b) { print("a=b"); } else { print("a<b"); }
+
+# 函数递归
+def fact(k) {
+    if (k <= 1) { return 1; }
+    return k * fact(k - 1);
+}
+print("fact5 =", fact(5));
+
+str s1 = "hi";
+str s2 = " yo";
+print("strcat =", s1 + s2);
+print("strlen =", len(s1));

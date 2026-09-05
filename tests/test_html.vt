@@ -1,0 +1,10 @@
+# test_html.vt — html 模块：转义/去转义/去标签（解释器 vs 编译器 golden）
+import html;
+
+str raw = "a < b & c > \"q\"";
+print(html.escape(raw));
+print(html.unescape(html.escape(raw)));
+
+str page = "<div class=\"x\"><p>Hello &amp; &lt;world&gt;</p><p style=\"color:red\">Second</p></div>";
+print(html.strip_tags(page));
+print("done");

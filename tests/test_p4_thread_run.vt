@@ -1,0 +1,12 @@
+# thread.run/join：worker 访问(函数内)全局原子变量
+import thread;
+object counter = thread.atomic(0);
+def bump() {
+    thread.atomic_add(counter, 1);
+}
+object t = thread.run(bump);
+object u = thread.run(bump);
+thread.join(t);
+thread.join(u);
+print("count =", thread.atomic_get(counter));
+print("done");

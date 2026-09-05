@@ -1,0 +1,29 @@
+# ============================================================
+# test_zip.vt — zip 模块：打包/解压/计数（解释器 vs 编译器 golden）
+# ============================================================
+import zip;
+import file;
+
+str z = "_vf_test.zip";
+file.remove(z);
+zip.add(z, "a.txt", "hello hello hello");
+zip.add(z, "b.txt", "world");
+print(zip.count(z));
+print(zip.has(z, "a.txt"));
+print(zip.has(z, "nope.txt"));
+print(zip.extract(z, "a.txt"));
+print(zip.extract(z, "b.txt"));
+# 覆盖已存在条目
+zip.add(z, "a.txt", "hello2");
+print(zip.count(z));
+print(zip.extract(z, "a.txt"));
+
+# names：排序后的条目名列表
+object zn = zip.names(z);
+print(len(zn));
+print(zn[0]);
+print(zn[1]);
+
+file.remove(z);
+print(file.exists(z));
+print("done");

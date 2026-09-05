@@ -1,7 +1,11 @@
 build/
 build_ninja/
+build_mingw/
 newcodering.md
-*.vt
+
+# 构建输出目录
+bin/
+lib/
 
 # 构建产物
 lib/

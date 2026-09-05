@@ -1,0 +1,14 @@
+import math;
+print("pi =", math.pi);
+import log;
+log.info("hello from log module");
+import thread;
+
+def worker() {
+    print("  worker thread running");
+}
+
+print("launching thread...");
+t = thread.run(worker);
+thread.join(t);
+print("thread joined, all done");

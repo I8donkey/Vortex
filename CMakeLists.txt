@@ -76,12 +76,35 @@ if(VORTEX_WITH_RENDER3D)
     list(APPEND VORTEX_SOURCES src/render3d_module.cpp)
 endif()
 # 新模块：thread / log / gui（始终编译，gui 需要 Qt）
-list(APPEND VORTEX_SOURCES src/thread_module.cpp src/log_module.cpp src/gui_module.cpp)
+list(APPEND VORTEX_SOURCES src/thread_module.cpp src/log_module.cpp src/gui_module.cpp src/file_module.cpp src/zip_module.cpp src/xml_module.cpp src/html_module.cpp src/sql_module.cpp src/os_module.cpp src/regex_module.cpp src/json_module.cpp src/base64_module.cpp src/datetime_module.cpp src/csv_module.cpp src/hash_module.cpp src/str_module.cpp src/net_module.cpp src/sys_module.cpp)
 
 # 静态库：编译器核心
 add_library(vortex_core STATIC ${VORTEX_SOURCES})
 target_include_directories(vortex_core PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_compile_features(vortex_core PUBLIC cxx_std_17)
+
+# zip / file 模块使用 zlib（MinGW 自带头文件与库）
+find_package(ZLIB)
+if(ZLIB_FOUND)
+    target_link_libraries(vortex_core PUBLIC ZLIB::ZLIB)
+else()
+    target_link_libraries(vortex_core PUBLIC z)
+endif()
+
+# sql 模块使用 sqlite3（MinGW opt 自带头/库）
+set(_sqlite_lib ${CMAKE_SOURCE_DIR}/.vortex-deps/sqlite)
+if(EXISTS "D:/gcc/opt/include/sqlite3.h")
+    target_include_directories(vortex_core PRIVATE "D:/gcc/opt/include")
+    target_link_directories(vortex_core PRIVATE "D:/gcc/opt/lib")
+    target_link_libraries(vortex_core PRIVATE sqlite3)
+    set(VORTEX_SQLITE_INCLUDE "D:/gcc/opt/include")
+    set(VORTEX_SQLITE_LIB "D:/gcc/opt/lib")
+endif()
+
+# net 模块使用 WinHTTP（仅 Windows）
+if(WIN32)
+    target_link_libraries(vortex_core PUBLIC winhttp)
+endif()
 
 # 扩展功能宏：真实 SDK 存在时开启
 if(VORTEX_HAS_SDL2)
@@ -113,6 +136,9 @@ endif()
 # 可执行文件：编译器&解释器入口
 add_executable(vortex src/main.cpp)
 target_link_libraries(vortex PRIVATE vortex_core)
+if(EXISTS "D:/gcc/opt/include/sqlite3.h")
+    target_link_directories(vortex PRIVATE "D:/gcc/opt/lib")
+endif()
 
 # 若为 MinGW，静态链接标准库（避免依赖 libgcc/libstdc++ dll）
 if(MINGW)
@@ -121,10 +147,24 @@ endif()
 
 # ============ 原生编译器运行时（引用计数，C ABI） ============
 # vortexcc 链路生成的可执行文件会链接此库。
-add_library(vortex_runtime STATIC runtime/runtime.cpp)
+add_library(vortex_runtime STATIC runtime/runtime.cpp
+    runtime/g2d_rt.cpp runtime/r3d_rt.cpp runtime/r3d_g2d.h)
 target_include_directories(vortex_runtime PUBLIC ${CMAKE_SOURCE_DIR}/runtime)
 if(MSVC)
     target_compile_options(vortex_runtime PRIVATE /wd4201)
+endif()
+if(ZLIB_FOUND)
+    target_link_libraries(vortex_runtime PUBLIC ZLIB::ZLIB)
+else()
+    target_link_libraries(vortex_runtime PUBLIC z)
+endif()
+if(EXISTS "D:/gcc/opt/include/sqlite3.h" AND EXISTS "${VORTEX_SQLITE_INCLUDE}")
+    target_include_directories(vortex_runtime PRIVATE "D:/gcc/opt/include")
+    target_link_directories(vortex_runtime PUBLIC "D:/gcc/opt/lib")
+    target_link_libraries(vortex_runtime PUBLIC sqlite3)
+endif()
+if(WIN32)
+    target_link_libraries(vortex_runtime PUBLIC winhttp)
 endif()
 
 # ==================== Qt 编辑器 ====================
@@ -166,6 +206,9 @@ if(VORTEX_BUILD_EDITOR)
             vortex_core
             Qt${QT_VERSION_MAJOR}::Widgets
         )
+        if(EXISTS "D:/gcc/opt/include/sqlite3.h")
+            target_link_directories(vortex_editor PRIVATE "D:/gcc/opt/lib")
+        endif()
         if(MINGW)
             target_link_options(vortex_editor PRIVATE -static -static-libgcc -static-libstdc++)
         endif()

@@ -1,0 +1,33 @@
+# test_json.vt — json 模块：标量解析/字符串化（解释器 vs 编译器 golden）
+import json;
+
+print(json.valid("\"hello\""));
+print(json.valid("{\"a\": 1}"));
+print(json.valid("not json"));
+print(json.parse_str("\"hi\\nthere\""));
+print(json.parse_int("42"));
+print(json.parse_float("3.25"));
+print(json.parse_bool("true"));
+print(json.parse_bool("false"));
+print(json.stringify_str("a\"b"));
+print(json.stringify_int(7));
+print(json.stringify_bool(true));
+print(json.stringify_bool(false));
+# parse_array：JSON 数组 → 字符串列表
+object arr = json.parse_array("[\"apple\", \"banana\", \"cherry\"]");
+print(len(arr));
+print(arr[0]);
+print(arr[1]);
+print(arr[2]);
+object nums = json.parse_array("[1, 2, 3]");
+print(len(nums));
+print(nums[0]);
+print(nums[2]);
+object empty_a = json.parse_array("[]");
+print(len(empty_a));
+# get：读取 JSON 对象键值
+print(json.get("{\"name\": \"Alice\", \"age\": 30}", "name"));
+print(json.get("{\"name\": \"Alice\", \"age\": 30}", "age"));
+print(json.get("{\"name\": \"Alice\", \"age\": 30}", "missing"));
+print(json.get("{\"a\": \"x\", \"b\": \"y\"}", "b"));
+print("done");

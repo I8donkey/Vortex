@@ -1,0 +1,19 @@
+# 一致性探测：浮点格式、类型转换、边界
+print(5.0 / 2.0);
+print(1.0 / 3.0);
+print(2.5 + 1);
+print(10 % 3);
+print(-10 % 3);
+print(7 // 2);
+print(float(3));
+print(int(3.7));
+print(int("-42"));
+print(type(3));
+print(type(3.5));
+print(type("abc"));
+print(3 == 3.0);
+print(1 < 2.5);
+str s = "x" + 5;
+print(s);
+print(len("hello"));
+print("n=" + 42);

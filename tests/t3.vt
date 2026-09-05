@@ -1,0 +1,1 @@
+int a = 10; int b = 3; for (j in [1, 2, 3]) { print(j); } print("f1"); if (a < b) { print(2); } else if (a == 10) { print(3); } else { print(4); } print("f2"); print(7.0 // 2); print("f3"); string p = "he" + "llo"; print(p); print("f4"); print(3.5); print("f5");

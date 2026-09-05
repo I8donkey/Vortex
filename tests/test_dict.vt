@@ -1,0 +1,19 @@
+object d = {1: 10, 2: 20};
+print(d[1]);
+print(d[2]);
+print(d.len());
+if (d.has(2)) { print(100); }
+d.put(3, 30);
+print(d.get(3));
+d.put(4, 40);
+print(d[4]);
+int s = 0;
+for (k in d) {
+    s = s + d[k];
+}
+print(s);
+object e = {"a": 5};
+print(e["a"]);
+print(e);
+object f = {"name": "vortex", "ver": 7};
+print(f);

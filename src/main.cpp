@@ -1,4 +1,5 @@
 #include "interpreter.h"
+#include "os_module.h"
 #include "lexer.h"
 #include "parser.h"
 #include "ast.h"
@@ -6,9 +7,17 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <vector>
 #include <cstring>
 
 using namespace vortex;
+
+// 把 argv[start..] 作为脚本命令行参数注入（跳过程序名/脚本名）
+static void inject_args(int start, int argc, char** argv) {
+    std::vector<std::string> args;
+    for (int i = start; i < argc; ++i) args.emplace_back(argv[i]);
+    os_set_global_args(args);
+}
 
 static std::string read_file(const std::string& path) {
     std::ifstream f(path, std::ios::binary);
@@ -366,6 +375,7 @@ int main(int argc, char** argv) {
         if (argc < 3) { std::cerr << "Missing file path\n"; return 1; }
         std::string src = read_file(argv[2]);
         if (src.empty()) return 1;
+        inject_args(3, argc, argv);
         return run_source(src, argv[2]) ? 0 : 1;
     }
     if (a1 == "compile") {
@@ -381,5 +391,6 @@ int main(int argc, char** argv) {
         print_usage(argv[0]);
         return 1;
     }
+    inject_args(2, argc, argv);
     return run_source(src, a1) ? 0 : 1;
 }

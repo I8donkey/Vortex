@@ -1,0 +1,18 @@
+import math
+print("pi =", math.pi)
+
+import log
+log.info("hello from log module")
+log.warn("a warning message")
+log.error("an error message")
+
+import thread
+
+def worker() {
+    print("  worker thread running")
+}
+
+print("launching thread...")
+t = thread.run(worker)
+thread.join(t)
+print("thread joined, all done")

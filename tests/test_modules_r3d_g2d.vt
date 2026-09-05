@@ -1,0 +1,59 @@
+# ============================================================
+# test_modules_r3d_g2d.vt — render3d / game2d 模块回归测试
+# 纯解释器模块（P4 未在 codegen 转发，仅验证解释器语义）
+# 运行：vortex run test_modules_r3d_g2d.vt
+# ============================================================
+import game2d;
+import render3d;
+
+# ---------- game2d: 图像 ----------
+print("== game2d 图像 ==");
+object checker = game2d.checker_image(8, 4, 2);
+print("checker size =", game2d.image_size(checker));
+object solid = game2d.solid_image(3, 5, 255, 128, 64);
+print("solid size =", game2d.image_size(solid));
+object empty = game2d.new_image(10, 10);
+print("empty size =", game2d.image_size(empty));
+
+# ---------- game2d: 精灵碰撞（纯计算，确定性） ----------
+print("== game2d 精灵 ==");
+object sp1 = game2d.new_sprite(checker, 0.0, 0.0);
+object sp2 = game2d.new_sprite(checker, 2.0, 1.0);
+print("size =", game2d.image_size(checker));
+# 精灵尺寸由图像决定，这里仅测 API 可用
+game2d.sprite_move(sp1, 3.0, 3.0);
+game2d.sprite_visible(sp1, true);
+
+# ---------- render3d: 场景/相机/网格 ----------
+print("== render3d 场景 ==");
+object scene = render3d.new_scene();
+object cam_p = render3d.new_camera_perspective();
+object cam_o = render3d.new_camera_ortho();
+render3d.camera_lookat(cam_p, 0.0, 0.0, 5.0, 0.0, 0.0, 0.0);
+
+object mat = render3d.new_material(0.9, 0.5, 0.1, 0.2, 0.8);
+object box = render3d.mesh_box(2.0, 2.0, 2.0);
+object sphere = render3d.mesh_sphere(1.0);
+
+object n_box = render3d.new_node();
+render3d.node_attach_mesh(n_box, box);
+render3d.node_set_pos(n_box, 0.0, 0.0, 0.0);
+render3d.scene_add_node(scene, n_box);
+
+object n_sph = render3d.new_node(sphere);
+render3d.node_attach_mesh(n_sph, sphere);
+render3d.node_set_pos(n_sph, 1.5, 0.0, 0.0);
+render3d.scene_add_node(scene, n_sph);
+
+render3d.scene_set_ambient(scene, 0.2, 0.2, 0.25);
+object light = render3d.new_light_dir(0.5, -1.0, -0.3, [1.0, 0.9, 0.8], 1.1);
+render3d.scene_add_light(scene, light);
+
+# ---------- render3d: 渲染到图像 ----------
+print("== render3d 渲染 ==");
+object img = render3d.render(scene, cam_p, 80, 60);
+print("persp render =", game2d.image_size(img));
+object img_o = render3d.render(scene, cam_o, 40, 30);
+print("ortho  render =", game2d.image_size(img_o));
+
+print("done");

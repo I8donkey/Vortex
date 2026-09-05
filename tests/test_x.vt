@@ -1,0 +1,11 @@
+object d = {1: 10};
+d[1] = 99;
+print(d.get(1));
+print(d[1]);
+d[5] = 55;
+print(d[5]);
+print(d.len());
+object e = {"name": "vortex"};
+print(e.get_str("name"));
+print(e.has("name"));
+print("ok");

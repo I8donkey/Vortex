@@ -1,0 +1,26 @@
+import time;
+import random;
+import math;
+
+# == time 批B：fixed ts，可 golden（gmtime 与 TZ 无关）==
+tuple tm = time.gmtime(1700000000);
+print(tm);
+print(time.mktime(tm));
+print(time.strftime("%Y-%m-%d %H:%M:%S", tm));
+print(time.strftime("%A %Y", tm));
+
+# == random 批B：定种子 + list 交互，可 golden ==
+random.seed(7);
+list a = [10, 20, 30, 40, 50];
+print(random.choice(a));
+print(random.choice(a));
+print(random.sample(a, 3));
+random.shuffle(a);
+print(a);
+print(random.choices(a));
+print(random.choices(a, [1, 1, 1, 1, 1], 4));
+list c = random.choices(a, [1, 1, 1, 1, 1], 3);
+print(c);
+
+# == math 回归 ==
+print(math.sqrt(16));

@@ -1,0 +1,61 @@
+print("== list ==");
+object a = [1, 2, 3];
+print(a);
+print(a[0]);
+print(a[2]);
+print(a.len());
+a.append(4);
+print(a);
+int s = 0;
+for (i in a) { s = s + i; }
+print(s);
+print(a[0] + a[1] * 100);
+
+print("== dict int ==");
+object d = {1: 10, 2: 20};
+print(d[1]);
+print(d.get(2));
+print(d.len());
+if (d.has(2)) { print(1); } else { print(0); }
+d.put(3, 30);
+print(d.get(3));
+d.put(4, 40);
+print(d.get(4));
+int tot = 0;
+for (k in d) { tot = tot + d[k]; }
+print(tot);
+
+print("== dict str ==");
+object e = {"x": 42};
+print(e.get("x"));
+print(e["x"]);
+print(e.len());
+print(e);
+
+print("== set ==");
+object st = {1, 2, 2, 3};
+print(st);
+print(st.len());
+if (st.contains(2)) { print(100); }
+st.insert(4);
+print(st);
+st.erase(1);
+print(st.len());
+
+print("== pair ==");
+object p = pair(7, 8);
+print(p.first);
+print(p.second);
+print(p);
+
+print("== tuple ==");
+object t = make_tuple(5, 6, 7);
+print(t[0]);
+print(t[2]);
+print(t.len());
+print(t);
+int ts = 0;
+for (x in t) { ts = ts + x; }
+print(ts);
+
+print("== done ==");

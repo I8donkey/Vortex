@@ -1,0 +1,19 @@
+# test_net.vt — net 模块：URL 编解码（纯函数，确定性 golden）
+import net;
+
+# 编码：字母数字保留，特殊字符 % 转义，空格 -> %20
+print(net.url_encode("hello world"));
+print(net.url_encode("a/b c?d=e&f=g"));
+print(net.url_encode("Vortex语言~!"));
+
+# 解码
+print(net.url_decode("hello%20world"));
+print(net.url_decode("a%2Fb%20c?d%3De%26f%3Dg"));
+print(net.url_decode("a+b"));
+
+# 往返一致性
+str src = "some text / with?chars&and=more!";
+print(net.url_decode(net.url_encode(src)) == src);
+print(net.url_encode(""));
+
+print("done");

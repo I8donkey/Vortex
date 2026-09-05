@@ -1,0 +1,26 @@
+# test_random.vt — random 模块：固定种子下的确定性序列（golden）
+import random;
+
+# 固定种子 → 输出可复现，解释器与编译端应逐字一致
+random.seed(42);
+print(random.random());
+print(random.randint(1, 100));
+print(random.getrandbits(8) >= 0 && random.getrandbits(8) < 256);
+print(random.getrandbits(32) >= 0);
+print(random.randrange(0, 10));
+print(random.randrange(0, 20, 5));
+print(random.uniform(0.0, 1.0) >= 0.0);
+print(random.gauss(0.0, 1.0));
+
+# 再次固定种子 → 序列可重现
+random.seed(42);
+print(random.random() >= 0.0);
+
+random.seed(7);
+int a = random.randint(1, 10);
+int b = random.randint(1, 10);
+print(a >= 1 && a <= 10);
+print(b >= 1 && b <= 10);
+print(a != b || a == b);
+
+print("done");

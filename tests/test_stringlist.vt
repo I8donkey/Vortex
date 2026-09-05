@@ -1,0 +1,26 @@
+# test_stringlist.vt — 编译端字符串列表支持（text.split + 索引/遍历/长度）
+import text;
+
+object parts = text.split("apple,banana,cherry", ",");
+print(len(parts));
+print(parts[0]);
+print(parts[1]);
+print(parts[2]);
+
+# 空分隔符：逐字符拆分
+object chars = text.split("abc", "");
+print(len(chars));
+print(chars[0]);
+print(chars[2]);
+
+# 遍历字符串列表
+object words = text.split("x;y;z", ";");
+for (w in words) {
+    print(w);
+}
+
+# 数字字符串元素可再取
+object nums = text.split("10,20,30", ",");
+print(len(nums));
+print(nums[0] + nums[1]);
+print("done");

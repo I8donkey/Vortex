@@ -1,0 +1,11 @@
+# test_sys.vt — sys 模块：版本/平台/等待/退出（解释器 vs 编译器 golden）
+import sys;
+
+print(sys.version());
+print(sys.platform());
+# sleep 返回 0，确定性输出
+print(sys.sleep(1));
+print("sleep-ok");
+print("before-exit");
+sys.exit(0);
+print("this-should-not-print");

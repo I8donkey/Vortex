@@ -36,6 +36,8 @@ VStr* vor_str_concat(VStr* a, VStr* b);
 int   vor_str_len(VStr* s);
 // 返回内部 C 字符串(只读，生命周期归 str)
 const char* vor_str_cstr(VStr* s);
+// 比较两个 str（strcmp 语义）：<0 / 0 / >0
+int vor_str_cmp(const VStr* a, const VStr* b);
 // 整型/浮点 -> str（供 print/cast）
 VStr* vor_i64_to_str(long long v);
 VStr* vor_double_to_str(double v);
@@ -70,7 +72,10 @@ void vor_print_int_list(VList* l);
 void   vor_list_push(VList* l, long long e);
 void   vor_list_set(VList* l, int idx, long long e);
 long long vor_list_get(const VList* l, int idx);
+VStr*  vor_list_get_str(const VList* l, int idx);
 int    vor_list_len(const VList* l);
+long long vor_list_sum(const VList* l);
+long long vor_list_prod(const VList* l);
 
 // ========== 字典（引用计数，线性数组）==========
 // key/value 各支持 int 或 str 两种形式。
@@ -172,6 +177,53 @@ double vor_tan(double a);
 long long vor_floor(double a);
 long long vor_ceil(double a);
 
+// 更多 math.* 转发
+double vor_cbrt(double a);
+double vor_exp(double a);
+double vor_log(double a);
+double vor_logbase(double a, double base);
+double vor_log2(double a);
+double vor_log10(double a);
+double vor_log1p(double a);
+double vor_expm1(double a);
+double vor_erf(double a);
+double vor_tgamma(double a);
+double vor_lgamma(double a);
+double vor_asin(double a);
+double vor_acos(double a);
+double vor_atan(double a);
+double vor_atan2(double a, double b);
+double vor_sinh(double a);
+double vor_cosh(double a);
+double vor_tanh(double a);
+double vor_asinh(double a);
+double vor_acosh(double a);
+double vor_atanh(double a);
+double vor_hypot(double a, double b);
+long long vor_trunc(double a);
+double vor_roundn(double a, long long nd);
+double vor_fmod(double a, double b);
+double vor_fmin(double a, double b);
+double vor_fmax(double a, double b);
+double vor_remainder(double a, double b);
+long long vor_factorial(long long n);
+long long vor_isqrt(long long n);
+long long vor_gcd(long long a, long long b);
+long long vor_lcm(long long a, long long b);
+long long vor_isinf(double a);
+long long vor_isnan(double a);
+long long vor_isfinite(double a);
+long long vor_isclose(double a, double b, double rel_tol, double abs_tol);
+long long vor_iabs(long long a);
+long long vor_imin(long long a, long long b);
+long long vor_imax(long long a, long long b);
+long long vor_comb(long long n, long long k);
+long long vor_perm(long long n, long long k);
+double vor_radians(double a);
+double vor_degrees(double a);
+double vor_copysign(double a, double b);
+double vor_remainder(double a, double b);
+
 // ========== time 模块转发（P4 批A） ==========
 double vor_time_now(void);
 void   vor_sleep(double sec);
@@ -179,11 +231,19 @@ double vor_counter(void);
 void   vor_counter_reset(void);
 double vor_process_time(void);
 
+// ========== sys 模块转发 ==========
+VStr*  vor_sys_version(void);
+long long vor_sys_time_ms(void);
+double vor_sys_clock(void);
+long long vor_sys_sleep(long long ms);
+void   vor_sys_exit(long long code);
+
 // ========== random 模块转发（P4 批A） ==========
 void vor_rng_seed(unsigned long long seed);
 double vor_rng_random(void);
 double vor_rng_uniform(double a, double b);
 long long vor_rng_randint(long long lo, long long hi);
+long long vor_rng_getrandbits(long long k);
 long long vor_rng_randrange(long long start, long long stop, long long step);
 double vor_rng_gauss(double mu, double sigma);
 double vor_rng_expovariate(double lambda);
@@ -198,6 +258,156 @@ VStr* vor_log_get_level(void);
 void vor_log_format(VStr* fmt);
 void vor_log_file(VStr* path);
 void vor_log_console(int on);
+
+// ========== file 模块转发 ==========
+VStr*  vor_file_read(VStr* path);
+VList* vor_file_readlines(VStr* path);
+VList* vor_file_listdir(VStr* path);
+void   vor_file_write(VStr* path, VStr* data);
+void   vor_file_append(VStr* path, VStr* data);
+int    vor_file_exists(VStr* path);
+int    vor_file_remove(VStr* path);
+int    vor_file_rename(VStr* from, VStr* to);
+long long vor_file_size(VStr* path);
+int    vor_file_isdir(VStr* path);
+int    vor_file_isfile(VStr* path);
+int    vor_file_mkdir(VStr* path);
+int    vor_file_rmdir(VStr* path);
+VList* vor_file_listdir(VStr* path);
+
+// ========== zip 模块转发（zlib） ==========
+void   vor_zip_add(VStr* path, VStr* name, VStr* data);
+VStr*  vor_zip_extract(VStr* path, VStr* name);
+long long vor_zip_count(VStr* path);
+VList* vor_zip_names(VStr* path);
+int    vor_zip_has(VStr* path, VStr* name);
+
+// ========== xml 模块转发 ==========
+VStr* vor_xml_escape(VStr* s);
+VStr* vor_xml_unescape(VStr* s);
+VStr* vor_xml_parse_text(VStr* xml, VStr* tag);
+
+// ========== html 模块转发 ==========
+VStr* vor_html_escape(VStr* s);
+VStr* vor_html_unescape(VStr* s);
+VStr* vor_html_strip_tags(VStr* s);
+
+// ========== sql 模块转发（sqlite3；句柄以不透明指针传递） ==========
+void*    vor_sql_open(VStr* path);
+void     vor_sql_close(void* h);
+long long vor_sql_execute(void* h, VStr* sql);
+long long vor_sql_table_exists(void* h, VStr* name);
+
+// ========== os 模块转发 ==========
+VStr*    vor_os_getenv(VStr* name);
+int      vor_os_hasenv(VStr* name);
+int      vor_os_setenv(VStr* name, VStr* val);
+int      vor_os_unsetenv(VStr* name);
+VStr*    vor_os_cwd(void);
+int      vor_os_chdir(VStr* path);
+long long vor_os_pid(void);
+VStr*    vor_os_platform(void);
+VStr*    vor_os_home(void);
+VStr*    vor_os_tempdir(void);
+VStr*    vor_os_path_join(VStr* a, VStr* b);
+
+// ========== regex 模块转发 ==========
+VStr*    vor_regex_escape(VStr* s);
+VList*   vor_regex_split(VStr* pat, VStr* s);
+int      vor_regex_valid(VStr* pat);
+int      vor_regex_match(VStr* pat, VStr* s);
+int      vor_regex_search(VStr* pat, VStr* s);
+VStr*    vor_regex_find(VStr* pat, VStr* s);
+VStr*    vor_regex_find_all(VStr* pat, VStr* s);
+VStr*    vor_regex_replace(VStr* pat, VStr* s, VStr* repl);
+long long vor_regex_count(VStr* pat, VStr* s);
+
+// ========== json 模块转发 ==========
+int      vor_json_valid(VStr* s);
+VList*   vor_json_parse_array(VStr* s);
+VStr*    vor_json_get(VStr* s, VStr* key);
+VStr*    vor_json_parse_str(VStr* s);
+long long vor_json_parse_int(VStr* s);
+double   vor_json_parse_float(VStr* s);
+int      vor_json_parse_bool(VStr* s);
+VStr*    vor_json_stringify_str(VStr* s);
+VStr*    vor_json_stringify_int(long long v);
+VStr*    vor_json_stringify_float(double v);
+VStr*    vor_json_stringify_bool(int b);
+
+// ========== base64 模块转发 ==========
+VStr* vor_base64_encode(VStr* s);
+VStr* vor_base64_decode(VStr* s);
+
+// ========== datetime 模块转发 ==========
+VStr*    vor_datetime_ymd(long long y, long long mo, long long d);
+VStr*    vor_datetime_to_iso(long long epoch);
+long long vor_datetime_from_iso(VStr* iso);
+VStr*    vor_datetime_today(void);
+VStr*    vor_datetime_add_days(VStr* iso, long long n);
+long long vor_datetime_days_between(VStr* a, VStr* b);
+
+// ========== csv 模块转发（to_line 由前端用 quote+concat 拼，这里实现剩余标量；sep 为空则默认为逗号） ==========
+VStr*    vor_csv_quote(VStr* f, VStr* sep);
+long long vor_csv_count_fields(VStr* line, VStr* sep);
+VStr* vor_csv_field_at(VStr* line, long long index, VStr* sep);
+VList* vor_csv_parse_row(VStr* line, VStr* sep);
+
+// ========== hash 模块转发（md5 / sha1 / sha256，输出小写十六进制） ==========
+VStr* vor_hash_md5(VStr* s);
+VStr* vor_hash_sha1(VStr* s);
+VStr* vor_hash_sha256(VStr* s);
+
+// ========== str 模块转发（字符串工具，纯标量/字符串返回） ==========
+VStr*    vor_str_upper(VStr* s);
+VStr*    vor_str_lower(VStr* s);
+VStr*    vor_str_trim(VStr* s);
+VStr*    vor_str_ltrim(VStr* s);
+VStr*    vor_str_rtrim(VStr* s);
+long long vor_str_contains(VStr* s, VStr* sub);
+long long vor_str_starts_with(VStr* s, VStr* pre);
+long long vor_str_ends_with(VStr* s, VStr* suf);
+VStr*    vor_str_removeprefix(VStr* s, VStr* pre);
+VStr*    vor_str_removesuffix(VStr* s, VStr* suf);
+long long vor_str_find(VStr* s, VStr* sub);
+long long vor_str_rfind(VStr* s, VStr* sub);
+long long vor_str_count(VStr* s, VStr* sub);
+VStr*    vor_str_replace(VStr* s, VStr* a, VStr* b);
+VStr*    vor_str_slice(VStr* s, long long start, long long end);
+long long vor_str_char_at(VStr* s, long long i);
+VStr*    vor_str_repeat(VStr* s, long long n);
+VStr* vor_str_pad_left(VStr* s, long long w, long long pad);
+VStr* vor_str_pad_right(VStr* s, long long w, long long pad);
+long long vor_str_first_byte(VStr* s, long long def);
+VStr* vor_str_format(VStr* fmt, VStr** args, long long n);
+VStr* vor_str_join(VStr* sep, VStr** parts, long long n);
+VList* vor_str_split(VStr* s, VStr* sep);
+long long vor_str_ord(VStr* s);
+VStr* vor_str_chr(long long c);
+VStr* vor_str_zfill(VStr* s, long long w);
+VStr* vor_str_center(VStr* s, long long w, long long pad);
+VStr* vor_str_title(VStr* s);
+VStr* vor_str_swapcase(VStr* s);
+VStr*    vor_str_capitalize(VStr* s);
+long long vor_str_isalpha(VStr* s);
+long long vor_str_isdigit(VStr* s);
+long long vor_str_isalnum(VStr* s);
+long long vor_str_isspace(VStr* s);
+long long vor_str_isupper(VStr* s);
+long long vor_str_islower(VStr* s);
+
+// ========== net 模块转发（url_encode/decode + http_get/post） ==========
+VStr* vor_net_url_encode(VStr* s);
+VStr* vor_net_url_decode(VStr* s);
+VStr*    vor_net_http_get(VStr* url);
+VStr*    vor_net_http_post(VStr* url, VStr* body);
+VStr* vor_os_basename(VStr* p);
+VStr* vor_os_dirname(VStr* p);
+VStr* vor_os_extname(VStr* p);
+VList* vor_os_listdir(VStr* path);
+void vor_set_args(int argc, const char** argv);
+long long vor_os_argc(void);
+VStr* vor_os_arg(long long i);
 
 // ========== time 批B：tuple 交互 ==========
 VTuple* vor_time_gmtime(double ts);

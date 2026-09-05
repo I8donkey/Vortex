@@ -1,0 +1,13 @@
+# test_xml.vt — xml 模块：转义/去转义/取文本（解释器 vs 编译器 golden）
+import xml;
+
+str raw = "a < b & c > d";
+str esc = xml.escape(raw);
+print(esc);
+print(xml.unescape(esc));
+
+str doc = "<book><title>Vortex &amp; Friends</title><price>9.99</price></book>";
+print(xml.parse_text(doc, "title"));
+print(xml.parse_text(doc, "price"));
+print(xml.parse_text(doc, "missing"));
+print("done");

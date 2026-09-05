@@ -1,0 +1,23 @@
+# P3 引用 @/~ 语义对齐测试
+int x = 3;
+print(x);
+print(~@x);
+~@x = 99;
+print(x);
+~@x += 10;
+print(x);
+print(~x);
+print(~5);
+
+float f = 2.5;
+print(~@f);
+~@f = 9.5;
+print(~@f);
+~@f += 1;
+print(~@f);
+
+str s = "hi";
+print(~@s);
+~@s = "yo";
+print(~@s);
+print(s);

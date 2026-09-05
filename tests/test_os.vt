@@ -1,0 +1,48 @@
+# test_os.vt — os 模块：环境变量/平台/路径（解释器 vs 编译器 golden）
+import os;
+
+# 环境变量：同一进程内 setenv/getenv 自洽
+os.setenv("VORTEX_TEST_ENV", "hello42");
+print(os.hasenv("VORTEX_TEST_ENV"));
+print(os.getenv("VORTEX_TEST_ENV"));
+os.unsetenv("VORTEX_TEST_ENV");
+print(os.hasenv("VORTEX_TEST_ENV"));
+print(os.getenv("VORTEX_TEST_ENV"));
+
+print(os.platform());
+print(os.pid() > 0);
+print(os.path_join("a", "b") == "a/b");
+print(os.home() != "");
+print(os.tempdir() != "");
+
+# 常量（编译端也需可用）
+print(os.SEP == "/");
+print(os.LINE_END == "\n");
+
+# 路径拆分
+print(os.basename("/a/b/file.txt"));
+print(os.basename("file.txt"));
+print(os.dirname("/a/b/file.txt"));
+print(os.dirname("file.txt"));
+print(os.extname("/a/b/file.txt"));
+print(os.extname("file.txt"));
+print(os.extname("noext"));
+print(os.basename("C:\\dir\\prog.exe"));
+
+# 命令行参数（回归运行无附加参数 → 均为 0）
+print(os.argc() == 0);
+
+# os.listdir（临时目录，排序后确定性）
+import file;
+str od = "_vf_os_dir";
+file.mkdir(od);
+file.write(od + "/" + "b.txt", "b");
+file.write(od + "/" + "a.txt", "a");
+object oents = os.listdir(od);
+print(len(oents));
+print(oents[0]);
+print(oents[1]);
+file.rmdir(od);
+print(file.exists(od));
+
+print("done");

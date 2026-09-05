@@ -1,0 +1,3 @@
+print("hello vortex");
+import math;
+print("pi =", math.pi);

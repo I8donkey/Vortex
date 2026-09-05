@@ -1,0 +1,49 @@
+# ============================================================
+# test_file.vt — file 模块：文件读/写/追加/属性（解释器 vs 编译器 golden）
+# ============================================================
+import file;
+
+str p = "_vf_test.txt";
+file.write(p, "hello\n");
+print(file.exists(p));
+print(file.size(p));
+str c = file.read(p);
+print(c);
+file.append(p, "world\n");
+print(file.read(p));
+print(file.size(p));
+print(file.isfile(p));
+print(file.isdir(p));
+print(file.exists("_vf_no_such_anywhere.txt"));
+# readlines：按行拆为字符串列表
+str lp = "_vf_lines.txt";
+file.write(lp, "line1\nline2\nline3\n");
+object lines = file.readlines(lp);
+print(len(lines));
+print(lines[0]);
+print(lines[1]);
+print(lines[2]);
+file.remove(lp);
+print(file.exists(lp));
+
+file.remove(p);
+print(file.exists(p));
+
+# 目录 + listdir
+str d = "_vf_dir_test";
+print(file.mkdir(d));
+file.write(d + "/" + "z.txt", "z");
+file.write(d + "/" + "a.txt", "a");
+file.write(d + "/" + "m.txt", "m");
+object entries = file.listdir(d);
+print(len(entries));
+print(entries[0]);
+print(entries[1]);
+print(entries[2]);
+print(file.isdir(d));
+print(file.isfile(d));
+print(file.exists(d));
+print(file.rmdir(d));
+print(file.exists(d));
+
+print("done");

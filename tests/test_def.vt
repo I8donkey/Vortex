@@ -1,0 +1,9 @@
+import thread;
+
+def worker() {
+    print("  worker thread running");
+}
+
+print("def ok, calling worker directly");
+worker();
+print("worker called directly, done");

@@ -26,6 +26,20 @@ void register_render3d_module(std::unordered_map<std::string, ValuePtr>& std_mod
 void register_thread_module (std::unordered_map<std::string, ValuePtr>& std_modules);
 void register_log_module    (std::unordered_map<std::string, ValuePtr>& std_modules);
 void register_gui_module    (std::unordered_map<std::string, ValuePtr>& std_modules);
+void register_file_module   (std::unordered_map<std::string, ValuePtr>& std_modules);
+void register_zip_module    (std::unordered_map<std::string, ValuePtr>& std_modules);
+void register_xml_module    (std::unordered_map<std::string, ValuePtr>& std_modules);
+void register_html_module   (std::unordered_map<std::string, ValuePtr>& std_modules);
+void register_sql_module    (std::unordered_map<std::string, ValuePtr>& std_modules);
+void register_os_module     (std::unordered_map<std::string, ValuePtr>& std_modules);
+void register_regex_module  (std::unordered_map<std::string, ValuePtr>& std_modules);
+void register_json_module   (std::unordered_map<std::string, ValuePtr>& std_modules);
+void register_base64_module (std::unordered_map<std::string, ValuePtr>& std_modules);
+void register_datetime_module(std::unordered_map<std::string, ValuePtr>& std_modules);
+void register_csv_module    (std::unordered_map<std::string, ValuePtr>& std_modules);
+void register_hash_module   (std::unordered_map<std::string, ValuePtr>& std_modules);
+void register_str_module    (std::unordered_map<std::string, ValuePtr>& std_modules);
+void register_net_module    (std::unordered_map<std::string, ValuePtr>& std_modules);
 
 } // namespace vortex
 #endif // VORTEX_MODULES_H

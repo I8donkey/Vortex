@@ -1,0 +1,1 @@
+int a = 10; int b = 3; print(a + b); print(a // b); print(a % b); print(2 ** 10); if (a > b) { print(100); } else { print(200); } def fact(n) { if (n <= 1) { return 1; } return n * fact(n - 1); } print(fact(5)); print(math.pow(2, 10));

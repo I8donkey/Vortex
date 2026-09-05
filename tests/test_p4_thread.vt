@@ -1,0 +1,27 @@
+# P4 thread 转发：同步确定性操作（可逐字 golden）
+import thread;
+
+# 互斥锁句柄
+object m = thread.mutex();
+thread.lock(m);
+thread.unlock(m);
+print("mutex ok");
+
+# 原子变量（不透明句柄）
+object a = thread.atomic(5);
+print("a0 =", thread.atomic_get(a));
+thread.atomic_add(a, 3);
+print("a1 =", thread.atomic_get(a));
+thread.atomic_set(a, 100);
+print("a2 =", thread.atomic_get(a));
+
+# trylock
+object m2 = thread.mutex();
+print("try =", thread.trylock(m2));
+thread.unlock(m2);
+
+# hardware / sleep / yield
+print("cores =", thread.hardware());
+thread.sleep(5);
+thread.yield();
+print("done");

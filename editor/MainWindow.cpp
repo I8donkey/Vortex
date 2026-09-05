@@ -12,9 +12,10 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QHBoxLayout>
-#include <QVBoxLayout>
 #include <QMessageBox>
 #include <QPlainTextEdit>
+#include <QVBoxLayout>
+#include <QWidget>
 #include <QTabWidget>
 #include <QToolBar>
 #include <QToolButton>
@@ -30,6 +31,16 @@
 #include <QDebug>
 #include <QProcess>
 #include <QDir>
+#include <QMenuBar>
+#include <QMenu>
+#include <QLineEdit>
+#include <QKeyEvent>
+#include <QDialog>
+#include <QPushButton>
+#include <QCheckBox>
+#include <QInputDialog>
+#include <QTextBlock>
+#include <QStringList>
 #include <functional>
 #include <sstream>
 
@@ -74,6 +85,7 @@ MainWindow::MainWindow(QWidget *parent)
     resize(1024, 720);
 
     createActions();
+    createMenuBar();
     createToolBar();
     createStatusBar();
     createCentralWidget();
@@ -151,6 +163,26 @@ void MainWindow::createActions() {
     actRedo_->setShortcutContext(Qt::WindowShortcut);
     connect(actUndo_, &QAction::triggered, this, &MainWindow::undo);
     connect(actRedo_, &QAction::triggered, this, &MainWindow::redo);
+
+    actFind_ = new QAction(this);
+    actFind_->setShortcut(QKeySequence::Find);
+    connect(actFind_, &QAction::triggered, this, [this]() { showFindDialog(false); });
+
+    actReplace_ = new QAction(this);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    actReplace_->setShortcut(QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_H)));
+#else
+    actReplace_->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_H));
+#endif
+    connect(actReplace_, &QAction::triggered, this, [this]() { showFindDialog(true); });
+
+    actGoToLine_ = new QAction(this);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    actGoToLine_->setShortcut(QKeySequence(QKeyCombination(Qt::ControlModifier, Qt::Key_G)));
+#else
+    actGoToLine_->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_G));
+#endif
+    connect(actGoToLine_, &QAction::triggered, this, &MainWindow::goToLine);
 }
 
 void MainWindow::createToolBar() {
@@ -200,6 +232,284 @@ void MainWindow::createStatusBar() {
     statusBar()->addPermanentWidget(statusPos_);
 }
 
+void MainWindow::createMenuBar() {
+    QMenu *mFile = menuBar()->addMenu(QStringLiteral("File"));
+    mFile->addAction(actNew_);
+    mFile->addAction(actOpen_);
+    mFile->addSeparator();
+    mFile->addAction(actSave_);
+    mFile->addAction(actSaveAs_);
+    mFile->addAction(actSaveAll_);
+    mFile->addSeparator();
+    mFile->addAction(actCloseTab_);
+
+    QMenu *mEdit = menuBar()->addMenu(QStringLiteral("Edit"));
+    mEdit->addAction(actUndo_);
+    mEdit->addAction(actRedo_);
+    mEdit->addSeparator();
+    mEdit->addAction(actFind_);
+    mEdit->addAction(actReplace_);
+    mEdit->addSeparator();
+    mEdit->addAction(actGoToLine_);
+
+    QMenu *mRun = menuBar()->addMenu(QStringLiteral("Run"));
+    mRun->addAction(actRun_);
+    mRun->addAction(actCompile_);
+}
+
+void MainWindow::createShell() {
+    // Shell 页：只读输出 + 底部输入行
+    auto *page = new QWidget(this);
+    auto *lay = new QVBoxLayout(page);
+    lay->setContentsMargins(2, 2, 2, 2);
+    lay->setSpacing(2);
+
+    shell_ = new QPlainTextEdit(page);
+    shell_->setReadOnly(true);
+    shell_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    shell_->setMaximumBlockCount(10000);
+
+    auto *row = new QWidget(page);
+    auto *hlay = new QHBoxLayout(row);
+    hlay->setContentsMargins(0, 0, 0, 0);
+    auto *prompt = new QLabel(QStringLiteral(">>>"), row);
+    shellPrompt_ = prompt;
+    shellInput_ = new QLineEdit(row);
+    shellInput_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+    hlay->addWidget(prompt);
+    hlay->addWidget(shellInput_, 1);
+
+    lay->addWidget(shell_, 1);
+    lay->addWidget(row);
+
+    shell_holder_ = page;
+    shellInterp_ = std::make_unique<vortex::Interpreter>();
+    shellInterp_->print_output = [this](const std::string& s) {
+        shell_->insertPlainText(QString::fromUtf8(s.data(), (int)s.size()));
+        shell_->ensureCursorVisible();
+    };
+    connect(shellInput_, &QLineEdit::returnPressed, this, &MainWindow::onShellSubmit);
+    shell_->appendPlainText(QStringLiteral("Vortex Shell — type code and press Enter."));
+    shell_->appendPlainText(QStringLiteral("Hint: run `print(2 + 3)` for example."));
+}
+
+void MainWindow::onShellSubmit() {
+    const QString code = shellInput_->text();
+    shellInput_->clear();
+
+    // 空行 + 不在续行状态 → 直接忽略（不执行空语句）
+    if (code.isEmpty() && !shellContinuation_)
+        return;
+
+    shellBuffer_ += code + QStringLiteral("\n");
+    shell_->appendPlainText(QStringLiteral("%1 %2")
+                            .arg(shellContinuation_ ? QStringLiteral("...") : QStringLiteral(">>>"),
+                                 code));
+
+    if (shellNeedsMore(shellBuffer_)) {
+        shellContinuation_ = true;
+        if (shellPrompt_) shellPrompt_->setText(QStringLiteral("..."));
+        // 预填缩进（仿 IDLE 自动缩进）
+        shellInput_->setText(shellContinuationIndent());
+        shellInput_->setCursorPosition(shellInput_->text().size());
+        return;
+    }
+
+    // 语句完整 → 执行
+    if (shellInterp_) {
+        const std::string src = shellBuffer_.toStdString();
+        try {
+            shellInterp_->exec_source(src);
+        } catch (const std::exception &e) {
+            QString what = QString::fromUtf8(e.what());
+            shell_->appendPlainText(QStringLiteral("[Runtime] %1").arg(what));
+        }
+    }
+    shellBuffer_.clear();
+    shellContinuation_ = false;
+    if (shellPrompt_) shellPrompt_->setText(QStringLiteral(">>>"));
+}
+
+// 判断累积源码是否已完成（可执行）：
+//  - 以空行结尾 → 块终止，已完成
+//  - 存在未闭合括号 / 未闭合字符串 → 继续
+//  - 最后一行以 ':' 结尾（块头）→ 继续
+bool MainWindow::shellNeedsMore(const QString &src) const
+{
+    const int nl = src.lastIndexOf(QLatin1Char('\n'));
+    QString last = nl < 0 ? src : src.mid(nl + 1);
+    if (last.trimmed().isEmpty()) return false; // 空行终止块
+
+    QChar quote = QChar();
+    bool comment = false;
+    int depth = 0;
+    for (int i = 0; i < src.size(); ++i) {
+        const QChar c = src[i];
+        if (comment) {
+            if (c == QLatin1Char('\n')) comment = false;
+            continue;
+        }
+        if (!quote.isNull()) {
+            if (c == QLatin1Char('\\')) { ++i; continue; } // 跳过转义字符
+            if (c == quote) quote = QChar();
+            continue;
+        }
+        if (c == QLatin1Char('#')) { comment = true; continue; }
+        if (c == QLatin1Char('\'') || c == QLatin1Char('"')) { quote = c; continue; }
+        if (c == QLatin1Char('(') || c == QLatin1Char('[') || c == QLatin1Char('{')) ++depth;
+        else if (c == QLatin1Char(')') || c == QLatin1Char(']') || c == QLatin1Char('}')) --depth;
+    }
+    if (!quote.isNull()) return true;   // 未闭合字符串
+    if (depth > 0) return true;         // 未闭合括号
+    if (last.trimmed().endsWith(QLatin1Char(':'))) return true; // 块头
+    return false;
+}
+
+// 续行自动缩进：取缓冲区最后一个非空行；若以 ':' 结尾则再缩进一级
+QString MainWindow::shellContinuationIndent() const
+{
+    QStringList lines = shellBuffer_.split(QLatin1Char('\n'), Qt::KeepEmptyParts);
+    QString last;
+    for (auto it = lines.rbegin(); it != lines.rend(); ++it) {
+        if (!it->trimmed().isEmpty()) { last = *it; break; }
+    }
+    int i = 0;
+    while (i < last.size() && last[i] == QLatin1Char(' ')) ++i;
+    QString indent = last.left(i);
+    if (last.trimmed().endsWith(QLatin1Char(':')) || last.trimmed().endsWith(QLatin1Char('{')))
+        indent += QStringLiteral("    ");
+    return indent;
+}
+
+void MainWindow::showFindDialog(bool replace) {
+    auto *ed = currentEditor();
+    if (!ed) return;
+
+    auto *dlg = new QDialog(this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->setWindowTitle(replace
+        ? (language_ == 1 ? QStringLiteral("查找与替换") : QStringLiteral("Find & Replace"))
+        : (language_ == 1 ? QStringLiteral("查找") : QStringLiteral("Find")));
+    auto *lay = new QVBoxLayout(dlg);
+
+    auto *findEdit = new QLineEdit(dlg);
+    auto *repEdit = new QLineEdit(dlg);
+    if (ed->textCursor().hasSelection())
+        findEdit->setText(ed->textCursor().selectedText());
+
+    auto *hlayFind = new QHBoxLayout();
+    hlayFind->addWidget(new QLabel(language_ == 1 ? QStringLiteral("查找:") : QStringLiteral("Find:"), dlg));
+    hlayFind->addWidget(findEdit, 1);
+    lay->addLayout(hlayFind);
+
+    auto *hlayRep = new QHBoxLayout();
+    hlayRep->addWidget(new QLabel(replace
+        ? (language_ == 1 ? QStringLiteral("替换:") : QStringLiteral("Replace:"))
+        : (language_ == 1 ? QStringLiteral("替换(可选):") : QStringLiteral("Replace (optional):")), dlg));
+    hlayRep->addWidget(repEdit, 1);
+    lay->addLayout(hlayRep);
+
+    auto *caseBox = new QCheckBox(language_ == 1 ? QStringLiteral("区分大小写") : QStringLiteral("Match case"), dlg);
+    lay->addWidget(caseBox);
+
+    auto *btnLay = new QHBoxLayout();
+    auto *btnFind = new QPushButton(language_ == 1 ? QStringLiteral("查找下一个") : QStringLiteral("Find Next"), dlg);
+    auto *btnRep = new QPushButton(language_ == 1 ? QStringLiteral("替换") : QStringLiteral("Replace"), dlg);
+    auto *btnRepAll = new QPushButton(language_ == 1 ? QStringLiteral("全部替换") : QStringLiteral("Replace All"), dlg);
+    auto *btnClose = new QPushButton(language_ == 1 ? QStringLiteral("关闭") : QStringLiteral("Close"), dlg);
+    btnLay->addWidget(btnFind);
+    if (replace) { btnLay->addWidget(btnRep); btnLay->addWidget(btnRepAll); }
+    btnLay->addWidget(btnClose);
+    lay->addLayout(btnLay);
+
+    auto findNext = [ed, findEdit, caseBox](bool forward) {
+        QString needle = findEdit->text();
+        if (needle.isEmpty()) return;
+        QTextDocument::FindFlags flags;
+        if (caseBox->isChecked()) flags |= QTextDocument::FindCaseSensitively;
+        if (!forward) flags |= QTextDocument::FindBackward;
+        QTextCursor base = ed->textCursor();
+        if (forward && base.hasSelection()) base.setPosition(base.position());
+        QTextCursor found = ed->document()->find(needle, base, flags);
+        if (!found.isNull()) {
+            ed->setTextCursor(found);
+        } else {
+            QTextCursor restart = QTextCursor(ed->document());
+            if (forward) restart.movePosition(QTextCursor::Start);
+            else restart.movePosition(QTextCursor::End);
+            QTextCursor again = ed->document()->find(needle, restart, flags);
+            if (!again.isNull()) ed->setTextCursor(again);
+        }
+    };
+
+    // 高亮全部匹配（随输入/大小写选项实时刷新）
+    auto highlightAll = [ed, findEdit, caseBox]() {
+        QString needle = findEdit->text();
+        QList<QTextEdit::ExtraSelection> sel;
+        if (!needle.isEmpty()) {
+            QTextDocument::FindFlags flags;
+            if (caseBox->isChecked()) flags |= QTextDocument::FindCaseSensitively;
+            QTextEdit::ExtraSelection base;
+            base.format.setBackground(QColor(255, 234, 120));
+            base.format.setForeground(QColor(20, 20, 20));
+            QTextCursor cur = QTextCursor(ed->document());
+            while (true) {
+                QTextCursor f = ed->document()->find(needle, cur, flags);
+                if (f.isNull()) break;
+                QTextEdit::ExtraSelection s = base;
+                s.cursor = f;
+                sel.append(s);
+                cur = f;
+            }
+        }
+        ed->setExtraSelections(sel);
+    };
+    highlightAll();
+    QObject::connect(findEdit, &QLineEdit::textChanged, dlg, highlightAll);
+    QObject::connect(caseBox, &QCheckBox::toggled, dlg, [highlightAll](bool){ highlightAll(); });
+    // 关闭对话框后清除高亮，并让编辑器恢复当前行高亮
+    QObject::connect(dlg, &QObject::destroyed, ed, [ed]() {
+        ed->setExtraSelections(QList<QTextEdit::ExtraSelection>());
+        QTextCursor c = ed->textCursor();
+        ed->setTextCursor(c);
+    });
+
+    QObject::connect(btnFind, &QPushButton::clicked, dlg, [findNext]() { findNext(true); });
+    QObject::connect(btnRep, &QPushButton::clicked, dlg, [=]() {
+        // 替换当前选中
+        if (ed->textCursor().hasSelection()) {
+            ed->textCursor().insertText(repEdit->text());
+            ed->setFocus();
+        }
+        findNext(true);
+    });
+    QObject::connect(btnRepAll, &QPushButton::clicked, dlg, [ed, findEdit, repEdit, caseBox]() {
+        QString needle = findEdit->text(), repl = repEdit->text();
+        if (needle.isEmpty()) return;
+        QTextDocument::FindFlags flags;
+        if (caseBox->isChecked()) flags |= QTextDocument::FindCaseSensitively;
+        int count = 0;
+        QTextCursor cur = QTextCursor(ed->document());
+        cur.beginEditBlock();
+        while (true) {
+            QTextCursor f = ed->document()->find(needle, cur, flags);
+            if (f.isNull()) break;
+            f.insertText(repl);
+            cur = f;
+            cur.setPosition(f.position());
+            ++count;
+        }
+        cur.endEditBlock();
+        if (count > 0) ed->setFocus();
+    });
+    QObject::connect(btnClose, &QPushButton::clicked, dlg, &QDialog::close);
+    QObject::connect(findEdit, &QLineEdit::returnPressed, dlg, [findNext]() { findNext(true); });
+
+    if (replace) repEdit->setFocus();
+    else findEdit->setFocus();
+    dlg->show();
+}
+
 void MainWindow::createCentralWidget() {
     auto *splitter = new QSplitter(Qt::Vertical, this);
 
@@ -224,8 +534,15 @@ void MainWindow::createCentralWidget() {
     output_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     output_->setMaximumBlockCount(5000);
 
+    // 底部两页：Output / Shell
+    createShell();
+    auto *bottomTabs = new QTabWidget(this);
+    bottomTabs->setDocumentMode(true);
+    bottomTabs->addTab(output_, QStringLiteral("Output"));
+    bottomTabs->addTab(shell_holder_, QStringLiteral("Shell"));
+
     splitter->addWidget(tabWidget_);
-    splitter->addWidget(output_);
+    splitter->addWidget(bottomTabs);
     splitter->setStretchFactor(0, 4);
     splitter->setStretchFactor(1, 1);
     splitter->setSizes({560, 160});
@@ -234,6 +551,27 @@ void MainWindow::createCentralWidget() {
 }
 
 // ---------- 语言/主题切换 ----------
+
+void MainWindow::goToLine() {
+    CodeEditor *ed = currentEditor();
+    if (!ed) return;
+    const int total = ed->document()->blockCount();
+    bool ok = false;
+    const int line = QInputDialog::getInt(
+        this,
+        language_ == 1 ? QStringLiteral("跳转到行") : QStringLiteral("Go to Line"),
+        language_ == 1 ? QStringLiteral("行号 (1-%1):").arg(total)
+                       : QStringLiteral("Line number (1-%1):").arg(total),
+        1, 1, total, 1, &ok);
+    if (!ok) return;
+    const int blockNumber = qBound(0, line - 1, total - 1);
+    QTextBlock block = ed->document()->findBlockByNumber(blockNumber);
+    QTextCursor c(block);
+    c.movePosition(QTextCursor::StartOfBlock);
+    ed->setTextCursor(c);
+    ed->ensureCursorVisible();
+    ed->setFocus();
+}
 
 void MainWindow::onLanguageChanged(int idx) {
     language_ = idx;
@@ -269,6 +607,7 @@ void MainWindow::retranslateUi() {
         actUndo_->setText(tr("撤销(&U)"));
         actRedo_->setText(tr("重做(&D)"));
         actCloseTab_->setText(tr("关闭标签"));
+        actGoToLine_->setText(tr("跳转到行(&G)..."));
 
         actNew_->setStatusTip(tr("创建新的 Vortex 源文件"));
         actOpen_->setStatusTip(tr("打开已存在的 Vortex 源文件"));
@@ -280,6 +619,7 @@ void MainWindow::retranslateUi() {
         actUndo_->setStatusTip(tr("撤销上一步操作 (Ctrl+Z)"));
         actRedo_->setStatusTip(tr("重做被撤销的操作 (Ctrl+Shift+Z)"));
         actCloseTab_->setStatusTip(tr("关闭当前标签"));
+        actGoToLine_->setStatusTip(tr("跳转到指定行号 (Ctrl+G)"));
 
         statusMsg_->setText(tr("就绪"));
         statusPos_->setText(tr("行: 1   列: 1"));
@@ -297,6 +637,7 @@ void MainWindow::retranslateUi() {
         actUndo_->setText(QStringLiteral("Undo (&U)"));
         actRedo_->setText(QStringLiteral("Redo (&D)"));
         actCloseTab_->setText(QStringLiteral("Close Tab"));
+        actGoToLine_->setText(QStringLiteral("Go to Line (&G)..."));
 
         actNew_->setStatusTip(QStringLiteral("Create a new Vortex source file"));
         actOpen_->setStatusTip(QStringLiteral("Open an existing Vortex source file"));
@@ -308,6 +649,7 @@ void MainWindow::retranslateUi() {
         actUndo_->setStatusTip(QStringLiteral("Undo last action (Ctrl+Z)"));
         actRedo_->setStatusTip(QStringLiteral("Redo undone action (Ctrl+Shift+Z)"));
         actCloseTab_->setStatusTip(QStringLiteral("Close current tab"));
+        actGoToLine_->setStatusTip(QStringLiteral("Jump to a line number (Ctrl+G)"));
 
         statusMsg_->setText(QStringLiteral("Ready"));
         statusPos_->setText(QStringLiteral("Ln: 1   Col: 1"));

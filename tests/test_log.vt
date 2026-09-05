@@ -1,0 +1,6 @@
+import math;
+print("pi =", math.pi);
+import log;
+log.info("hello from log module");
+log.warn("a warning message");
+log.error("an error message");

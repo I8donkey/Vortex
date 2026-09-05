@@ -1,0 +1,39 @@
+import math;
+import time;
+import random;
+import log;
+
+# == random：定种子，可逐字 golden ==
+random.seed(42);
+print(random.random());
+print(random.uniform(0, 10));
+print(random.randint(5, 15));
+print(random.randrange(10, 20));
+print(random.randrange(0, 100, 7));
+print(random.gauss(0, 1));
+print(random.normalvariate(1, 2));
+print(random.expovariate(2));
+print(random.triangular(0, 10));
+print(random.triangular(0, 10, 3));
+print(random.random());
+print(random.randint(1, 6));
+
+# 序列继续，验证同一引擎流
+random.seed(42);
+print(random.random());
+print(random.random());
+print(random.randint(100, 200));
+print(random.uniform(1, 2));
+
+# == log：get_level 确定性；配置接口不走 console 输出 ==
+log.level("WARN");
+print(log.get_level());
+log.console(0);
+log.info("banana");
+log.warn("peeled");
+log.error("too");
+print(log.get_level());
+
+# == math 回归 ==
+print(math.pow(2, 10));
+print(math.sqrt(16));

@@ -205,6 +205,31 @@ void Interpreter::init_builtins() {
         }
         return r;
     });
+    reg_builtin("sum", 1, 1, [](const ValueVec& a, Environment&) {
+        auto to_real = [](const ValuePtr& v) -> double { return value_to_float(v)->float_val; };
+        double s = 0;
+        if (a[0]->type == ValueType::List) {
+            for (auto& e : *a[0]->list_rep) s += to_real(e);
+        } else if (a[0]->type == ValueType::Set) {
+            for (auto& e : *a[0]->set_rep) s += to_real(e);
+        } else {
+            s = to_real(a[0]);
+        }
+        // 若存在浮点元素则返回浮点，否则返回整数
+        return s == std::floor(s) ? Value::make_int((long long)s) : Value::make_float(s);
+    });
+    reg_builtin("prod", 1, 1, [](const ValueVec& a, Environment&) {
+        auto to_real = [](const ValuePtr& v) -> double { return value_to_float(v)->float_val; };
+        double p = 1;
+        if (a[0]->type == ValueType::List) {
+            for (auto& e : *a[0]->list_rep) p *= to_real(e);
+        } else if (a[0]->type == ValueType::Set) {
+            for (auto& e : *a[0]->set_rep) p *= to_real(e);
+        } else {
+            p = to_real(a[0]);
+        }
+        return p == std::floor(p) ? Value::make_int((long long)p) : Value::make_float(p);
+    });
     reg_builtin("set", 0, 1, [](const ValueVec& a, Environment&) {
         auto r = Value::make_set();
         if (!a.empty()) {
@@ -391,6 +416,11 @@ void Interpreter::init_modules() {
             });
         add("log2", 1,1, [&](const ValueVec& a){ return Value::make_float(std::log2(D(a[0]))); });
         add("log10", 1,1, [&](const ValueVec& a){ return Value::make_float(std::log10(D(a[0]))); });
+        add("log1p", 1,1, [&](const ValueVec& a){ return Value::make_float(std::log1p(D(a[0]))); });
+        add("expm1", 1,1, [&](const ValueVec& a){ return Value::make_float(std::expm1(D(a[0]))); });
+        add("erf", 1,1, [&](const ValueVec& a){ return Value::make_float(std::erf(D(a[0]))); });
+        add("gamma", 1,1, [&](const ValueVec& a){ return Value::make_float(std::tgamma(D(a[0]))); });
+        add("lgamma", 1,1, [&](const ValueVec& a){ return Value::make_float(std::lgamma(D(a[0]))); });
         add("sin", 1,1, [&](const ValueVec& a){ return Value::make_float(std::sin(D(a[0]))); });
         add("cos", 1,1, [&](const ValueVec& a){ return Value::make_float(std::cos(D(a[0]))); });
         add("tan", 1,1, [&](const ValueVec& a){ return Value::make_float(std::tan(D(a[0]))); });
@@ -415,6 +445,57 @@ void Interpreter::init_modules() {
                 return Value::make_float(std::round(x*p)/p);
             });
         add("fmod", 2,2, [&](const ValueVec& a){ return Value::make_float(std::fmod(D(a[0]), D(a[1]))); });
+        add("fabs", 1,1, [&](const ValueVec& a){ return Value::make_float(std::fabs(D(a[0]))); });
+        add("fmin", 2,2, [&](const ValueVec& a){ return Value::make_float(std::fmin(D(a[0]), D(a[1]))); });
+        add("fmax", 2,2, [&](const ValueVec& a){ return Value::make_float(std::fmax(D(a[0]), D(a[1]))); });
+        add("abs", 1,1, [&](const ValueVec& a){
+                if (a[0]->type == ValueType::Float) return Value::make_float(std::fabs(D(a[0])));
+                return Value::make_int(std::llabs((long long)L(a[0])));
+            });
+        add("min", 2,2, [&](const ValueVec& a){
+                bool f = a[0]->type == ValueType::Float || a[1]->type == ValueType::Float;
+                if (f) return Value::make_float(std::fmin(D(a[0]), D(a[1])));
+                return Value::make_int(std::min((long long)L(a[0]), (long long)L(a[1])));
+            });
+        add("max", 2,2, [&](const ValueVec& a){
+                bool f = a[0]->type == ValueType::Float || a[1]->type == ValueType::Float;
+                if (f) return Value::make_float(std::fmax(D(a[0]), D(a[1])));
+                return Value::make_int(std::max((long long)L(a[0]), (long long)L(a[1])));
+            });
+        add("comb", 2,2, [&](const ValueVec& a){
+                long long n = L(a[0]), k = L(a[1]);
+                if (k < 0 || k > n) return Value::make_int(0);
+                if (k > n - k) k = n - k;
+                long long r = 1;
+                for (long long i = 0; i < k; ++i) r = r * (n - i) / (i + 1);
+                return Value::make_int(r);
+            });
+        add("perm", 2,2, [&](const ValueVec& a){
+                long long n = L(a[0]), k = L(a[1]);
+                if (k < 0 || k > n) return Value::make_int(0);
+                long long r = 1;
+                for (long long i = 0; i < k; ++i) r *= (n - i);
+                return Value::make_int(r);
+            });
+        add("radians", 1,1, [&](const ValueVec& a){ return Value::make_float(D(a[0]) * (3.14159265358979323846 / 180.0)); });
+        add("degrees", 1,1, [&](const ValueVec& a){ return Value::make_float(D(a[0]) * (180.0 / 3.14159265358979323846)); });
+        add("copysign", 2,2, [&](const ValueVec& a){ return Value::make_float(std::copysign(D(a[0]), D(a[1]))); });
+        add("remainder", 2,2, [&](const ValueVec& a){ return Value::make_float(std::remainder(D(a[0]), D(a[1]))); });
+        add("factorial", 1,1, [&](const ValueVec& a){
+                long long n = L(a[0]);
+                if (n < 0) throw RuntimeError("math.factorial: negative argument");
+                long long r = 1;
+                for (long long i = 2; i <= n; ++i) r *= i;
+                return Value::make_int(r);
+            });
+        add("isqrt", 1,1, [&](const ValueVec& a){
+                long long n = L(a[0]);
+                if (n < 0) throw RuntimeError("math.isqrt: negative argument");
+                long long r = (long long)std::sqrt((double)n);
+                while ((r+1)*(r+1) <= n) ++r;
+                while (r*r > n) --r;
+                return Value::make_int(r);
+            });
         add("gcd", 2,2, [&](const ValueVec& a){ return Value::make_int(std::gcd((long long)L(a[0]), (long long)L(a[1]))); });
         add("lcm", 2,2, [&](const ValueVec& a){
                 long long x = L(a[0]), y = L(a[1]);
@@ -422,8 +503,20 @@ void Interpreter::init_modules() {
                 long long g = std::gcd(x, y);
                 return Value::make_int((x/g)*y);
             });
-        add("isinf", 1,1, [&](const ValueVec& a){ return Value::make_bool(std::isinf(D(a[0]))); });
-        add("isnan", 1,1, [&](const ValueVec& a){ return Value::make_bool(std::isnan(D(a[0]))); });
+        add("isinf", 1,1, [&](const ValueVec& a){ return Value::make_int(std::isinf(D(a[0])) ? 1 : 0); });
+        add("isnan", 1,1, [&](const ValueVec& a){ return Value::make_int(std::isnan(D(a[0])) ? 1 : 0); });
+        add("isfinite", 1,1, [&](const ValueVec& a){ return Value::make_int(std::isfinite(D(a[0])) ? 1 : 0); });
+        // isclose(a, b[, rel_tol=1e-9 [, abs_tol=0]]) —— 参考 Python math.isclose
+        add("isclose", 2, 4, [&](const ValueVec& a){
+                double x = D(a[0]), y = D(a[1]);
+                double rel_tol = a.size() >= 3 ? D(a[2]) : 1e-9;
+                double abs_tol = a.size() >= 4 ? D(a[3]) : 0.0;
+                if (rel_tol < 0.0) rel_tol = 0.0;
+                if (abs_tol < 0.0) abs_tol = 0.0;
+                const double diff = std::fabs(x - y);
+                const double mx = (std::max)(std::fabs(x), std::fabs(y));
+                return Value::make_int(diff <= (std::max)(rel_tol * mx, abs_tol) ? 1 : 0);
+            });
         std_modules_["math"] = mod;
     }
 
@@ -548,6 +641,14 @@ void Interpreter::init_modules() {
         add("randint", 2,2, [&](const ValueVec& a){
                 long long lo=L(a[0]), hi=L(a[1]);
                 std::uniform_int_distribution<long long> d(lo, hi); return Value::make_int(d(get_rng()));
+            });
+        add("getrandbits", 1,1, [&](const ValueVec& a){
+                long long k = L(a[0]);
+                if (k < 0) throw RuntimeError("random.getrandbits: negative k");
+                if (k > 63) k = 63;
+                std::uniform_real_distribution<> d(0.0, 1.0);
+                double r = d(get_rng());
+                return Value::make_int((long long)(r * std::ldexp(1.0, (int)k)));
             });
         add("randrange", 2,3, [&](const ValueVec& a){
                 long long start=L(a[0]), stop=L(a[1]), step=a.size()>=3?L(a[2]):1;

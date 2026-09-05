@@ -1,0 +1,113 @@
+# test_str.vt — text 模块：大小写/裁剪/查找替换/切片/填充（解释器 vs 编译器 golden）
+import text;
+
+# 大小写
+print(text.upper("hello World"));
+print(text.lower("HELLO World"));
+print(text.title("hello world foo"));
+print(text.swapcase("Hello World"));
+
+# 裁剪
+print("[" + text.trim("   hi  ") + "]");
+print("[" + text.ltrim("   hi") + "]");
+print("[" + text.rtrim("hi   ") + "]");
+print("[" + text.strip("   hi  ") + "]");
+print("[" + text.lstrip("   hi") + "]");
+print("[" + text.rstrip("hi   ") + "]");
+
+# 长度与判断
+print(text.len("hello"));
+print(text.contains("hello world", "world"));
+print(text.contains("hello", "xyz"));
+print(text.starts_with("hello", "he"));
+print(text.starts_with("hello", "lo"));
+print(text.ends_with("hello", "lo"));
+print(text.ends_with("hello", "he"));
+# Python 别名
+print(text.startswith("hello", "he"));
+print(text.startswith("hello", "lo"));
+print(text.endswith("hello", "lo"));
+print(text.endswith("hello", "he"));
+# removeprefix / removesuffix
+print(text.removeprefix("TestHook", "Test"));
+print(text.removeprefix("TestHook", "Hook"));
+print(text.removeprefix("TestHook", "zzz"));
+print(text.removesuffix("TestHook", "Hook"));
+print(text.removesuffix("TestHook", "Test"));
+print(text.removesuffix("TestHook", "zzz"));
+
+# capitalize
+print(text.capitalize("hELLO wORLD"));
+print(text.capitalize("hello"));
+
+# 字符类别判断
+print(text.isalpha("hello"));
+print(text.isalpha("h3llo"));
+print(text.isalpha(""));
+print(text.isdigit("12345"));
+print(text.isdigit("12a45"));
+print(text.isdigit(""));
+print(text.isalnum("abc123"));
+print(text.isalnum("abc-123"));
+print(text.isalnum(""));
+print(text.isspace("   "));
+print(text.isspace("  a"));
+print(text.isspace(""));
+print(text.isupper("HELLO"));
+print(text.isupper("Hello"));
+print(text.isupper("123"));
+print(text.islower("hello"));
+print(text.islower("Hello"));
+print(text.islower("123"));
+
+# 查找
+print(text.find("hello world", "o"));
+print(text.find("hello", "zz"));
+print(text.rfind("hello world", "o"));
+print(text.count("banana", "na"));
+
+# 替换
+print(text.replace("hello world hello", "hello", "hi"));
+print(text.replace("aaa", "aa", "b"));
+
+# 切片
+print(text.slice("hello", 1, 3));
+print(text.slice("hello", 2));
+
+# 字符码
+print(text.char_at("ABC", 1));
+print(text.repeat("ab", 3));
+print("[" + text.pad_left("7", 3, "0") + "]");
+print("[" + text.pad_right("7", 3, ".") + "]");
+
+# format：{} 占位替换
+print(text.format("Hello, {}!", "World"));
+print(text.format("{} + {} = {}", 2, 3, 5));
+print(text.format("pi={}", 3.14));
+print(text.format("no args"));
+print(text.format("mixed {} {}", "a", "b"));
+# join
+print(text.join("-", "a", "b", "c"));
+print(text.join(", ", "x", "y"));
+print(text.join("|", "solo"));
+print(text.join("", "ab", "cd"));
+
+# ord / chr
+print(text.ord("A"));
+print(text.ord("z"));
+print(text.chr(65));
+print(text.chr(97));
+print(text.ord(text.chr(66)) == 66);
+
+# zfill / center
+print(text.zfill("42", 5));
+print(text.zfill("42", 2));
+print(text.zfill("-7", 4));
+print("[" + text.center("ab", 5) + "]");
+print("[" + text.center("ab", 6) + "]");
+print("[" + text.center("x", 3, ".") + "]");
+print("[" + text.ljust("hi", 5) + "]");
+print("[" + text.rjust("hi", 5) + "]");
+print("[" + text.ljust("hi", 4, "*") + "]");
+
+print("done");

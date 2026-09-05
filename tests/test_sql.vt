@@ -1,0 +1,16 @@
+# test_sql.vt — sql 模块：open/execute/table_exists（解释器 vs 编译器 golden）
+import sql;
+import file;
+
+str dbf = "_vf_test.db";
+file.remove(dbf);
+object db = sql.open(dbf);
+print(sql.table_exists(db, "users"));
+sql.execute(db, "CREATE TABLE users(id INTEGER, name TEXT)");
+sql.execute(db, "INSERT INTO users VALUES(1, 'Alice')");
+print(sql.table_exists(db, "users"));
+print(sql.execute(db, "INSERT INTO users VALUES(2, 'Bob')"));
+print(sql.execute(db, "DELETE FROM users WHERE id=1"));
+sql.close(db);
+file.remove(dbf);
+print("done");

@@ -1,0 +1,17 @@
+# P3 闭包捕获：参数传递 + 封闭变量按引用实时捕获
+object add = lambda(x) { return x + 1; };
+int r1 = add(9);
+print("r1 =", r1);
+
+int base = 40;
+object bump = lambda(x) { return x + base; };
+print("b1 =", bump(2));
+
+# 封闭变量按引用实时读取——解释器与编译器都应反映更新后的值
+base = 100;
+print("b2 =", bump(2));
+
+# 无参、仅打印的闭包
+object tick = lambda() { print("tick"); };
+tick();
+print("done");

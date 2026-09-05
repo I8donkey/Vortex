@@ -1,0 +1,3 @@
+print("before import");
+import thread;
+print("after import thread");

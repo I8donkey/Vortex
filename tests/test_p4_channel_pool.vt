@@ -1,0 +1,34 @@
+# P4 thread 通道/线程池转发（编译后端 int 负载子集，确定性输出）
+import thread;
+
+# --- 通道：send/recv/len/close（单线程确定性） ---
+object ch = thread.channel(3);
+thread.send(ch, 10);
+thread.send(ch, 20);
+print("len =", thread.len(ch));
+int a = thread.recv(ch);
+int b = thread.recv(ch);
+print("recv =", a, b);
+print("len2 =", thread.len(ch));
+thread.close(ch);
+print("channel done");
+
+# --- 线程池：submit/size/shutdown ---
+object pool = thread.pool(2);
+object cnt = thread.atomic(0);
+def task() {
+    thread.atomic_add(cnt, 1);
+}
+int k = 0;
+while (k < 4) {
+    thread.pool_submit(pool, task);
+    k = k + 1;
+}
+while (thread.atomic_get(cnt) < 4) {
+    thread.sleep(10);
+}
+print("pool done =", thread.atomic_get(cnt));
+print("pool size =", thread.atomic_get(cnt));
+thread.pool_shutdown(pool);
+print("pool shutdown");
+print("all done");

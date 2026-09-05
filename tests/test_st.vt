@@ -1,0 +1,22 @@
+object s = {1, 2, 2, 3};
+print(s);
+print(s.len());
+if (s.contains(3)) { print(50); }
+s.insert(9);
+print(s);
+s.erase(1);
+print(s.len());
+object p = pair(4, 5);
+print(p.first);
+print(p.second);
+print(p);
+object t = make_tuple(1, 2, 3);
+print(t[0]);
+print(t[1]);
+print(t.len());
+print(t);
+int sum = 0;
+for (x in t) { sum = sum + x; }
+print(sum);
+for (y in s) { sum = sum + y; }
+print(sum);

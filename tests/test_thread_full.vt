@@ -1,0 +1,81 @@
+import thread;
+import log;
+
+object counter = thread.atomic(0);
+log.info("atomic init, get =", thread.atomic_get(counter));
+
+def inc() {
+    int i = 0;
+    while (i < 100) {
+        thread.atomic_add(counter, 1);
+        i = i + 1;
+    }
+}
+
+object a = thread.run(inc);
+object b = thread.run(inc);
+thread.join(a);
+thread.join(b);
+log.info("after 2x100 increments, counter =", thread.atomic_get(counter));
+
+object m = thread.mutex();
+object g = thread.atomic(0);
+def safe_inc() {
+    thread.lock(m);
+    thread.atomic_add(g, 1);
+    thread.unlock(m);
+}
+object t1 = thread.run(safe_inc);
+object t2 = thread.run(safe_inc);
+thread.join(t1);
+thread.join(t2);
+log.info("mutex guarded g =", thread.atomic_get(g));
+
+object ch = thread.channel(4);
+object received = thread.atomic(0);
+def producer() {
+    int i = 0;
+    while (i < 3) {
+        thread.send(ch, i);
+        i = i + 1;
+    }
+    thread.close(ch);
+}
+def consumer() {
+    bool ok = true;
+    while (ok) {
+        object v = thread.try_recv(ch);
+        if (v == None) {
+            thread.yield();
+        } else {
+            thread.atomic_add(received, 1);
+        }
+        if (thread.atomic_get(received) >= 3) {
+            ok = false;
+        }
+    }
+}
+object p = thread.run(producer);
+object c = thread.run(consumer);
+thread.join(p);
+thread.join(c);
+log.info("channel received count =", thread.atomic_get(received));
+
+object pool = thread.pool(2);
+object pcount = thread.atomic(0);
+def task() {
+    thread.atomic_add(pcount, 1);
+}
+int k = 0;
+while (k < 5) {
+    thread.pool_submit(pool, task);
+    k = k + 1;
+}
+while (thread.atomic_get(pcount) < 5) {
+    thread.sleep(10);
+}
+thread.pool_shutdown(pool);
+log.info("pool tasks done =", thread.atomic_get(pcount));
+
+log.info("hardware cores =", thread.hardware());
+log.info("all thread tests done");

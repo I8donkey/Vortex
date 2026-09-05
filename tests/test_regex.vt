@@ -1,0 +1,30 @@
+# test_regex.vt — regex 模块：匹配/查找/替换/计数（解释器 vs 编译器 golden）
+import regex;
+
+print(regex.valid("[a-z]+"));
+print(regex.valid("("));
+print(regex.match("[0-9]+", "12345"));
+print(regex.match("[0-9]+", "abc123"));
+print(regex.search("\\d+", "order #42 done"));
+print(regex.search("xyz", "no digits"));
+print(regex.find("\\d+", "a1b2c3"));
+print(regex.find_all("\\d+", "a1b2c3"));
+print(regex.count("\\d+", "a1b2c3"));
+print(regex.replace("\\d+", "item #7 and #8", "[N]"));
+# escape：元字符被转义后可按字面量匹配
+print(regex.escape("1+2"));
+print(regex.escape("a.b*c"));
+print(regex.escape("plain_text"));
+print(regex.search(regex.escape("1+2"), "calc 1+2 done"));
+print(regex.search(regex.escape("1+2"), "calc 12 done"));
+# split：按正则匹配切分为字符串列表
+object fields = regex.split("\\s+", "a  b   c");
+print(len(fields));
+print(fields[0]);
+print(fields[1]);
+print(fields[2]);
+object nums = regex.split(",", "1,2,3,4");
+print(len(nums));
+print(nums[0]);
+print(nums[3]);
+print("done");

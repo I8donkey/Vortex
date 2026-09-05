@@ -1,0 +1,51 @@
+# test_csv.vt — csv 模块：to_line/count_fields/field_at/quote（解释器 vs 编译器 golden）
+import csv;
+
+# to_line：基本字段
+str l1 = csv.to_line("a", "b", "c");
+print(l1);
+
+# 含逗号/引号的字段需要被引用
+str l2 = csv.to_line("hello", "x, y", "say \"hi\"");
+print(l2);
+
+# count_fields
+print(csv.count_fields(l1));
+print(csv.count_fields(l2));
+
+# field_at
+print(csv.field_at(l1, 0));
+print(csv.field_at(l1, 2));
+print(csv.field_at(l2, 1));
+print(csv.field_at(l2, 2));
+
+# quote
+print(csv.quote("plain"));
+print(csv.quote("a,b"));
+print(csv.quote("has \"quote\""));
+
+# 自定义分隔符（分号）
+str l3 = csv.to_line("a", "b");
+print(csv.count_fields("a;b;c", ";"));
+print(csv.field_at("x;y;z", 1, ";"));
+
+# 与 to_line 一致性：解析后再比对
+str l4 = csv.field_at(l2, 1);
+print(l4 == "x, y");
+
+# row：一行拆为字符串列表
+object r = csv.row("1,2,3");
+print(len(r));
+print(r[0]);
+print(r[1]);
+print(r[2]);
+object r2 = csv.row("a;b;c", ";");
+print(len(r2));
+print(r2[0]);
+print(r2[2]);
+object r3 = csv.row(l2);
+print(r3[0]);
+print(r3[1]);
+print(r3[2]);
+
+print("done");

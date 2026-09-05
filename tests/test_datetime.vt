@@ -1,0 +1,15 @@
+# test_datetime.vt — datetime 模块（解释器 vs 编译器 golden）
+import datetime;
+
+print(datetime.ymd(2024, 2, 29));
+print(datetime.ymd(2000, 1, 1));
+print(datetime.add_days("2024-01-01", 31));
+print(datetime.add_days("2024-01-01", -1));
+print(datetime.days_between("2024-01-01", "2024-02-01"));
+print(datetime.days_between("2024-01-01", "2023-12-31"));
+print(datetime.from_iso("1970-01-01") == 0);
+print(datetime.from_iso("1970-01-02") == 86400);
+print(datetime.to_iso(0));
+print(datetime.to_iso(86400 * 31));
+print(datetime.to_iso(datetime.from_iso("2030-05-15")));
+print("done");

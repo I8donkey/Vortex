@@ -1,0 +1,24 @@
+import time;
+import random;
+
+# time：绝对时钟非确定性，不做逐字 golden；仅验证不崩溃、counter 时序可用
+float t0 = time.time();
+time.sleep(0.01);
+float t1 = time.time();
+if (t1 > t0) { print(1); } else { print(0); }
+time.reset_counter();
+float c0 = time.counter();
+time.sleep(0.01);
+float c1 = time.counter();
+if (c1 >= c0) { print(1); } else { print(0); }
+float pt = time.process_time();
+if (pt >= 0) { print(1); } else { print(0); }
+
+# random：setstate/getstate 往返（定种子后确定性流继续一致）
+random.seed(7);
+print(random.random());
+str st = random.getstate();
+float s1 = random.random();
+print(s1);
+random.setstate(st);
+print(random.random());

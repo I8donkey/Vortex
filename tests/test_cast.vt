@@ -1,0 +1,7 @@
+# 探测 int()/float() 转换转发
+print(int(3.7));
+print(int("-42"));
+print(float(3));
+print(int(2));
+print(float(2.5));
+print("done");

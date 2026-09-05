@@ -1,0 +1,11 @@
+# P4 log 输出转发：确定性配置（无时间戳）
+import log;
+log.level("DEBUG");
+log.console(true);
+log.format("%(level): %(message)");
+log.info("hello", 1, 2);
+log.warn("w1");
+log.debug("d1");
+log.error("err", 99);
+log.fatal("fatal");
+print("end");

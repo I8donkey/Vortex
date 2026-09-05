@@ -1,0 +1,21 @@
+# test_base64.vt — base64 模块：编解码（解释器 vs 编译器 golden）
+import base64;
+
+str e1 = base64.encode("hello");
+print(e1);
+print(base64.decode(e1));
+
+str e2 = base64.encode("Man");
+print(e2);
+print(base64.decode(e2));
+
+str e3 = base64.encode("a");
+print(e3);
+print(base64.decode(e3));
+
+str e4 = base64.encode("");
+print(e4 == "");
+
+str longtext = "Vortex language! 123";
+print(base64.decode(base64.encode(longtext)) == longtext);
+print("done");

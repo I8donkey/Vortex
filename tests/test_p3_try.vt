@@ -1,0 +1,32 @@
+# P3 try/catch 语义（解释器 golden）
+print("A");
+try {
+    int x = int("bad");
+    print("unreached");
+} catch(e) {
+    print("caught:" + e);
+}
+print("B");
+
+# finally 在无异常时执行
+try {
+    print("try ok");
+} finally {
+    print("finally ok");
+}
+print("C");
+
+# 嵌套 try：内层捕获，不向外抛
+try {
+    print("outer try");
+    try {
+        int y = int("zzz");
+        print("unreached");
+    } catch(e2) {
+        print("inner:" + e2);
+    }
+    print("outer cont");
+} catch(e3) {
+    print("outer catch");
+}
+print("D");
