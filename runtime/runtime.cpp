@@ -2316,10 +2316,12 @@ VStr* vor_net_url_decode(VStr* s) {
 VStr* vor_net_http_get(VStr* url) {
     try { return vor_str_from_cstr(vortex::net_http(vstr_str(url), "GET", "").c_str()); }
     catch (const std::exception& e) { throw_rt((std::string("net.http_get: ") + e.what()).c_str()); }
+    return vor_str_from_cstr("");  // 消除 -Wreturn-type 告警（throw_rt 亦会终止）
 }
 VStr* vor_net_http_post(VStr* url, VStr* body) {
     try { return vor_str_from_cstr(vortex::net_http(vstr_str(url), "POST", vstr_str(body)).c_str()); }
     catch (const std::exception& e) { throw_rt((std::string("net.http_post: ") + e.what()).c_str()); }
+    return vor_str_from_cstr("");  // 消除 -Wreturn-type 告警（throw_rt 亦会终止）
 }
 
 // ========== os 路径拆分（basename / dirname / extname） ==========
