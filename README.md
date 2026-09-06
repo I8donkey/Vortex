@@ -29,7 +29,7 @@ Vortex ships batteries for scripting: dynamic-typed scalars, containers, functio
 # line comment (rest of the line is ignored)
 ```
 
-- **Interp** ✓ **Comp** ✓
+
 
 ### Literals
 
@@ -49,7 +49,7 @@ bool flag = true
 object nil = None
 ```
 
-- **Interp** ✓ **Comp** ✓
+
 
 > Note: Vortex uses explicit typing on declarations (`int x = 42;`) rather than Python's implicit binding. See [Variables](#variables).
 
@@ -61,7 +61,7 @@ Container: `list`, `stack`, `queue`, `set`, `undset`, `dict`, `pair`, `tuple`.
 
 Special: `object` (any), `function` (callable), `None`.
 
-- **Interp** ✓ **Comp** ✓
+
 
 ### Variables
 
@@ -82,7 +82,7 @@ del x;                # delete binding
 
 Compound assignment mirrors Python: `x += 1`, `x -= 2`, `x *= 3`, `x /= 4`, `x //= 2`, `x %= 3`, `x &= m`, `x |= m`, `x ^= m`, `x <<= n`, `x >>= n`.
 
-- **Interp** ✓ **Comp** ✓
+
 
 ### Operators (lowest → highest precedence)
 
@@ -111,7 +111,7 @@ bool b = a > 20 && a < 30;  # true
 int c = 7 // 2;             # 3
 ```
 
-- **Interp** ✓ **Comp** ✓
+
 
 ### Control Flow
 
@@ -133,7 +133,7 @@ while (cond) {
 return;      # or return value;
 ```
 
-- **Interp** ✓ **Comp** ✓
+
 
 ### Functions, Lambda & Closures
 
@@ -161,7 +161,7 @@ print(bump(2));          # 102 — captured by reference
 
 Named arguments use `name = value` at the call site.
 
-- **Interp** ✓ **Comp** ✓
+
 
 ### Containers & Subscripting
 
@@ -180,7 +180,7 @@ tuple t = tuple(...);
 
 `stack`, `queue`, `undset` are also available. `a.b` performs member access.
 
-- **Interp** ✓ **Comp** ✓
+
 
 ### String Operations
 
@@ -191,7 +191,7 @@ str t = "a" + "b";             # concatenation
 bool has = s.contains("world");
 ```
 
-- **Interp** ✓ **Comp** ✓
+
 
 ### Reference Semantics (`@` / `~`)
 
@@ -205,7 +205,7 @@ int y = x;
 ~@y += 1;      # increment through reference
 ```
 
-- **Interp** ✓ **Comp** ✓
+
 
 ### Exceptions (`try` / `catch` / `finally`)
 
@@ -221,7 +221,7 @@ try {
 
 `throw` is not a user-facing keyword; library operations (e.g. `int("bad")`) throw internally and are caught via `try/catch`.
 
-- **Interp** ✓ **Comp** ✓
+
 
 ### Import / Modules
 
@@ -233,7 +233,7 @@ from random import seed;
 
 See [Standard Library Modules](#standard-library-modules).
 
-- **Interp** ✓ **Comp** ✓
+
 
 ### Built-in Functions
 
@@ -245,7 +245,7 @@ See [Standard Library Modules](#standard-library-modules).
 
 The `thread` module provides thread creation/join, mutex, atomics, channels, and a thread pool. See the USAGE document for signatures.
 
-- **Interp** ✓ **Comp** ✓
+
 
 ### Notes vs Python
 
