@@ -8,6 +8,7 @@ bin/
 lib/
 
 # 构建产物
+_deps/
 lib/
 .qt/
 vortex_editor_autogen/
@@ -17,6 +18,8 @@ vortex_editor_autogen/
 # 根目录 CMake 生成产物
 CMakeCache.txt
 CMakeFiles/
+cmake/
+docs/
 build.ninja
 cmake_install.cmake
 
