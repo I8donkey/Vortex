@@ -275,6 +275,12 @@ from random import seed;
 | `json` | valid/parse_str/parse_int/parse_float/parse_bool/stringify_* |
 | `base64` | encode/decode |
 | `datetime` | ymd/to_iso/from_iso/today/add_days/days_between |
+| `csv` | to_line/count_fields/field_at/quote/parse_line（转义） |
+| `hash` | md5/sha1/sha256（十六进制摘要） |
+| `text` | 大小写/裁剪/查找/替换/format 插值/字符串工具 |
+| `net` | url 编解码/http_get/http_post（WinHTTP） |
+| `sys` | version/platform/time_ms/clock/sleep/exit |
+| `gui` | 基于 Qt 的窗口/控件/布局/事件/msgbox |
 | `game2d` | 2D 图像、精灵、碰撞与绘制（软件渲染） |
 | `render3d` | 软件光栅化：场景、相机、网格、材质、光源、`render` |
 
@@ -284,8 +290,10 @@ from random import seed;
 
 前置依赖：
 
-- C++17 工具链，具备可用的 `g++`（本项目使用 MinGW）用于链接。
-- 原生编译器后备所需的 LLVM 库（>= 14），通过 `LLVM_DIR` 发现。
+- C++17 工具链（本项目使用 MinGW）。
+- 原生编译器后端所需的 LLVM 库（>= 14），通过 `LLVM_DIR` 发现。
+- **可选**：LLD（经 CPM 自动拉取，用于让 `vortexcc` 免外部 g++ 链接）；LLDB（编辑器调试功能，从 PATH 或 `VORTEX_DEBUGGER` 获取）。
+- **可选**：Qt5/Qt6 Widgets（构建 `vortex_editor` 与 `gui` 模块，需设 `CMAKE_PREFIX_PATH`）。
 
 ### 从源码构建
 
@@ -336,6 +344,18 @@ vortexcc build <file.vt> [-o out.exe] [-O0|-O1|-O2|-O3] [--asm] [--debug]
 - `--debug` —— 生成 DWARF 调试信息（函数断点、调用栈、近似行号）。
 
 编译器复用解释器的词法、语法分析与 AST，再经类型化 IR 通过运行时 ABI 降至原生代码。golden 测试保证解释器与编译后可执行文件行为一致。
+
+---
+
+## Qt 编辑器
+
+`vortex_editor` 是仿 Python IDLE 的集成开发界面，打开 `.vt` 文件即进入。
+
+- **编辑**：多标签、语法高亮、行号跳转、括号匹配、自动缩进、查找/替换（含全文高亮）、复制行/注释、撤销重做。
+- **Shell**：底部内置 REPL，输入表达式直接求值，支持多行续行与自动缩进。
+- **运行**：`Ctrl+R` 用**解释器**运行当前文件；`Ctrl+F5` 编译为 exe 并启动运行；`Ctrl+B` 仅编译（词法/语法检查）。编译/运行前自动保存当前文档。
+- **调试**：`F5` 以 `--debug` 编译后交 **LLDB** 调试（批处理 `run; bt`），崩溃时打印调用栈。从 PATH 找 `lldb`，可由环境变量 `VORTEX_DEBUGGER` 指定调试器。
+- **其他**：中/英双语界面、亮/暗主题，语言与主题偏好自动持久化。
 
 ---
 

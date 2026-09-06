@@ -275,6 +275,12 @@ The `thread` module provides thread creation/join, mutex, atomics, channels, and
 | `json` | valid/parse_str/parse_int/parse_float/parse_bool/stringify_* |
 | `base64` | encode/decode |
 | `datetime` | ymd/to_iso/from_iso/today/add_days/days_between |
+| `csv` | to_line/count_fields/field_at/quote/parse_line (escaping) |
+| `hash` | md5/sha1/sha256 (hex digests) |
+| `text` | case/trim/search/replace/format interpolation string tools |
+| `net` | url encode/decode/http_get/http_post (WinHTTP) |
+| `sys` | version/platform/time_ms/clock/sleep/exit |
+| `gui` | Qt windows/widgets/layout/events/msgbox |
 | `game2d` | 2D images, sprites, collisions and drawing (software-rendered) |
 | `render3d` | software rasterizer: scenes, cameras, meshes, materials, lights, `render` |
 
@@ -284,8 +290,10 @@ The `thread` module provides thread creation/join, mutex, atomics, channels, and
 
 Prerequisites:
 
-- A C++17 toolchain with a working `g++` (MinGW used here) for linking.
+- A C++17 toolchain (MinGW used here).
 - LLVM libraries (>= 14) for the native compiler backend, discoverable via `LLVM_DIR`.
+- **Optional**: LLD (auto-fetched via CPM, lets `vortexcc` link without an external g++); LLDB (editor debug; resolved from PATH or `VORTEX_DEBUGGER`).
+- **Optional**: Qt5/Qt6 Widgets (to build `vortex_editor` and the `gui` module; set `CMAKE_PREFIX_PATH`).
 
 ### Build from source
 
@@ -336,6 +344,18 @@ vortexcc build <file.vt> [-o out.exe] [-O0|-O1|-O2|-O3] [--asm] [--debug]
 - `--debug` — emit DWARF debug info (function breakpoints, backtraces, approximate line numbers).
 
 The compiler reuses the interpreter's lexer, parser and AST, then lowers typed IR to native code through the runtime ABI. Golden tests keep interpreter and compiled executables behaviorally identical.
+
+---
+
+## Qt Editor
+
+`vortex_editor` is an IDLE-like integrated IDE; open a `.vt` file to start.
+
+- **Edit**: tabbed files, syntax highlighting, go-to-line, bracket matching, auto-indent, find/replace (with full-highlight), duplicate-line/comment, undo/redo.
+- **Shell**: built-in bottom REPL evaluates expressions live, with multi-line continuation and auto-indent.
+- **Run**: `Ctrl+R` runs the current file via the **interpreter**; `Ctrl+F5` compiles to an exe and launches it; `Ctrl+B` compiles only (lex/parse check). The current document is auto-saved before compiling/running.
+- **Debug**: `F5` rebuilds with `--debug` and drives **LLDB** (batch `run; bt`), printing the backtrace on crash. `lldb` is resolved from PATH and can be overridden via the `VORTEX_DEBUGGER` env var.
+- **Other**: English/Chinese UI, light/dark themes; language and theme preferences persist automatically.
 
 ---
 
