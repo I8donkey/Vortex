@@ -54,8 +54,10 @@ private slots:
     bool saveAll();
     void undo();
     void redo();
-    void runCurrent();        // 编译并运行
-    void compileCurrent();    // 仅编译（检查词法/语法）
+    void runCurrent();        // 用解释器运行
+    void compileCurrent();    // 仅编译（vortexcc 生成 exe）
+    void compileRunCurrent(); // 编译并运行生成的 exe
+    void debugCurrent();      // --debug 编译后用 gdb 调试运行
     void currentTabChanged(int index);
     void closeTab(int index);
     void documentModifiedChanged(bool modified);
@@ -92,6 +94,10 @@ private:
 
     void appendOutput(const QString &text, bool isError = false);
     void clearOutput();
+    // 用 vortexcc 把源文件编译成 exe；成功返回 true。outPath/diag 接收结果。
+    bool buildToExe(const QString &srcPath, QString &outPath, QString &diag, bool debug = false);
+    // 编译/运行/调试前确保当前文档已保存；未保存则弹另存为，取消返回 false。
+    bool ensureSaved();
     bool shellNeedsMore(const QString &src) const;
     QString shellContinuationIndent() const;
 
@@ -120,6 +126,8 @@ private:
     QAction *actRedo_     = nullptr;
     QAction *actCompile_  = nullptr;
     QAction *actRun_      = nullptr;
+    QAction *actCompileRun_ = nullptr;
+    QAction *actDebug_     = nullptr;
     QAction *actCloseTab_ = nullptr;
     QAction *actFind_     = nullptr;
     QAction *actReplace_  = nullptr;
