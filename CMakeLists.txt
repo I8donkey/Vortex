@@ -84,7 +84,7 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU")
     add_compile_options(-Wall -Wextra -Wno-unused-parameter -Wno-unused-variable
                         -Wno-unused-but-set-variable -Wno-missing-field-initializers
-                        -O2)
+                        -O2 -static-libgcc -static-libstdc++)
 endif()
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     add_compile_options(-Wno-unused-parameter -Wno-unused-variable -O2)
@@ -105,15 +105,43 @@ set(VORTEX_HAS_SDL2 OFF)
 set(VORTEX_HAS_GL OFF)
 
 if(VORTEX_WITH_GAME2D)
-    find_package(SDL2 QUIET)
-    find_package(SDL2_image QUIET)
-    find_package(SDL2_mixer QUIET)
-    find_package(SDL2_ttf QUIET)
+    # 1. 先单独查找 SDL2，使用 CONFIG 模式和组件
+    find_package(SDL2 CONFIG QUIET COMPONENTS SDL2)
+
     if(SDL2_FOUND)
         set(VORTEX_HAS_SDL2 ON)
         message(STATUS "Vortex Game2D: SDL2 found, real window backend enabled")
+
+        # 2. SDL2 找到后，再查找扩展库
+        find_package(SDL2_image CONFIG QUIET)
+        find_package(SDL2_mixer CONFIG QUIET)
+        find_package(SDL2_ttf   CONFIG QUIET)
+
+        # 3. 为每个扩展库单独设置标志，便于后续按需启用功能
+        if(SDL2_image_FOUND)
+            set(VORTEX_HAS_SDL2_IMAGE ON)
+            message(STATUS "  - SDL2_image found")
+        else()
+            message(STATUS "  - SDL2_image not found, image loading disabled")
+        endif()
+
+        if(SDL2_mixer_FOUND)
+            set(VORTEX_HAS_SDL2_MIXER ON)
+            message(STATUS "  - SDL2_mixer found")
+        else()
+            message(STATUS "  - SDL2_mixer not found, audio disabled")
+        endif()
+
+        if(SDL2_ttf_FOUND)
+            set(VORTEX_HAS_SDL2_TTF ON)
+            message(STATUS "  - SDL2_ttf found")
+        else()
+            message(STATUS "  - SDL2_ttf not found, font rendering disabled")
+        endif()
     else()
         message(STATUS "Vortex Game2D: SDL2 not found, using headless software-rendered fallback")
+        # 可选：如果用户显式要求 Game2D，找不到 SDL2 时直接报错而不是静默降级
+        # message(FATAL_ERROR "VORTEX_WITH_GAME2D is ON but SDL2 was not found.")
     endif()
 endif()
 
@@ -284,7 +312,10 @@ if(VORTEX_BUILD_EDITOR)
             target_link_directories(vortex_editor PRIVATE "D:/gcc/opt/lib")
         endif()
         if(MINGW)
-            target_link_options(vortex_editor PRIVATE -static -static-libgcc -static-libstdc++)
+            # GUI 子系统：不弹控制台黑窗口。用 -mwindows 而非 WIN32 属性，
+            # 避免 Qt6 自动插入的 EntryPoint(WinMain) 与 mingw32 产生 __argc 顺序冲突；
+            # MinGW 下 -mwindows 保留 main() 入口即可。
+            target_link_options(vortex_editor PRIVATE -static -static-libgcc -static-libstdc++ -mwindows)
         endif()
     else()
         message(STATUS "Vortex Editor: Qt Widgets NOT found, skipping editor build.")
