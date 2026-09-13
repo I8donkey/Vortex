@@ -1,7 +1,7 @@
 # ============================================================
 # runtest.ps1 - Vortex golden tests: interp vs compiled (incl --debug)
-# Multi‑process parallel using built‑in Start‑Job.
-# Ninja‑style progress and verbose command output.
+# Multi-process parallel using built-in Start-Job.
+# Ninja-style progress and verbose command output.
 # Usage:
 #     powershell -ExecutionPolicy Bypass -File tests\runtest.ps1 [-j N] [-v]
 # ============================================================
@@ -15,6 +15,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+Write-Host "=== [DIAG] Runtest script started ===" -ForegroundColor Cyan
+
 if ($Help) {
     Write-Host "runtest.ps1`n"
     Write-Host "Run Vortex golden regression tests in parallel.`n"
@@ -25,27 +27,43 @@ if ($Help) {
     Write-Host "Example:"
     Write-Host "  .\runtest.ps1"
     Write-Host "  .\runtest.ps1 -j 12 -v"
+    Write-Host "Press Enter to exit..."
+    Read-Host
     exit 0
 }
 
 $testsDir = $PSScriptRoot
-$root     = Split-Path $PSScriptRoot -Parent
+if (-not $testsDir) {
+    Write-Host "[ERROR] `$PSScriptRoot is empty. Cannot determine script directory." -ForegroundColor Red
+    Write-Host "Press Enter to exit..."
+    Read-Host
+    exit 1
+}
+
+$root     = Split-Path $testsDir -Parent
+
+Write-Host "=== [DIAG] Script Root: $testsDir" -ForegroundColor Cyan
+Write-Host "=== [DIAG] Project Root: $root" -ForegroundColor Cyan
 
 Set-Location $testsDir
 
-# Built binaries live in <root>\build_ninja\bin
-$cc       = Join-Path $root "build_ninja\bin\vortexcc.exe"
-$interp   = Join-Path $root "build_ninja\bin\vortex.exe"
+# Built binaries live in <root>\bin
+$cc       = Join-Path $root "bin\vortexcc.exe"
+$interp   = Join-Path $root "bin\vortex.exe"
 
 # Output artifacts go inside tests/ so they can be cleaned easily.
 $ccExe    = Join-Path $testsDir "_cc_{0}.exe"
 $dbgExe   = Join-Path $testsDir "_cc_dbg_{0}.exe"
 
+Write-Host "=== [DIAG] Checking binaries..." -ForegroundColor Cyan
 if (-not (Test-Path $cc) -or -not (Test-Path $interp)) {
     Write-Host ("[ERROR] Missing build outputs: " + $cc + " or " + $interp) -ForegroundColor Red
     Write-Host "        Build the project first (build_ninja is the build dir)." -ForegroundColor Red
+    Write-Host "Press Enter to exit..."
+    Read-Host
     exit 1
 }
+Write-Host "=== [DIAG] Binaries found." -ForegroundColor Green
 
 $tests = @(
   "test_cast", "test_p1", "test_p1_full", "test_p2",
@@ -74,17 +92,22 @@ $tests = @(
 )
 
 $jobs = @()
+Write-Host "=== [DIAG] Creating jobs for $($tests.Count) tests..." -ForegroundColor Cyan
+
 foreach ($t in $tests) {
     $vt    = Join-Path $testsDir "$t.vt"
     $cexe  = [string]::Format($ccExe,  $t)
     $dexe  = [string]::Format($dbgExe, $t)
 
-    # Throttle concurrency
-    while ((Get-Job -State Running).Count -ge $MaxConcurrency) {
+    # Throttle concurrency based on jobs created by this script
+    $runningCount = ($jobs | Where-Object { $_.State -eq 'Running' }).Count
+    while ($runningCount -ge $MaxConcurrency) {
         Start-Sleep -Milliseconds 50
+        $runningCount = ($jobs | Where-Object { $_.State -eq 'Running' }).Count
     }
 
-    # Pass the Verbose flag to the job
+    Write-Host "=== [DIAG] Starting job for: $t" -ForegroundColor DarkGray
+
     $jobObj = Start-Job -ScriptBlock {
         param(
             $testName,
@@ -93,8 +116,7 @@ foreach ($t in $tests) {
             $interpBin,
             $outCcExe,
             $outDbgExe,
-            $workDir,
-            $verboseFlag
+            $workDir
         )
         $ErrorActionPreference = "Stop"
         try {
@@ -222,16 +244,18 @@ foreach ($t in $tests) {
                 DbgRunCmd     = $null
             }
         }
-    } -ArgumentList $t,$vt,$cc,$interp,$cexe,$dexe,$testsDir,$Verbose
+    } -ArgumentList $t,$vt,$cc,$interp,$cexe,$dexe,$testsDir
 
     $jobs += $jobObj
 }
 
-# ---- Real‑time progress processing ----
+# ---- Real-time progress processing ----
 $total = $tests.Count
 $completed = 0
 $failCount = 0
 $jobList = $jobs
+
+Write-Host "=== [DIAG] All jobs created. Waiting for completion..." -ForegroundColor Cyan
 
 while ($jobList.Count -gt 0) {
     $finished = @()
@@ -241,7 +265,12 @@ while ($jobList.Count -gt 0) {
             Remove-Job $j -ErrorAction SilentlyContinue
 
             $completed++
-            $statusSymbol = switch ($res.Status) {
+            
+            # Safeguard against null results
+            $status = if ($null -ne $res -and $null -ne $res.Status) { $res.Status } else { "job_error" }
+            $testName = if ($null -ne $res -and $null -ne $res.TestName) { $res.TestName } else { "Unknown" }
+
+            $statusSymbol = switch ($status) {
                 "ok"                { "ok" }
                 "missing"           { "FAIL (missing test file)" }
                 "cc_compile_fail"   { "FAIL (compile error)" }
@@ -249,14 +278,14 @@ while ($jobList.Count -gt 0) {
                 "job_error"         { "FAIL (internal job error)" }
                 default             { "FAIL (unknown)" }
             }
-            $isOk = ($res.Status -eq "ok")
+            $isOk = ($status -eq "ok")
             $color = if ($isOk) { "Green" } else { "Red" }
 
-            # Real‑time progress line
-            Write-Host ("[{0}/{1}] {2} ... {3}" -f $completed, $total, $res.TestName, $statusSymbol) -ForegroundColor $color
+            # Real-time progress line
+            Write-Host ("[{0}/{1}] {2} ... {3}" -f $completed, $total, $testName, $statusSymbol) -ForegroundColor $color
 
             # If verbose, show the actual commands executed
-            if ($Verbose -and $res.InterpCmd) {
+            if ($Verbose -and $null -ne $res -and $res.InterpCmd) {
                 Write-Host "  Interp: $($res.InterpCmd)"
                 if ($res.CcCompileCmd) { Write-Host "  Compile: $($res.CcCompileCmd)" }
                 if ($res.CcRunCmd)     { Write-Host "  Run: $($res.CcRunCmd)" }
@@ -265,11 +294,11 @@ while ($jobList.Count -gt 0) {
             }
 
             # Detailed diagnostics on failure
-            if (-not $isOk) {
+            if (-not $isOk -and $null -ne $res) {
                 $failCount++
-                switch ($res.Status) {
+                switch ($status) {
                     "missing" {
-                        Write-Host "  Test file not found: $($res.TestName).vt"
+                        Write-Host "  Test file not found: $testName.vt"
                     }
                     "cc_compile_fail" {
                         Write-Host "  Compiler output:"
@@ -312,4 +341,7 @@ if ($failCount -eq 0) {
 } else {
     Write-Host ("$failCount FAILED") -ForegroundColor Red
 }
+
+Write-Host "Press Enter to exit..."
+Read-Host
 exit $failCount

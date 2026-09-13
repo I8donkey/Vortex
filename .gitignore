@@ -31,3 +31,4 @@ build_ninja/
 *.o
 *.exe.ll
 *.exe
+/vortexcc_autogen
