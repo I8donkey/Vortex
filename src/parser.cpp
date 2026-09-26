@@ -284,14 +284,17 @@ ParamDeclPtr Parser::parse_param_decl() {
         p->name = n.text;
         return p;
     }
-    Token n = expect(TokenType::Identifier, "parameter name");
-    p->name = n.text;
-    // 允许 `name: type` 或 `type name`（规范里是 type param，但也支持 name: type）
-    if (match(TokenType::Colon)) {
+    // 支持两种写法：`type name`（首 token 为类型关键字）或 `name: type`
+    if (is_type_keyword(peek_t())) {
         p->type = parse_type_spec();
-    } else if (is_type_keyword(peek_t()) && !p->type) {
-        // 参数列表中可能先写类型
-        // 回退：刚才 advance 过 name，其实这是颠倒；简单起见不支持回退，我们忽略
+        Token n = expect(TokenType::Identifier, "parameter name");
+        p->name = n.text;
+    } else {
+        Token n = expect(TokenType::Identifier, "parameter name");
+        p->name = n.text;
+        if (match(TokenType::Colon)) {
+            p->type = parse_type_spec();
+        }
     }
     if (match(TokenType::Assign)) {
         p->default_value = parse_expr();

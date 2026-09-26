@@ -13,6 +13,7 @@
 | `vortex`              | 树遍历**解释器**                  |
 | `vortexcc`            | **LLVM 原生编译器**（`.vt` → exe） |
 | `vortex_editor`       | 集成运行 + 编译的 Qt 编辑器           |
+| `vtpm`                | `.vt` → `.vtp` 打包工具（LZMA2）      |
 | `libvortex_runtime.a` | 编译产物链接的静态运行时库               |
 
 构建后所有二进制发布到 `bin/` 目录。
@@ -82,13 +83,44 @@ vortexcc build prog.vt -O3 --asm
 
 ***
 
+### 2.3 `vtpm` —— 打包工具（.vt → .vtp，LZMA2/7z 压缩）
+
+```
+vtpm pack [-o out.vtp] <file.vt> [file2.vt ...]
+vtpm list <pkg.vtp>
+vtpm extract <pkg.vtp> [-o dir]
+```
+
+- `pack`：把一个或多个 `.vt` 打包为压缩的 `.vtp`。
+- `list`：列出包内条目。
+- `extract`：解压缩还原。
+
+`.vtp` 是私有二进制容器（`VTPD` 头 + 条目表 + LZMA2 压缩负载），首页 Core/解释器/编译器共用 `liblzma` 读写。
+
+### 2.4 用户源码模块（`import <name>.vt` / `.vtp`）
+
+`import` 不仅能导内置/扩展模块，还可导入用户源码模块：
+
+```vt
+# mymath.vt
+def add(a, b) { return a + b; }
+```
+
+```vt
+import mymath;
+print(mymath.add(2, 3));
+```
+
+- 解析顺序：先内置/扩展模块，再按**脚本所在目录 / 当前目录**查找 `<name>.vt` 或 `<name>.vtp`。
+- `.vtp` 里的条目名为 `<name>.vt`（即 `vtpm pack mymath.vt` 默认产物）。
+- 模块顶层 `def`/常量/全局 成为模块成员；解释器每次 `import` 执行一次并缓存。
+- 编译器（`vortexcc`）同样支持：把模块源码内联进编译单元，模块函数以 `模块名.函数名` 静态链接。用户函数参数/返回支持 `int`/`float`/`str`/`bool`。注意编译端 `int / int` 为整除（与解释器真除语义不同）。
+
+***
+
 ## 3. 语言速查
 
 完整参考见 [README\_zh.md](README_zh.md#语法参考)。语法借鉴 Python，采用显式类型：
-
-```vt
-# 注释
-import math;
 
 int x = 42;
 float f = 1e3;

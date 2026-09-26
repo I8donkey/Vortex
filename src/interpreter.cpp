@@ -2,6 +2,8 @@
 #include "lexer.h"
 #include "parser.h"
 #include "vortex_modules.h"
+#include "pack.h"
+#include <unordered_set>
 #include "game2d_module.h"
 #include "thread_module.h"
 #include "log_module.h"
@@ -925,11 +927,69 @@ ControlSignal Interpreter::exec_function_def(const FunctionDefStmt* s) {
 void Interpreter::register_extra_module(const std::string& name, ValuePtr mod) {
     std_modules_[name] = std::move(mod);
 }
+ValuePtr Interpreter::load_user_module(const std::string& module) {
+    // 已加载 → 直接返回（防重复执行/防环）
+    if (auto it = user_modules_.find(module); it != user_modules_.end()) {
+        auto mid = std_modules_.find(module);
+        if (mid != std_modules_.end()) return mid->second;
+    }
+    std::string src, err;
+    if (!pack::find_module_source(module, module_base_, src, err))
+        throw RuntimeError("Unknown module: '" + module + "' (" + err + ")");
+
+    auto sub = std::make_unique<Interpreter>();
+    // 解析并持久保命在 sub 中（否则函数 def 指针悬空）
+    vortex::Lexer lexer(src);
+    auto toks = lexer.tokenize();
+    if (!lexer.errors().empty())
+        throw RuntimeError("Module '" + module + "': " + lexer.errors()[0]);
+    vortex::Parser parser(toks);
+    std::unique_ptr<vortex::Program> up = parser.parse_program();
+    if (!up || !parser.errors().empty()) {
+        std::string e = parser.errors().empty() ? "parse failed" : parser.errors()[0];
+        throw RuntimeError("Module '" + module + "': " + e);
+    }
+    sub->held_prog_ = std::shared_ptr<vortex::Program>(std::move(up));
+
+    std::vector<std::string> before = sub->globals().locals();
+    std::unordered_set<std::string> beforeSet(before.begin(), before.end());
+    sub->run(*sub->held_prog_);
+
+    auto mod = Value::make_module();
+    auto& rep = *mod->module_rep;
+    Environment* sub_globals = &sub->globals();
+    for (const auto& name : sub->globals().locals()) {
+        if (beforeSet.count(name)) continue;                 // 跳过内建
+        if (!name.empty() && name[0] == '_') continue;        // 私有符号
+        ValuePtr v = sub->globals().lookup(name);
+        // 顶层函数：包装成绑定“模块 globals”为父作用域的调用，使模块内互调/模块全局可解析
+        if (v->type == ValueType::Function && v->fn_rep && v->fn_rep->def) {
+            auto fv = std::make_shared<FunctionValue>();
+            fv->name = name;
+            fv->is_builtin = true;
+            auto defptr = v->fn_rep->def;
+            fv->builtin_fn = [this, sub_globals, defptr](const ValueVec& a, Environment&) {
+                return this->call_user_function_with_env(defptr, a, sub_globals);
+            };
+            auto wv = Value::make_none(); wv->type = ValueType::Function; wv->fn_rep = fv;
+            rep[name] = wv;
+        } else {
+            rep[name] = v;
+        }
+    }
+    std_modules_[module] = mod;
+    user_modules_[module] = std::move(sub);
+    return mod;
+}
 ControlSignal Interpreter::exec_import(const ImportStmt* s) {
     auto it = std_modules_.find(s->module);
-    if (it == std_modules_.end())
-        throw RuntimeError("Unknown module: '" + s->module + "'");
-    auto mod = it->second;
+    ValuePtr mod;
+    if (it != std_modules_.end()) {
+        mod = it->second;
+    } else {
+        // 未命中内置/扩展模块 → 尝试加载用户源码模块 (.vt/.vtp)
+        mod = load_user_module(s->module);
+    }
     if (!s->is_from) {
         std::string name = s->alias.empty() ? s->module : s->alias;
         current_env_->define(name, mod, true);

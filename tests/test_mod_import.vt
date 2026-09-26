@@ -1,0 +1,7 @@
+# test_mod_import.vt — 用户源码模块导入（解释器 vs 编译器 golden）
+import test_mathmod;
+print("add:", test_mathmod.add(2, 3));
+print("triple:", test_mathmod.triple(5));
+print("mul:", test_mathmod.mul);
+print("addf:", test_mathmod.addf(1.5, 2.25));
+print("greet:", test_mathmod.greet("World"));

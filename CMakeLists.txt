@@ -174,7 +174,7 @@ if(VORTEX_WITH_RENDER3D)
     list(APPEND VORTEX_SOURCES src/render3d_module.cpp)
 endif()
 # 新模块：thread / log / gui（始终编译，gui 需要 Qt）
-list(APPEND VORTEX_SOURCES src/thread_module.cpp src/log_module.cpp src/file_module.cpp src/zip_module.cpp src/xml_module.cpp src/html_module.cpp src/sql_module.cpp src/os_module.cpp src/regex_module.cpp src/json_module.cpp src/base64_module.cpp src/datetime_module.cpp src/csv_module.cpp src/hash_module.cpp src/str_module.cpp src/net_module.cpp src/sys_module.cpp)
+list(APPEND VORTEX_SOURCES src/thread_module.cpp src/log_module.cpp src/file_module.cpp src/zip_module.cpp src/xml_module.cpp src/html_module.cpp src/sql_module.cpp src/os_module.cpp src/regex_module.cpp src/json_module.cpp src/base64_module.cpp src/datetime_module.cpp src/csv_module.cpp src/hash_module.cpp src/str_module.cpp src/net_module.cpp src/sys_module.cpp src/pack.cpp)
 
 # 静态库：编译器核心
 add_library(vortex_core STATIC ${VORTEX_SOURCES})
@@ -199,6 +199,13 @@ if(EXISTS "D:/gcc/opt/include/sqlite3.h")
     target_link_libraries(vortex_core PRIVATE sqlite3)
     set(VORTEX_SQLITE_INCLUDE "D:/gcc/opt/include")
     set(VORTEX_SQLITE_LIB "D:/gcc/opt/lib")
+endif()
+
+# .vtp 打包/模块导入使用 liblzma（LZMA2，7z 压缩算法）；MinGW opt 自带
+if(EXISTS "D:/gcc/opt/include/lzma.h")
+    target_include_directories(vortex_core PRIVATE "D:/gcc/opt/include")
+    target_link_directories(vortex_core PRIVATE "D:/gcc/opt/lib")
+    target_link_libraries(vortex_core PUBLIC lzma)
 endif()
 
 # net 模块使用 WinHTTP（仅 Windows）
@@ -238,6 +245,18 @@ add_executable(vortex src/main.cpp)
 target_link_libraries(vortex PRIVATE vortex_core)
 if(EXISTS "D:/gcc/opt/include/sqlite3.h")
     target_link_directories(vortex PRIVATE "D:/gcc/opt/lib")
+endif()
+
+# === vtpm：Vortex 包管理工具（.vt -> .vtp，LZMA2 压缩） ===
+add_executable(vtpm vtpm/vtpm.cpp src/pack.cpp)
+target_include_directories(vtpm PRIVATE ${CMAKE_SOURCE_DIR}/src)
+if(EXISTS "D:/gcc/opt/include/lzma.h")
+    target_include_directories(vtpm PRIVATE "D:/gcc/opt/include")
+    target_link_directories(vtpm PRIVATE "D:/gcc/opt/lib")
+    target_link_libraries(vtpm PRIVATE lzma)
+endif()
+if(MINGW)
+    target_link_options(vtpm PRIVATE -static -static-libgcc -static-libstdc++)
 endif()
 
 # 若为 MinGW，静态链接标准库（避免依赖 libgcc/libstdc++ dll）
@@ -355,6 +374,7 @@ if(VORTEX_WITH_LLVM)
         add_executable(vortexcc
             src/cc/main.cpp
             src/codegen/CodeGen.cpp
+            src/codegen/ModuleLoader.cpp
         )
         target_include_directories(vortexcc PRIVATE
             ${CMAKE_SOURCE_DIR}/src

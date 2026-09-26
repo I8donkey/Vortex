@@ -62,6 +62,9 @@ public:
     // 获取全局环境
     Environment& globals() { return globals_; }
 
+    // 模块搜索根目录（默认 cwd）；main 入口可设为脚本所在目录
+    void set_module_path(const std::string& dir) { module_base_ = dir; }
+
     // 注册额外模块（供编辑器等注入出厂标配之外的模块，如 gui）
     void register_extra_module(const std::string& name, ValuePtr mod);
 
@@ -90,6 +93,18 @@ private:
 
     // 已注册的标准库模块（供 import 使用）
     std::unordered_map<std::string, ValuePtr> std_modules_;
+
+    // 已加载的用户模块（.vt/.vtp 源码模块）。子解释器须保活：
+    // 模块内函数闭包捕获其 globals_ 与 AST(def 指针)，销毁则悬空。
+    std::unordered_map<std::string, std::unique_ptr<Interpreter>> user_modules_;
+
+    std::string module_base_;   // import 用户模块的搜索根（脚本目录 > cwd）
+
+    // 由本解释器持有并执行的 Program（供模块导入复用，保活函数 def 指针）
+    std::shared_ptr<Program> held_prog_;
+
+    // 加载用户源码模块（import 未命中 std_modules_ 时）；失败抛 RuntimeError
+    ValuePtr load_user_module(const std::string& module);
 
     // push/pop scope
     struct ScopeGuard {

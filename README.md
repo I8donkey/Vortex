@@ -347,6 +347,27 @@ The compiler reuses the interpreter's lexer, parser and AST, then lowers typed I
 
 ---
 
+## Module import & packaging (`vtpm`)
+
+Import user source modules Python-style:
+
+```vt
+import mymath;              # loads mymath.vt (or packed mymath.vtp) next to the script
+print(mymath.add(2, 3));
+```
+
+`vtpm` bundles `.vt` files into a compressed `.vtp` for distribution:
+
+```sh
+vtpm pack mymath.vt -o mymath.vtp   # LZMA2 compression
+vtpm list mymath.vtp                # list entries
+import mymath;                      # still resolves when the .vt is gone
+```
+
+Both the interpreter and `vortexcc` support `.vt`/`.vtp` module imports. See [USAGE.md](USAGE.md#23-vtpm--packager-vt--vtp-lzma2-compression).
+
+---
+
 ## Qt Editor
 
 `vortex_editor` is an IDLE-like integrated IDE; open a `.vt` file to start.

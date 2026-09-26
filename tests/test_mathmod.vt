@@ -1,0 +1,8 @@
+# test_mathmod.vt — 被 test_mod_import.vt import 的用户源码模块
+#（float/str 参数与返回 ENTER，验证双后端一致；不用 int '/' 以免触发既有整除法语义分歧）
+int mul = 3;
+def helper(x) { return x * 2; }
+def add(a, b) { return helper(a) + b; }
+def triple(x) { return x * mul; }
+def addf(float a, float b) { return a + b; }
+def greet(str n) { return "hi " + n; }

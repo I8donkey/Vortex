@@ -279,6 +279,14 @@ static bool run_source(const std::string& src, const std::string& name = "<stdin
         return false;
     }
     Interpreter interp;
+    // 用户模块按脚本目录解析（import 相对脚本而非 cwd）
+    {
+        size_t slash = name.find_last_of("/\\");
+        if (slash != std::string::npos)
+            interp.set_module_path(name.substr(0, slash));
+        else if (!name.empty())
+            interp.set_module_path(".");
+    }
     interp.run(*prog);
     return true;
 }

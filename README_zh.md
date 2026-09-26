@@ -347,6 +347,27 @@ vortexcc build <file.vt> [-o out.exe] [-O0|-O1|-O2|-O3] [--asm] [--debug]
 
 ---
 
+## 模块导入与打包（vtpm）
+
+像 Python 一样 `import` 用户源码模块：
+
+```vt
+import mymath;              # 加载同目录 mymath.vt（或压缩包 mymath.vtp）
+print(mymath.add(2, 3));
+```
+
+`vtpm` 把 `.vt` 打包成压缩的 `.vtp`，分发模块：
+
+```sh
+vtpm pack mymath.vt -o mymath.vtp   # LZMA2 压缩
+vtpm list mymath.vtp                # 列条目
+import mymath;                      # 之后仍可这样导入（删掉 .vt 也能解析）
+```
+
+解释器与编译器 `vortexcc` 均支持 `.vt`/`.vtp` 模块导入。详见 [USAGE_zh.md](USAGE_zh.md#23-vtpm--打包工具vt--vtplzma27z 压缩)。
+
+---
+
 ## Qt 编辑器
 
 `vortex_editor` 是仿 Python IDLE 的集成开发界面，打开 `.vt` 文件即进入。

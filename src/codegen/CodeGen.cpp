@@ -6,6 +6,7 @@
 // 标量直通原生寄存器；字符串经 VStr*（引用计数运行时）收发。
 // ============================================================
 #include "codegen/CodeGen.h"
+#include "codegen/ModuleLoader.h"
 
 #include "lexer.h"
 #include "parser.h"
@@ -92,6 +93,8 @@ private:
     bool top_level_ = false;
     // 当前函数返回类型
     VType fn_ret_ = VType::Void;
+    // 每函数推断出的返回类型（key=LLVM 函数名，如用户模块 "foo.add"）
+    std::unordered_map<std::string, VType> fn_ret_map_;
     llvm::Function* cur_fn_ = nullptr;
     // lambda 序列号（生成唯一匿名函数名）
     int lam_seq_ = 0;
@@ -134,6 +137,10 @@ private:
     llvm::Value* to_i64(LVal v);
     // 用户函数推断返回类型（P1 简化：返回最后 return 的类型/当前记录）
     VType fn_ret_of(const std::string& fnname);
+    // 静态推断一个表达式的大致类型（供函数返回类型推断；不发射代码）
+    VType infer_expr_type(const Expr* e);
+    // 推断函数的返回类型（遍历 return 语句），未知→Int
+    VType infer_fn_ret(const FunctionDefStmt* fd);
 
     // ---- 调试信息辅助（P3） ----
     void dbg_begin(llvm::Module& mod);                   // 创建 DIBuilder/CU/DIFile
@@ -530,6 +537,16 @@ LVal Gen::gen_expr(const Expr* e) {
                         llvm::Value* g = B->CreateGlobalString(cstr, "osc");
                         return {VType::Str, B->CreateCall(llvm::cast<llvm::Function>(fn), {g})};
                     }
+                }
+            }
+            // 用户模块全局/常量：读模块顶层全局 "g_<obj>.<member>"
+            if (mc->object->kind == ExprKind::Identifier) {
+                const std::string objN = static_cast<const IdentifierExpr*>(mc->object.get())->name;
+                if (llvm::GlobalVariable* gv = mod_->getNamedGlobal("g_" + objN + "." + mc->member)) {
+                    llvm::Type* gt = gv->getValueType();
+                    if (gt->isDoubleTy()) return {VType::Float, B->CreateLoad(gt, gv)};
+                    if (gt->isPointerTy()) return {VType::Str, B->CreateLoad(gt, gv)};
+                    return {VType::Int, B->CreateLoad(B->getInt64Ty(), gv)};
                 }
             }
             // pair.first / pair.second（作为值表达式，非调用）
@@ -2565,7 +2582,110 @@ LVal Gen::gen_call(const CallExpr* c) {
     return {VType::Void, nullptr};
 }
 
-VType Gen::fn_ret_of(const std::string&) { return fn_ret_; }
+VType Gen::fn_ret_of(const std::string& fnname) {
+    auto it = fn_ret_map_.find(fnname);
+    if (it != fn_ret_map_.end()) return it->second;   // 用户函数：per-function 推断
+    return fn_ret_;
+}
+
+// 静态推断表达式类型（不发射代码）。只覆盖能确定底型的常见形式；未知一律 Int。
+VType Gen::infer_expr_type(const Expr* e) {
+    if (!e) return VType::Int;
+    switch (e->kind) {
+        case ExprKind::Literal: {
+            auto* l = static_cast<const LiteralExpr*>(e);
+            switch (l->lit_kind) {
+                case LiteralExpr::LitKind::Float: return VType::Float;
+                case LiteralExpr::LitKind::String: case LiteralExpr::LitKind::UniString: return VType::Str;
+                case LiteralExpr::LitKind::Bool: return VType::Bool;
+                default: return VType::Int;
+            }
+        }
+        case ExprKind::Identifier: {
+            LVal v;
+            if (lookup_var(static_cast<const IdentifierExpr*>(e)->name, v)) return v.type;
+            return VType::Int;
+        }
+        case ExprKind::Cast: {
+            auto* c = static_cast<const CastExpr*>(e);
+            std::string t = c->target_type;
+            if (t == "float" || t == "double") return VType::Float;
+            if (t == "str") return VType::Str;
+            if (t == "bool") return VType::Bool;
+            return VType::Int;
+        }
+        case ExprKind::UnaryOp: {
+            auto* u = static_cast<const UnaryOpExpr*>(e);
+            if (u->op == "!" || u->op == "not") return VType::Bool;
+            if (u->op == "~" ) { // 解引用 Ref 按其 pointee
+                LVal v = gen_expr(u->operand.get());
+                if (v.ref_pointee != VType::Void) return v.ref_pointee;
+                return VType::Int;
+            }
+            if (u->op == "@") return VType::Ref;
+            return infer_expr_type(u->operand.get());
+        }
+        case ExprKind::BinaryOp: {
+            auto* b = static_cast<const BinaryOpExpr*>(e);
+            VType l = infer_expr_type(b->left.get());
+            VType r = infer_expr_type(b->right.get());
+            const std::string& op = b->op;
+            if (op == "==" || op == "!=" || op == "<" || op == ">" || op == "<=" || op == ">="
+                || op == "&&" || op == "||" || op == "&" || op == "|" || op == "^") return VType::Int;
+            if (l == VType::Float || r == VType::Float) return VType::Float;   // 浮点算术
+            if (op == "+" && (l == VType::Str || r == VType::Str)) return VType::Str; // 字符串拼接
+            return VType::Int;
+        }
+        case ExprKind::TernaryOp: {
+            auto* t = static_cast<const TernaryOpExpr*>(e);
+            return infer_expr_type(t->then_e.get());
+        }
+        default:
+            return VType::Int;
+    }
+}
+
+// 推断函数返回类型：取返回值最“宽”的类型（float > str > bool > int）
+VType Gen::infer_fn_ret(const FunctionDefStmt* fd) {
+    VType rt = VType::Int;
+    auto widen = [&](VType t) {
+        if (t == VType::Float) rt = VType::Float;
+        else if (t == VType::Str && rt != VType::Float) rt = VType::Str;
+        else if (t == VType::Bool && rt == VType::Int) rt = VType::Bool;
+    };
+    // 遍历函数体所有 return 语句
+    std::vector<const BlockStmt*> blocks{fd->body.get()};
+    for (size_t bi = 0; bi < blocks.size(); ++bi) {
+        for (auto& st : blocks[bi]->stmts) {
+            switch (st->kind) {
+                case StmtKind::Return: {
+                    auto* r = static_cast<const ReturnStmt*>(st.get());
+                    if (r->value) widen(infer_expr_type(r->value.get()));
+                    break;
+                }
+                case StmtKind::Block: blocks.push_back(static_cast<const BlockStmt*>(st.get())); break;
+                case StmtKind::If: {
+                    auto* i = static_cast<const IfStmt*>(st.get());
+                    blocks.push_back(i->then_body.get());
+                    for (auto& el : i->elif_list) blocks.push_back(el.body.get());
+                    if (i->else_body) blocks.push_back(i->else_body.get());
+                    break;
+                }
+                case StmtKind::ForIn: blocks.push_back(static_cast<const ForInStmt*>(st.get())->body.get()); break;
+                case StmtKind::While: blocks.push_back(static_cast<const WhileStmt*>(st.get())->body.get()); break;
+                case StmtKind::TryCatch: {
+                    auto* t = static_cast<const TryCatchStmt*>(st.get());
+                    blocks.push_back(t->try_body.get());
+                    if (t->catch_body) blocks.push_back(t->catch_body.get());
+                    if (t->finally_body) blocks.push_back(t->finally_body.get());
+                    break;
+                }
+                default: break;
+            }
+        }
+    }
+    return rt;
+}
 
 // 输出一个值到 stdout
 void Gen::emit_any(LVal v) {
@@ -2626,6 +2746,19 @@ void Gen::gen_return(const ReturnStmt* s) {
     if (!s->value) { B->CreateRetVoid(); return; }
     LVal v = gen_expr(s->value.get());
     fn_ret_ = v.type;
+    // 按函数声明的返回类型规整（float/int/bool 互转）
+    if (cur_fn_) {
+        auto it = fn_ret_map_.find(cur_fn_->getName().str());
+        if (it != fn_ret_map_.end() && it->second != v.type) {
+            VType rt = it->second;
+            if (rt == VType::Float && v.type == VType::Int) v.val = B->CreateSIToFP(v.val, B->getDoubleTy());
+            else if (rt == VType::Float && v.type == VType::Bool) v.val = B->CreateUIToFP(v.val, B->getDoubleTy());
+            else if (rt == VType::Int && v.type == VType::Float) v.val = B->CreateFPToSI(v.val, B->getInt64Ty());
+            else if (rt == VType::Int && v.type == VType::Bool) v.val = B->CreateZExt(v.val, B->getInt64Ty());
+            else if (rt == VType::Bool) v.val = B->CreateICmpNE(to_i64(v), B->getInt64(0));
+            v.type = rt;
+        }
+    }
     B->CreateRet(v.val);
 }
 
@@ -3010,6 +3143,14 @@ void Gen::gen_stmt(const Stmt* s) {
                 ptypes.push_back(t);
             }
             llvm::FunctionType* FT = llvm::FunctionType::get(llvm_type(VType::Int), params, false);
+            // 推断返回类型：临时压入参数作用域，使 `return x` 能按参数声明类型解析
+            scopes_.emplace_back();
+            for (size_t k = 0; k < fd->params.size() && k < ptypes.size(); ++k)
+                scopes_.back()[fd->params[k]->name] = {ptypes[k], nullptr};
+            VType rt = infer_fn_ret(fd);
+            scopes_.pop_back();
+            fn_ret_map_[fd->name] = rt;
+            FT = llvm::FunctionType::get(llvm_type(rt), params, false);
             llvm::Function* fn = llvm::Function::Create(FT, llvm::Function::ExternalLinkage, fd->name, mod_);
 
             // 失败：无法递归生成已存在（首次）。设入口不做，此处仅声明。
@@ -3039,13 +3180,14 @@ void Gen::gen_stmt(const Stmt* s) {
                 if (block_has_term(B->GetInsertBlock())) break;
                 gen_stmt(st.get());
             }
-            if (!block_has_term(B->GetInsertBlock())) B->CreateRet(B->getInt64(0));
+            if (!block_has_term(B->GetInsertBlock()))
+                B->CreateRet(llvm::Constant::getNullValue(llvm_type(rt)));
             scopes_.pop_back();
             cur_sp_ = saved_sp;
             dbg_line_ = saved_dbg_line;
             top_level_ = saved_toplevel;
             cur_fn_ = saved;
-            fn_ret_ = VType::Int;
+            fn_ret_ = rt;
             break;
         }
         case StmtKind::Assign: {
@@ -3134,11 +3276,11 @@ std::string cg::compile_program(const Program& prog, std::string& ir_text, const
 }
 
 // 顶层：编译 .vt 源码 -> 独立 exe
-std::string build_vortex_exe(const std::string& src, const BuildConfig& cfg) {
-    // 1. 解析
+std::string build_vortex_exe(const std::string& src, const BuildConfig& cfg, const std::string& source_path) {
+    // 1. 解析（含用户模块合并）
     Program prog;
     std::string err;
-    if (!cg::lex_parse(src, err, prog)) return err;
+    if (!cg::collect_modules(src, source_path, prog, err)) return err;
 
     // 2. 生成 LLVM 模块
     llvm::LLVMContext ctx;

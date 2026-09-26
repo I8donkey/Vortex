@@ -34,7 +34,8 @@ std::string compile_program(const Program& prog, std::string& ir_text,
 
 // 顶层：把 .vt 源码编译为独立可执行文件。
 // 返回 "" = 成功；否则返回错误描述。
-std::string build_vortex_exe(const std::string& src, const BuildConfig& cfg);
+std::string build_vortex_exe(const std::string& src, const BuildConfig& cfg,
+                             const std::string& source_path = "");
 
 } // namespace vortex
 

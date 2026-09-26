@@ -13,6 +13,7 @@ This document is the complete operational reference for Vortex. README.md covers
 | `vortex`              | Tree-walking **interpreter**                    |
 | `vortexcc`            | **LLVM native compiler** (`.vt` → exe)          |
 | `vortex_editor`       | Qt editor integrating run + compile             |
+| `vtpm`                | `.vt` → `.vtp` packager (LZMA2)                 |
 | `libvortex_runtime.a` | Static runtime linked into compiled executables |
 
 All binaries are published to `bin/` after a build.
@@ -80,6 +81,41 @@ vortexcc build prog.vt -o prog.exe --debug
 ```sh
 vortexcc build prog.vt -O3 --asm
 ```
+
+***
+
+### 2.3 `vtpm` — packager (.vt → .vtp, LZMA2 compression)
+
+```
+vtpm pack [-o out.vtp] <file.vt> [file2.vt ...]
+vtpm list <pkg.vtp>
+vtpm extract <pkg.vtp> [-o dir]
+```
+
+- `pack`: bundle one or more `.vt` files into a compressed `.vtp`.
+- `list`: list the entries in a package.
+- `extract`: decompress and restore files.
+
+A `.vtp` is a private binary container (`VTPD` header + entry table + LZMA2 payloads), read/written via `liblzma`.
+
+### 2.4 User source modules (`import <name>.vt` / `.vtp`)
+
+Besides built-in/extension modules, `import` can load a user source module:
+
+```vt
+# mymath.vt
+def add(a, b) { return a + b; }
+```
+
+```vt
+import mymath;
+print(mymath.add(2, 3));
+```
+
+- Resolution: built-in/extension modules first, then `<name>.vt` or `<name>.vtp` in the **script's directory / cwd**.
+- The `.vtp` entry is named `<name>.vt` (the default of `vtpm pack mymath.vt`).
+- Top-level `def`s/constants/globals become module members; the interpreter runs and caches each module once.
+- `vortexcc` supports the same: it inlines the module source into the compilation unit and statically links module functions as `module.func`. User functions support `int`/`float`/`str`/`bool` parameters and returns. Note: compiled `int / int` is integer division (unlike the interpreter's true division).
 
 ***
 

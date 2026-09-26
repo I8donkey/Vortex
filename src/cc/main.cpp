@@ -65,7 +65,7 @@ int main(int argc, char** argv) {
     std::string src = read_file(in, err);
     if (src.empty()) { std::fprintf(stderr, "Error: %s\n", err.c_str()); return 1; }
 
-    std::string cerr = build_vortex_exe(src, cfg);
+    std::string cerr = build_vortex_exe(src, cfg, in);
     if (!cerr.empty()) {
         std::fprintf(stderr, "Compile error: %s\n", cerr.c_str());
         return 1;
