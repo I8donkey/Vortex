@@ -280,7 +280,7 @@ from random import seed;
 | `text` | 大小写/裁剪/查找/替换/format 插值/字符串工具 |
 | `net` | url 编解码/http_get/http_post（WinHTTP） |
 | `sys` | version/platform/time_ms/clock/sleep/exit |
-| `gui` | 基于 Qt 的窗口/控件/布局/事件/msgbox |
+| `gui` | Qt 窗口/控件/布局/事件/msgbox（仅编辑器内可用） |
 | `game2d` | 2D 图像、精灵、碰撞与绘制（软件渲染） |
 | `render3d` | 软件光栅化：场景、相机、网格、材质、光源、`render` |
 

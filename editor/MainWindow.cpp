@@ -5,6 +5,7 @@
 #include "lexer.h"
 #include "parser.h"
 #include "ast.h"
+#include "gui_module.h"
 
 #include <QApplication>
 #include <QCoreApplication>
@@ -296,6 +297,14 @@ void MainWindow::createShell() {
 
     shell_holder_ = page;
     shellInterp_ = std::make_unique<vortex::Interpreter>();
+    // 注入 gui 模块（gui 已从 vortex_core 剥离，仅编辑器可用）
+    {
+        std::unordered_map<std::string, vortex::ValuePtr> extra;
+        vortex::register_gui_module(extra);
+        for (auto& kv : extra)
+            shellInterp_->register_extra_module(kv.first, kv.second);
+        vortex::gui_set_active_interpreter(shellInterp_.get());
+    }
     shellInterp_->print_output = [this](const std::string& s) {
         shell_->insertPlainText(QString::fromUtf8(s.data(), (int)s.size()));
         shell_->ensureCursorVisible();

@@ -11,6 +11,10 @@ sql.execute(db, "INSERT INTO users VALUES(1, 'Alice')");
 print(sql.table_exists(db, "users"));
 print(sql.execute(db, "INSERT INTO users VALUES(2, 'Bob')"));
 print(sql.execute(db, "DELETE FROM users WHERE id=1"));
+print("one:", sql.query_one(db, "SELECT name FROM users WHERE id=2"));
+for (row in sql.query(db, "SELECT id, name FROM users")) {
+    for (cell in row) { print("c:", cell); }
+}
 sql.close(db);
 file.remove(dbf);
 print("done");

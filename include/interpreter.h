@@ -62,6 +62,9 @@ public:
     // 获取全局环境
     Environment& globals() { return globals_; }
 
+    // 注册额外模块（供编辑器等注入出厂标配之外的模块，如 gui）
+    void register_extra_module(const std::string& name, ValuePtr mod);
+
     // 输出输出接口（以便重定向）
     std::function<void(const std::string&)> print_output = [](const std::string& s) {
         fputs(s.c_str(), stdout);

@@ -77,6 +77,7 @@ void   vor_list_push(VList* l, long long e);
 void   vor_list_set(VList* l, int idx, long long e);
 long long vor_list_get(const VList* l, int idx);
 VStr*  vor_list_get_str(const VList* l, int idx);
+void*  vor_list_get_strlist(const VList* l, int idx);   // 嵌套列表：取第 idx 个"字符串列表"（内层 VList*）
 int    vor_list_len(const VList* l);
 long long vor_list_sum(const VList* l);
 long long vor_list_prod(const VList* l);
@@ -301,6 +302,8 @@ void*    vor_sql_open(VStr* path);
 void     vor_sql_close(void* h);
 long long vor_sql_execute(void* h, VStr* sql);
 long long vor_sql_table_exists(void* h, VStr* name);
+VStr*    vor_sql_query_one(void* h, VStr* sql);    // 首行首列 → 字符串
+void*    vor_sql_query(void* h, VStr* sql);        // 全表 → 嵌套字符串列表（list of StrList）
 
 // ========== os 模块转发 ==========
 VStr*    vor_os_getenv(VStr* name);

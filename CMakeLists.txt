@@ -174,7 +174,7 @@ if(VORTEX_WITH_RENDER3D)
     list(APPEND VORTEX_SOURCES src/render3d_module.cpp)
 endif()
 # 新模块：thread / log / gui（始终编译，gui 需要 Qt）
-list(APPEND VORTEX_SOURCES src/thread_module.cpp src/log_module.cpp src/gui_module.cpp src/file_module.cpp src/zip_module.cpp src/xml_module.cpp src/html_module.cpp src/sql_module.cpp src/os_module.cpp src/regex_module.cpp src/json_module.cpp src/base64_module.cpp src/datetime_module.cpp src/csv_module.cpp src/hash_module.cpp src/str_module.cpp src/net_module.cpp src/sys_module.cpp)
+list(APPEND VORTEX_SOURCES src/thread_module.cpp src/log_module.cpp src/file_module.cpp src/zip_module.cpp src/xml_module.cpp src/html_module.cpp src/sql_module.cpp src/os_module.cpp src/regex_module.cpp src/json_module.cpp src/base64_module.cpp src/datetime_module.cpp src/csv_module.cpp src/hash_module.cpp src/str_module.cpp src/net_module.cpp src/sys_module.cpp)
 
 # 静态库：编译器核心
 add_library(vortex_core STATIC ${VORTEX_SOURCES})
@@ -245,6 +245,15 @@ if(MINGW)
     target_link_options(vortex PRIVATE -static -static-libgcc -static-libstdc++)
 endif()
 
+# === 运行时 DLL 打包：把 zlib 共享库拷到 bin，让 vortex 免改 PATH 独立运行 ===
+if(TARGET zlib AND WIN32)
+    set(_VZ_BIN ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+    add_custom_command(TARGET vortex POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:zlib>" "${_VZ_BIN}"
+        COMMENT "Bundling zlib.dll for vortex")
+endif()
+
 # ============ 原生编译器运行时（引用计数，C ABI） ============
 # vortexcc 链路生成的可执行文件会链接此库。
 add_library(vortex_runtime STATIC runtime/runtime.cpp
@@ -280,8 +289,11 @@ if(VORTEX_BUILD_EDITOR)
     if(Qt${QT_VERSION_MAJOR}Widgets_FOUND)
         message(STATUS "Vortex Editor: Found Qt${QT_VERSION_MAJOR} Widgets, building editor...")
 
-        # gui_module.cpp 依赖 Qt Widgets，需让 vortex_core 链接 Qt
-        target_link_libraries(vortex_core PUBLIC Qt${QT_VERSION_MAJOR}::Widgets)
+        # gui 脚本模块独立成库，仅编辑器链接：让 vortex.exe/vortexcc 不再依赖 Qt
+        add_library(vortex_gui STATIC src/gui_module.cpp)
+        target_include_directories(vortex_gui PUBLIC ${CMAKE_SOURCE_DIR}/include)
+        target_compile_features(vortex_gui PUBLIC cxx_std_17)
+        target_link_libraries(vortex_gui PUBLIC vortex_core Qt${QT_VERSION_MAJOR}::Widgets)
 
         set(CMAKE_AUTOMOC ON)
         set(CMAKE_AUTORCC ON)
@@ -306,6 +318,7 @@ if(VORTEX_BUILD_EDITOR)
         target_include_directories(vortex_editor PRIVATE ${CMAKE_SOURCE_DIR}/editor)
         target_link_libraries(vortex_editor PRIVATE
             vortex_core
+            vortex_gui
             Qt${QT_VERSION_MAJOR}::Widgets
         )
         if(EXISTS "D:/gcc/opt/include/sqlite3.h")
@@ -390,6 +403,12 @@ if(VORTEX_WITH_LLVM)
         )
         if(MINGW)
             target_link_options(vortexcc PRIVATE -static -static-libgcc -static-libstdc++)
+        endif()
+        if(TARGET zlib AND WIN32)
+            add_custom_command(TARGET vortexcc POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        "$<TARGET_FILE:zlib>" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+                COMMENT "Bundling zlib.dll for vortexcc")
         endif()
     else()
         message(STATUS "Vortex LLVM: LLVM NOT found. Set LLVM_DIR to the llvm cmake dir to enable vortexcc.")

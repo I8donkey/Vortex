@@ -28,6 +28,7 @@
 class QWidget;
 
 namespace vortex {
+class Interpreter;
 
 // GUI 控件包装（存储 QWidget 指针）
 struct GuiWidget {
@@ -35,6 +36,9 @@ struct GuiWidget {
 };
 
 void register_gui_module(std::unordered_map<std::string, ValuePtr>& std_modules);
+
+// 设置 gui 回调所使用的活动解释器（由编辑器注入；解释器自身不链接 gui）
+void gui_set_active_interpreter(Interpreter* interp);
 
 } // namespace vortex
 

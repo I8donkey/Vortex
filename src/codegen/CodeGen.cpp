@@ -56,7 +56,7 @@ static bool block_has_term(llvm::BasicBlock* bb) {
 }
 
 // ==================== 静态类型 ====================
-enum class VType { Int, Float, Bool, Str, List, StrList, Dict, Set, Pair, Tuple, Ref, Closure, Void };
+enum class VType { Int, Float, Bool, Str, List, StrList, StrListList, Dict, Set, Pair, Tuple, Ref, Closure, Void };
 
 struct LVal {
     VType type;
@@ -157,6 +157,7 @@ llvm::Type* Gen::llvm_type(VType t) const {
         case VType::Str:   return B->getPtrTy();          // VStr*
         case VType::List:  return B->getPtrTy();          // VList*
         case VType::StrList: return B->getPtrTy();        // VList*（字符串列表）
+        case VType::StrListList: return B->getPtrTy();    // VList*（嵌套字符串列表）
         case VType::Dict:  return B->getPtrTy();          // VDict*
         case VType::Set:   return B->getPtrTy();          // VList* (集合复用)
         case VType::Pair:  return B->getPtrTy();          // VPair*
@@ -476,6 +477,12 @@ LVal Gen::gen_expr(const Expr* e) {
                 return {VType::Str, B->CreateCall(llvm::cast<llvm::Function>(g),
                                                   {obj.val, B->CreateSExt(idx.val, B->getInt64Ty())})};
             }
+            if (obj.type == VType::StrListList) {
+                // 嵌套字符串列表：取第 idx 行（内层字符串列表）
+                llvm::Value* g = decl_vor("vor_list_get_strlist", VType::StrList, {VType::StrListList, VType::Int});
+                return {VType::StrList, B->CreateCall(llvm::cast<llvm::Function>(g),
+                                                     {obj.val, B->CreateSExt(idx.val, B->getInt64Ty())})};
+            }
             if (obj.type == VType::Tuple) {
                 llvm::Value* g = decl_vor("vor_tuple_at", VType::Int, {VType::Tuple, VType::Int});
                 return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(g), {obj.val, idx.val})};
@@ -534,6 +541,17 @@ LVal Gen::gen_expr(const Expr* e) {
             }
             if (obj.type == VType::Pair && m->member == "second") {
                 llvm::Value* fn = decl_vor("vor_pair_second", VType::Int, {VType::Pair});
+                return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {obj.val})};
+            }
+            // xxx.length / xxx.len（list / 字符串列表 / 嵌套列表 / 字符串）
+            if ((obj.type == VType::List || obj.type == VType::StrList
+                 || obj.type == VType::StrListList)
+                && (m->member == "len" || m->member == "length")) {
+                llvm::Value* fn = decl_vor("vor_list_len", VType::Int, {VType::List});
+                return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {obj.val})};
+            }
+            if (obj.type == VType::Str && (m->member == "len" || m->member == "length")) {
+                llvm::Value* fn = decl_vor("vor_str_len", VType::Int, {VType::Str});
                 return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {obj.val})};
             }
             break;
@@ -1237,6 +1255,18 @@ LVal Gen::gen_call(const CallExpr* c) {
         llvm::Value* n = val_to_str(gen_expr(c->args[1].get()));
         llvm::Value* fn = decl_vor("vor_sql_table_exists", VType::Int, {VType::Str, VType::Str});
         return {VType::Bool, B->CreateCall(llvm::cast<llvm::Function>(fn), {h, n})};
+    }
+    if (fname == "sql.query_one") {
+        llvm::Value* h = gen_expr(c->args[0].get()).val;
+        llvm::Value* s = val_to_str(gen_expr(c->args[1].get()));
+        llvm::Value* fn = decl_vor("vor_sql_query_one", VType::Str, {VType::Str, VType::Str});
+        return {VType::Str, B->CreateCall(llvm::cast<llvm::Function>(fn), {h, s})};
+    }
+    if (fname == "sql.query") {
+        llvm::Value* h = gen_expr(c->args[0].get()).val;
+        llvm::Value* s = val_to_str(gen_expr(c->args[1].get()));
+        llvm::Value* fn = decl_vor("vor_sql_query", VType::StrListList, {VType::Str, VType::Str});
+        return {VType::StrListList, B->CreateCall(llvm::cast<llvm::Function>(fn), {h, s})};
     }
 
     // ---- 扩展模块转发：os.（getenv/setenv/cwd/pid/platform/home/tempdir/path_join） ----
@@ -2406,7 +2436,9 @@ LVal Gen::gen_call(const CallExpr* c) {
                           {obj.val, to_i64(a0)});
             return {VType::Void, nullptr};
         }
-        if (obj.type == VType::List && (m->member == "len" || m->member == "length")) {
+        if ((obj.type == VType::List || obj.type == VType::StrList
+         || obj.type == VType::StrListList)
+        && (m->member == "len" || m->member == "length")) {
             llvm::Value* fn = decl_vor("vor_list_len", VType::Int, {VType::List});
             return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {obj.val})};
         }
@@ -2812,10 +2844,11 @@ void Gen::gen_stmt(const Stmt* s) {
             // 支持遍历 int list / set / tuple / int-key dict
             if (cont.type != VType::List && cont.type != VType::Dict
                 && cont.type != VType::Set && cont.type != VType::Tuple
-                && cont.type != VType::StrList) break;
+                && cont.type != VType::StrList && cont.type != VType::StrListList) break;
             const bool isDict = (cont.type == VType::Dict);
             const bool isTuple = (cont.type == VType::Tuple);
             const bool isStrList = (cont.type == VType::StrList);
+            const bool isStrListList = (cont.type == VType::StrListList);
 
             llvm::BasicBlock* condBB = llvm::BasicBlock::Create(B->getContext(), "for.cond", F);
             llvm::BasicBlock* bodyBB = llvm::BasicBlock::Create(B->getContext(), "for.body", F);
@@ -2847,7 +2880,8 @@ void Gen::gen_stmt(const Stmt* s) {
 
             // 主题：把元素 bind 到 var（按容器元素类型选择 int/str）
             B->SetInsertPoint(bodyBB);
-            const VType elType = isStrList ? VType::Str : VType::Int;
+            const VType elType = isStrList ? VType::Str
+                                 : (isStrListList ? VType::StrList : VType::Int);
             llvm::AllocaInst* varSlot = make_alloca(elType, F, fi->var.c_str());
             llvm::Value* idxv = B->CreateLoad(B->getInt64Ty(), idxSlot);
             llvm::Value* elem;
@@ -2860,6 +2894,9 @@ void Gen::gen_stmt(const Stmt* s) {
             else if (isStrList)
                 elem = B->CreateCall(llvm::cast<llvm::Function>(
                     decl_vor("vor_list_get_str", VType::Str, {VType::StrList, VType::Int})), {cont.val, idxv});
+            else if (isStrListList)
+                elem = B->CreateCall(llvm::cast<llvm::Function>(
+                    decl_vor("vor_list_get_strlist", VType::StrList, {VType::StrListList, VType::Int})), {cont.val, idxv});
             else
                 elem = B->CreateCall(llvm::cast<llvm::Function>(
                     decl_vor("vor_list_get", VType::Int, {VType::List, VType::Int})), {cont.val, idxv});

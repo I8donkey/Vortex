@@ -280,7 +280,7 @@ The `thread` module provides thread creation/join, mutex, atomics, channels, and
 | `text` | case/trim/search/replace/format interpolation string tools |
 | `net` | url encode/decode/http_get/http_post (WinHTTP) |
 | `sys` | version/platform/time_ms/clock/sleep/exit |
-| `gui` | Qt windows/widgets/layout/events/msgbox |
+| `gui` | Qt windows/widgets/layout/events/msgbox (editor-only) |
 | `game2d` | 2D images, sprites, collisions and drawing (software-rendered) |
 | `render3d` | software rasterizer: scenes, cameras, meshes, materials, lights, `render` |
 

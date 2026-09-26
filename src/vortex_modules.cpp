@@ -30,9 +30,8 @@ void register_extension_modules(std::unordered_map<std::string, ValuePtr>& std_m
     register_game2d_module(std_modules);
     register_render3d_module(std_modules);
     register_thread_module(std_modules);
-    register_log_module(std_modules);
-    register_gui_module(std_modules);
-    register_file_module(std_modules);
+register_log_module(std_modules);
+register_file_module(std_modules);
     register_zip_module(std_modules);
     register_xml_module(std_modules);
     register_html_module(std_modules);

@@ -72,11 +72,9 @@ Interpreter::Interpreter() {
     init_builtins();
     init_modules();
     game2d::Game::bind_interpreter(this);
-    // 绑定 thread / gui 模块的全局解释器指针
+    // 绑定 thread 模块的全局解释器指针（gui 由编辑器经 gui_set_active_interpreter 注入）
     extern Interpreter* g_thread_active_interpreter;
-    extern Interpreter* g_gui_active_interpreter;
     g_thread_active_interpreter = this;
-    g_gui_active_interpreter = this;
 }
 
 void Interpreter::init_builtins() {
@@ -923,6 +921,9 @@ ControlSignal Interpreter::exec_function_def(const FunctionDefStmt* s) {
     v->fn_rep = fv;
     current_env_->define(s->name, v, false);
     return {};
+}
+void Interpreter::register_extra_module(const std::string& name, ValuePtr mod) {
+    std_modules_[name] = std::move(mod);
 }
 ControlSignal Interpreter::exec_import(const ImportStmt* s) {
     auto it = std_modules_.find(s->module);

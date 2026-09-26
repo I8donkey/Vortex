@@ -284,6 +284,11 @@ VStr* vor_list_get_str(const VList* l, int idx) {
     return vor_str_from_bytes(held->data, held->len);
 }
 int vor_list_len(const VList* l) { return l->len; }
+// 嵌套字符串列表：取第 idx 个元素，槽位里存的是内层 VList*（行）
+void* vor_list_get_strlist(const VList* l, int idx) {
+    if (!l || idx < 0 || idx >= l->len) return nullptr;
+    return (void*)l->elems[idx];
+}
 long long vor_list_sum(const VList* l) {
     long long s = 0;
     if (!l) return 0;
@@ -1389,6 +1394,41 @@ long long vor_sql_table_exists(void* h, VStr* name) {
     int found = (sqlite3_step(st) == SQLITE_ROW);
     sqlite3_finalize(st);
     return found;
+}
+VStr* vor_sql_query_one(void* h, VStr* sql) {
+    using namespace vortsql;
+    Conn* c = lookup(h);
+    if (!c || !c->db) { throw_rt("sql.query_one: invalid handle"); return vor_str_from_cstr(""); }
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(c->db, vstr_str(sql).c_str(), -1, &st, nullptr) != SQLITE_OK)
+        throw_rt(("sql.query_one: " + std::string(sqlite3_errmsg(c->db))).c_str());
+    std::string val;
+    if (sqlite3_step(st) == SQLITE_ROW && sqlite3_column_count(st) > 0) {
+        const unsigned char* t = sqlite3_column_text(st, 0);
+        val = t ? (const char*)t : "";
+    }
+    sqlite3_finalize(st);
+    return vor_str_from_cstr(val.c_str());
+}
+void* vor_sql_query(void* h, VStr* sql) {
+    using namespace vortsql;
+    Conn* c = lookup(h);
+    if (!c || !c->db) { throw_rt("sql.query: invalid handle"); return vor_list_new(); }
+    sqlite3_stmt* st = nullptr;
+    if (sqlite3_prepare_v2(c->db, vstr_str(sql).c_str(), -1, &st, nullptr) != SQLITE_OK)
+        throw_rt(("sql.query: " + std::string(sqlite3_errmsg(c->db))).c_str());
+    VList* rows = vor_list_new();
+    while (sqlite3_step(st) == SQLITE_ROW) {
+        VList* row = vor_list_new();
+        int n = sqlite3_column_count(st);
+        for (int i = 0; i < n; ++i) {
+            const unsigned char* t = sqlite3_column_text(st, i);
+            vor_list_push(row, (long long)vor_str_from_cstr(t ? (const char*)t : ""));
+        }
+        vor_list_push(rows, (long long)row);
+    }
+    sqlite3_finalize(st);
+    return rows;
 }
 
 // ========== os 模块转发（getenv/setenv/cwd/pid/platform/home/tempdir/path_join） ==========

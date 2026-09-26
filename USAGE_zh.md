@@ -203,7 +203,7 @@ print(random.randint(1, 6));
 | `isdir(path)` / `isfile(p)` | bool       | 类型判断         |
 | `mkdir(path)`               | bool       | 创建目录（可多级）    |
 | `rmdir(path)`               | bool       | 删除目录树        |
-| `listdir(path)`             | list\[str] | 目录条目（仅解释器）   |
+| `listdir(path)`             | list\[str] | 目录条目           |
 
 ```vt
 import file;
@@ -221,7 +221,7 @@ file.remove("a.txt");
 | `extract(path,name)`  | str        | 读取条目（deflate/store） |
 | `count(path)`         | int        | 条目数量                |
 | `has(path,name)`      | bool       | 条目是否存在              |
-| `names(path)`         | list\[str] | 条目名（仅解释器）           |
+| `names(path)`         | list\[str] | 条目名           |
 
 ```vt
 import zip;
@@ -256,7 +256,7 @@ print(html.strip_tags("<p>a &amp; b</p>")); # a & b
 | `execute(handle, sql)`       | int    | 受影响行数             |
 | `table_exists(handle, name)` | bool   | 表是否存在             |
 | `query_one(handle, sql)`     | str    | 第一行第一列            |
-| `query(handle, sql)`         | list   | 行列表（仅解释器）         |
+| `query(handle, sql)`         | list   | 表行（每行一个字符串列表）     |
 
 ```vt
 import sql;
@@ -269,7 +269,9 @@ print(sql.execute(h, "DELETE FROM t WHERE id=1"));   # 1
 sql.close(h);
 ```
 
-> 说明：编译器后端转发 `open/close/execute/table_exists`。返回字符串列表的函数（`file.listdir`、`zip.names`、`sql.query`、`sql.query_one`）仅解释器可用，因为编译器暂未支持遍历字符串列表。
+> 说明：编译器后端转发 `open/close/execute/table_exists/query_one/query`。`query_one` 返回首行首列字符串，`query` 返回嵌套字符串列表（每行为一个字符串列表），编译产物支持对其直接 `for-in` 遍历与下标取值（`row[i]`）。
+>
+> `file.listdir`、`zip.names`、`os.listdir` 等返回字符串列表的函数同样在编译产物中可直接遍历。
 
 ### 4.10 `os`（进程与环境）
 

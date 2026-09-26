@@ -203,7 +203,7 @@ Filesystem operations (read/write/query). The compiler backend forwards all of t
 | `isdir(path)` / `isfile(p)` | bool       | type checks                     |
 | `mkdir(path)`               | bool       | create dirs (recursive)         |
 | `rmdir(path)`               | bool       | remove dir tree                 |
-| `listdir(path)`             | list\[str] | directory entries (interp-only) |
+| `listdir(path)`             | list\[str] | directory entries |
 
 ```vt
 import file;
@@ -221,7 +221,7 @@ file.remove("a.txt");
 | `extract(path, name)`   | str        | read an entry (deflate/store) |
 | `count(path)`           | int        | number of entries             |
 | `has(path, name)`       | bool       | entry exists                  |
-| `names(path)`           | list\[str] | entry names (interp-only)     |
+| `names(path)`           | list\[str] | entry names     |
 
 ```vt
 import zip;
@@ -256,7 +256,7 @@ In-memory or file-backed SQLite via an opaque connection handle. Handles flow th
 | `execute(handle, sql)`       | int     | rows changed               |
 | `table_exists(handle, name)` | bool    | table exists               |
 | `query_one(handle, sql)`     | str     | first column, first row    |
-| `query(handle, sql)`         | list    | rows as list (interp-only) |
+| `query(handle, sql)`         | list    | table rows (each row a string list) |
 
 ```vt
 import sql;
@@ -269,7 +269,7 @@ print(sql.execute(h, "DELETE FROM t WHERE id=1"));   # 1
 sql.close(h);
 ```
 
-> Note: the compiler backend forwards `open`/`close`/`execute`/`table_exists`. Functions returning lists of strings (`file.listdir`, `zip.names`, `sql.query`, `sql.query_one`) work in the interpreter only, because the compiler does not yet iterate string lists.
+> Note: the compiler backend forwards `open`/`close`/`execute`/`table_exists`/`query_one`/`query`. `query_one` returns the first-column string; `query` returns a nested string list (one string list per row) that the compiled executable can iterate directly with `for-in` and index with `row[i]`. Functions returning string lists (`file.listdir`, `zip.names`, `os.listdir`, …) are likewise iterable in compiled executables.
 
 ### 4.10 `os` (process & environment)
 

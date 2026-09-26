@@ -224,4 +224,8 @@ void register_gui_module(std::unordered_map<std::string, ValuePtr>& std_modules)
 // 解释器绑定指针
 Interpreter* g_gui_active_interpreter = nullptr;
 
+void gui_set_active_interpreter(Interpreter* interp) {
+    g_gui_active_interpreter = interp;
+}
+
 } // namespace vortex
