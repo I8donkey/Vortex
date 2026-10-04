@@ -52,6 +52,8 @@ std::string Value::type_name() const {
         case ValueType::MemAdr: return "memadr";
         case ValueType::Function: return "function";
         case ValueType::Module: return "module";
+        case ValueType::Class: return "class";
+        case ValueType::Instance: return "instance";
         case ValueType::Opaque:
             return opaque_rep ? ("opaque<" + opaque_rep->kind + ">") : "opaque";
     }
@@ -139,6 +141,8 @@ std::string Value::to_string() const {
         case ValueType::MemAdr: return "<memadr " + adr_rep->var_name + ">";
         case ValueType::Function: return "<fn " + fn_rep->name + ">";
         case ValueType::Module: return "<module " + std::to_string(module_rep->size()) + " members>";
+        case ValueType::Class: return "<class>";
+        case ValueType::Instance: return "<instance " + std::to_string(module_rep->size()) + " fields>";
         case ValueType::Opaque:
             return opaque_rep ? ("<" + opaque_rep->kind + ">") : std::string("<opaque>");
     }
@@ -163,6 +167,7 @@ bool Value::truthy() const {
         case ValueType::Dict: return !dict_rep->empty();
         case ValueType::Pair: case ValueType::Tuple: return true;
         case ValueType::MemAdr: case ValueType::Function: return true;
+        case ValueType::Module: case ValueType::Class: case ValueType::Instance: return true;
         case ValueType::Opaque: return opaque_rep != nullptr;
     }
     return false;

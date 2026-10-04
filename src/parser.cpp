@@ -49,8 +49,9 @@ std::unique_ptr<Program> Parser::parse_program() {
     auto prog = std::make_unique<Program>();
     while (!check(TokenType::EndOfFile)) {
         try {
+            Token start = peek();
             auto s = parse_stmt();
-            if (s) prog->stmts.push_back(std::move(s));
+            if (s) { s->line = start.line; s->col = start.col; prog->stmts.push_back(std::move(s)); }
         } catch (const std::runtime_error& e) {
             // 错误同步：跳过直到分号或右大括号
             while (!check(TokenType::EndOfFile) &&
@@ -71,6 +72,9 @@ StmtPtr Parser::parse_stmt() {
     if (check(TokenType::Kw_if)) return parse_if();
     if (check(TokenType::Kw_for)) return parse_for();
     if (check(TokenType::Kw_while)) return parse_while();
+    if (check(TokenType::Kw_assert)) return parse_assert();
+    if (check(TokenType::Kw_match)) return parse_match();
+    if (check(TokenType::Kw_class)) return parse_class();
     if (check(TokenType::Kw_def)) return parse_function_def();
     if (check(TokenType::Kw_import) || check(TokenType::Kw_from)) return parse_import();
     if (check(TokenType::Kw_try)) return parse_try();
@@ -117,6 +121,12 @@ StmtPtr Parser::parse_decl_or_stmt() {
         }
         // 否则：作为标识符（如 str(...) 转型或调用）
         // 进入 parse_expr_as_stmt
+    }
+    // 用户类名声明：<ClassName> <var> (= ...) ;   （如 Point p = Point(3,4);）
+    if (peek_t() == TokenType::Identifier && peek(1).type == TokenType::Identifier) {
+        std::string cls = peek().text;
+        advance(); // 消费类名作为类型
+        return parse_var_decl(std::make_unique<TypeSpec>(cls));
     }
     auto e = parse_expr();
     return parse_expr_as_stmt(std::move(e));
@@ -185,8 +195,9 @@ std::unique_ptr<BlockStmt> Parser::parse_block() {
     auto blk = std::make_unique<BlockStmt>();
     expect(TokenType::LBrace);
     while (!check(TokenType::RBrace) && !check(TokenType::EndOfFile)) {
+        Token start = peek();
         auto s = parse_stmt();
-        if (s) blk->stmts.push_back(std::move(s));
+        if (s) { s->line = start.line; s->col = start.col; blk->stmts.push_back(std::move(s)); }
     }
     expect(TokenType::RBrace);
     return blk;
@@ -233,6 +244,75 @@ StmtPtr Parser::parse_while() {
     stmt->cond = parse_expr();
     expect(TokenType::RParen);
     stmt->body = parse_block();
+    return stmt;
+}
+
+StmtPtr Parser::parse_assert() {
+    auto stmt = std::make_unique<AssertStmt>();
+    expect(TokenType::Kw_assert);
+    bool paren = false;
+    if (check(TokenType::LParen)) { advance(); paren = true; }
+    stmt->cond = parse_expr();
+    if (match(TokenType::Comma)) {
+        stmt->message = parse_expr();
+    }
+    if (paren) expect(TokenType::RParen);
+    expect(TokenType::Semicolon);
+    return stmt;
+}
+
+// match <expr> { case <pattern>: { body } ... [default: { body }] }
+StmtPtr Parser::parse_match() {
+    auto stmt = std::make_unique<MatchStmt>();
+    expect(TokenType::Kw_match);
+    if (match(TokenType::LParen)) {
+        stmt->subject = parse_expr();
+        expect(TokenType::RParen);
+    } else {
+        stmt->subject = parse_expr();
+    }
+    expect(TokenType::LBrace);
+    while (!check(TokenType::RBrace) && !check(TokenType::EndOfFile)) {
+        MatchStmt::Case cs;
+        if (match(TokenType::Kw_default)) {
+            cs.pattern = nullptr; // 通配
+        } else {
+            expect(TokenType::Kw_case);
+            cs.pattern = parse_expr();
+        }
+        expect(TokenType::Colon);
+        cs.body = parse_block();
+        stmt->cases.push_back(std::move(cs));
+    }
+    expect(TokenType::RBrace);
+    return stmt;
+}
+
+// class Name { [type field;]* [def method(...){...}]* }
+StmtPtr Parser::parse_class() {
+    auto stmt = std::make_unique<ClassDeclStmt>();
+    expect(TokenType::Kw_class);
+    stmt->name = expect(TokenType::Identifier, "class name").text;
+    expect(TokenType::LBrace);
+    while (!check(TokenType::RBrace) && !check(TokenType::EndOfFile)) {
+        if (check(TokenType::Kw_def)) {
+            auto fn = parse_function_def();
+            auto* fd = static_cast<FunctionDefStmt*>(fn.release());
+            stmt->methods.push_back(std::unique_ptr<FunctionDefStmt>(fd));
+        } else {
+            // 字段声明: [type] name ;
+            ClassDeclStmt::Field f;
+            if (is_type_keyword(peek_t())) {
+                f.type = parse_type_spec()->base_name;
+            } else {
+                f.type = "object";
+            }
+            f.name = expect(TokenType::Identifier, "field name").text;
+            expect(TokenType::Semicolon);
+            stmt->fields.push_back(std::move(f));
+        }
+    }
+    expect(TokenType::RBrace);
     return stmt;
 }
 
@@ -559,8 +639,14 @@ ExprPtr Parser::parse_postfix() {
             continue;
         }
         if (match(TokenType::Dot)) {
-            Token m = expect(TokenType::Identifier, "member name");
-            base = std::make_unique<MemberAccessExpr>(std::move(base), m.text);
+            // 成员名：标识符或关键字（如 regex.match 中 match 已是关键字）
+            if (check(TokenType::Identifier) ||
+                (peek_t() >= TokenType::Kw_def && peek_t() <= TokenType::Kw_not)) {
+                Token m = advance();
+                base = std::make_unique<MemberAccessExpr>(std::move(base), m.text);
+                continue;
+            }
+            error("Expected member name after '.'");
             continue;
         }
         if (match(TokenType::LBrack)) {
@@ -631,9 +717,21 @@ ExprPtr Parser::parse_atom() {
         advance();
         auto lst = std::make_unique<ListInitExpr>();
         if (!check(TokenType::RBrack)) {
-            while (true) {
+            // 可能为列表推导式 [expr for x in iterable if cond]
+            ExprPtr first = parse_expr();
+            if (match(TokenType::Kw_for)) {
+                auto comp = std::make_unique<ListCompExpr>();
+                comp->element = std::move(first);
+                comp->var = expect(TokenType::Identifier, "comprehension variable").text;
+                expect(TokenType::Kw_in);
+                comp->container = parse_expr();
+                if (match(TokenType::Kw_if)) comp->cond = parse_expr();
+                expect(TokenType::RBrack);
+                return comp;
+            }
+            lst->elements.push_back(std::move(first));
+            while (match(TokenType::Comma)) {
                 lst->elements.push_back(parse_expr());
-                if (!match(TokenType::Comma)) break;
             }
         }
         expect(TokenType::RBrack);
@@ -641,21 +739,40 @@ ExprPtr Parser::parse_atom() {
     }
     if (check(TokenType::LBrace)) {
         advance();
-        // 字典初始化（k:v, ...）或 set 字面量
+        // 字典初始化（k:v, ...）或 set 字面量，或推导式 {k: v for ...}
         auto dict = std::make_unique<DictInitExpr>();
         std::vector<ExprPtr> set_list;
         bool is_dict = false;
         if (!check(TokenType::RBrace)) {
-            while (true) {
-                auto first = parse_expr();
+            auto first = parse_expr();
+            if (match(TokenType::Colon)) {
+                is_dict = true;
+                auto second = parse_expr();
+                if (match(TokenType::Kw_for)) {
+                    // 字典推导式 {k: v for x in iterable if cond}
+                    auto comp = std::make_unique<DictCompExpr>();
+                    comp->key = std::move(first);
+                    comp->value = std::move(second);
+                    comp->var = expect(TokenType::Identifier, "comprehension variable").text;
+                    expect(TokenType::Kw_in);
+                    comp->container = parse_expr();
+                    if (match(TokenType::Kw_if)) comp->cond = parse_expr();
+                    expect(TokenType::RBrace);
+                    return comp;
+                }
+                dict->pairs.push_back({std::move(first), std::move(second)});
+            } else {
+                set_list.push_back(std::move(first));
+            }
+            while (match(TokenType::Comma)) {
+                auto e = parse_expr();
                 if (match(TokenType::Colon)) {
                     is_dict = true;
-                    auto second = parse_expr();
-                    dict->pairs.push_back({std::move(first), std::move(second)});
+                    auto v = parse_expr();
+                    dict->pairs.push_back({std::move(e), std::move(v)});
                 } else {
-                    set_list.push_back(std::move(first));
+                    set_list.push_back(std::move(e));
                 }
-                if (!match(TokenType::Comma)) break;
             }
         }
         expect(TokenType::RBrace);

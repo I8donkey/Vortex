@@ -532,21 +532,42 @@ str body = net.http_get("https://httpbin.org/get");
 
 ## 6. 回归测试
 
-golden 套件用 `vortexcc` 编译每个测试并运行，将 stdout/stderr 与解释器对比；同时以 `--debug` 构建复核语义一致。
+`tests/runtest.ps1` 自动发现 `tests/*.vt`，两种校验方式：
+
+- **正确性测试（推荐）**：存在 `tests/<name>.expected` 时，断言解释器退出码为 0 且 stdout 精确等于期望内容（CRLF/末尾换行不敏感）。新增测试只需放入一对 `Foo.vt` + `Foo.expected` 即被自动纳入回归。
+- **golden 测试**：无 `.expected` 时用 `vortexcc` 编译并运行（含 `--debug` 复核），将 stdout/stderr 与解释器对比，保证两端语义一致。
+
+常用参数：
 
 ```sh
-powershell -ExecutionPolicy Bypass -File runtest.ps1
+powershell -ExecutionPolicy Bypass -File runtest.ps1          # 默认：白名单 + 所有带 .expected 的测试
+powershell -ExecutionPolicy Bypass -File runtest.ps1 -a       # -a：把所有 .vt 都纳入 golden 验证
+powershell -ExecutionPolicy Bypass -File runtest.ps1 -j 16    # -j：并行 worker 数
+powershell -ExecutionPolicy Bypass -File runtest.ps1 -t 20    # -t：单步超时秒数（默认 20）
 ```
 
-覆盖用例（须全部通过）：标量与控制流、容器、引用（`@`/`~`）、异常、闭包、模块（`math`/`time`/`random`/`log`/`file`/`zip`/`xml`/`html`/`sql`/`os`/`regex`/`json`/`base64`/`datetime`/`csv`/`hash`/`text`/`net`）、线程/channel，以及 `game2d`/`render3d`。
+每个运行/编译步骤超过 `-t` 秒会被强制终止并报 `FAIL (timeout)`，防止挂起测试拖垮整个套件。缺失 `.expected` 且不在白名单的 `.vt` 默认跳过（可用 `-a` 强制运行）。
+
+覆盖用例（须全部通过）：标量与控制流、容器、引用（`@`/`~`）、异常、闭包、模块（`math`/`time`/`random`/`log`/`file`/`zip`/`xml`/`html`/`sql`/`os`/`regex`/`json`/`base64`/`datetime`/`csv`/`hash`/`text`/`net`）、线程/channel，以及 `game2d`/`render3d`。带 `*.expected` 的测试（如 `test_x`、`test_atomic`、`test_log`、`test_mod_import`、`test_mathmod`）直接做输出精确校验。
 
 预期收尾：
 
 ```
-[ok] test_p3_closure
+[1/38] errtest ... ok
 ...
-[ok] test_modules_r3d_g2d
 ================================
 ALL PASS
 ```
+
+## 7. 错误提示
+
+运行时错误采用 gcc/clang 风格的 `文件:行:列: error: 消息` 格式，并附出错源码行与 `^` 定位；对未定义名字附带 `did you mean 'xxx'?` 建议：
+
+```
+err.vt:3:1: error: Undefined variable: 't'; did you mean 't1'?
+  | print(t);
+  | ^
+```
+
+编译器同样以 `file:line:col`（`Compile error: [codegen] ...`）报告词法/解析/代码生成错误，并对静态可判定的类型错误（如 `str + 数值`）直接报编译错误而非崩溃。
 

@@ -287,6 +287,7 @@ static bool run_source(const std::string& src, const std::string& name = "<stdin
         else if (!name.empty())
             interp.set_module_path(".");
     }
+    interp.set_source_for_errors(name, src);
     interp.run(*prog);
     return true;
 }

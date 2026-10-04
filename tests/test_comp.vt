@@ -1,0 +1,7 @@
+list squares = [x*x for x in [1, 2, 3, 4]];
+print(squares);
+list evens = [x for x in [1, 2, 3, 4, 5, 6] if x % 2 == 0];
+print(evens);
+dict kv = {x: x*x for x in [1, 2, 3]};
+print(kv.len());
+print("done");

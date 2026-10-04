@@ -39,6 +39,8 @@ public:
 
     // 当前作用域定义的所有名字（用于 del *）
     std::vector<std::string> locals() const;
+    // 整条作用域链可见的名字（去重），用于"did you mean"建议
+    std::vector<std::string> all_names() const;
 
     Environment* parent() { return parent_; }
 
@@ -65,6 +67,9 @@ public:
     // 模块搜索根目录（默认 cwd）；main 入口可设为脚本所在目录
     void set_module_path(const std::string& dir) { module_base_ = dir; }
 
+    // 记录源码供运行时错误定位（path + 各行文本）；便于输出 file:line:col: error: 上下文
+    void set_source_for_errors(const std::string& path, const std::string& src);
+
     // 注册额外模块（供编辑器等注入出厂标配之外的模块，如 gui）
     void register_extra_module(const std::string& name, ValuePtr mod);
 
@@ -87,6 +92,13 @@ public:
 private:
     Environment globals_;
     Environment* current_env_ = &globals_;
+
+    // 运行时错误定位（gcc/clang 风格 file:line:col: error: 消息 + 源码上下文）
+    int cur_line_ = 0, cur_col_ = 0;      // 当前正在执行的语句位置
+    std::string err_path_;                 // 源码文件路径（显示用）
+    std::vector<std::string> err_lines_;   // 源码按行拆分（0 基，行号 = index+1）
+    // 组装 "path:line:col: error: msg\n  | <src line>\n  | <caret>"；无源码行时退回纯消息
+    std::string format_error(const std::string& msg) const;
 
     // 调用栈的命名参数（用于内置方法如 sort 的 cmp 关键字）
     std::vector<std::unordered_map<std::string, ValuePtr>> kwarg_stack_;
@@ -138,6 +150,7 @@ private:
     ControlSignal exec_function_def(const FunctionDefStmt* s);
     ControlSignal exec_import(const ImportStmt* s);
     ControlSignal exec_try(const TryCatchStmt* s);
+    ControlSignal exec_class(const ClassDeclStmt* s);
 
     // 表达式求值分派
     ValuePtr eval_literal(const LiteralExpr* e);
@@ -153,6 +166,8 @@ private:
     ValuePtr eval_dict_init(const DictInitExpr* e);
     ValuePtr eval_lambda(const LambdaExpr* e);
     ValuePtr eval_cast(const CastExpr* e);
+    ValuePtr eval_list_comp(const ListCompExpr* e);
+    ValuePtr eval_dict_comp(const DictCompExpr* e);
 
     // 辅助：赋值目标解析（返回可修改的引用）
     ValuePtr& resolve_lvalue(const Expr* target);

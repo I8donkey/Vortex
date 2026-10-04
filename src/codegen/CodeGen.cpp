@@ -11,6 +11,7 @@
 #include "lexer.h"
 #include "parser.h"
 #include "interpreter.h"
+#include "../suggest.h"
 
 #include <limits>
 #include <cmath>
@@ -141,6 +142,8 @@ private:
     VType infer_expr_type(const Expr* e);
     // 推断函数的返回类型（遍历 return 语句），未知→Int
     VType infer_fn_ret(const FunctionDefStmt* fd);
+    // 收集可用于"did you mean"的标识符候选（作用域 + 内建 + 常见模块名）
+    std::vector<std::string> ident_candidates() const;
 
     // ---- 调试信息辅助（P3） ----
     void dbg_begin(llvm::Module& mod);                   // 创建 DIBuilder/CU/DIFile
@@ -293,12 +296,29 @@ LVal Gen::gen_expr(const Expr* e) {
         }
         case ExprKind::Identifier: {
             LVal v;
-            if (lookup_var(static_cast<const IdentifierExpr*>(e)->name, v)) {
-                // 有 alloca 槽则每次重新 load，保证读到最新值
-                if (v.slot) return {v.type, B->CreateLoad(llvm_type(v.type), v.slot)};
-                return v;
+            const std::string iname = static_cast<const IdentifierExpr*>(e)->name;
+            if (!lookup_var(iname, v)) {
+                // 若是某用户模块对象的裸引用（存在 <iname>.<符号> 成员），不算未声明：
+                // 编译端模块对象仅是占位（成员经 foo.x / foo.f 专有路径访问）
+                std::string pref = iname + ".";
+                bool isModule = false;
+                for (const auto& frame : scopes_)
+                    for (const auto& kv : frame)
+                        if (kv.first.size() > iname.size() &&
+                            kv.first.compare(0, pref.size(), pref) == 0) { isModule = true; break; }
+                if (!isModule)
+                    for (const llvm::Function& F : mod_->getFunctionList()) {
+                        std::string s = F.getName().str();
+                        if (s.size() > iname.size() && s.compare(0, pref.size(), pref) == 0) { isModule = true; break; }
+                    }
+                if (isModule) return {VType::Int, B->getInt64(0)};   // 模块对象占位（无实义值）
+                // 真·未声明标识符：明确报错并给拼写建议
+                throw std::runtime_error("'" + iname + "' was not declared in this scope" +
+                                         vortex::suggest::did_you_mean(iname, ident_candidates()));
             }
-            break;
+            // 有 alloca 槽则每次重新 load，保证读到最新值
+            if (v.slot) return {v.type, B->CreateLoad(llvm_type(v.type), v.slot)};
+            return v;
         }
         case ExprKind::Cast: {
             auto* ce = static_cast<const CastExpr*>(e);
@@ -470,6 +490,140 @@ LVal Gen::gen_expr(const Expr* e) {
             }
             return {VType::Dict, d};
         }
+        case ExprKind::ListComp: {
+            auto* lc = static_cast<const ListCompExpr*>(e);
+            // 仅支持 int 元素容器（list/dict-int-key），与编译器 for-in 能力一致
+            LVal cont = gen_expr(lc->container.get());
+            const bool isDict = (cont.type == VType::Dict);
+            const bool isStr = (cont.type == VType::StrList);
+            if (cont.type != VType::List && !isDict && cont.type != VType::Set
+                && cont.type != VType::Tuple && !isStr)
+                throw std::runtime_error("comprehension: unsupported container type (VType=" + std::to_string((int)cont.type) + ")");
+            llvm::Function* F = cur_bb()->getParent();
+            llvm::Value* res = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_list_new", VType::List, {})), {});
+            llvm::BasicBlock* condBB = llvm::BasicBlock::Create(B->getContext(), "lc.cond", F);
+            llvm::BasicBlock* bodyBB = llvm::BasicBlock::Create(B->getContext(), "lc.body", F);
+            llvm::BasicBlock* updBB  = llvm::BasicBlock::Create(B->getContext(), "lc.upd", F);
+            llvm::BasicBlock* endBB  = llvm::BasicBlock::Create(B->getContext(), "lc.end", F);
+            llvm::AllocaInst* idxSlot = make_alloca(VType::Int, F, "lc.idx");
+            B->CreateStore(B->getInt64(0), idxSlot);
+            B->CreateBr(condBB);
+            // upd
+            B->SetInsertPoint(updBB);
+            llvm::Value* i1 = B->CreateLoad(B->getInt64Ty(), idxSlot);
+            B->CreateStore(B->CreateAdd(i1, B->getInt64(1)), idxSlot);
+            B->CreateBr(condBB);
+            // cond
+            B->SetInsertPoint(condBB);
+            llvm::Value* len = isDict
+                ? B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_dict_int_key_count", VType::Int, {VType::Dict})), {cont.val})
+                : (isStr ? B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_list_len", VType::Int, {VType::List})), {cont.val})
+                         : B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_list_len", VType::Int, {VType::List})), {cont.val}));
+            llvm::Value* ic = B->CreateLoad(B->getInt64Ty(), idxSlot);
+            B->CreateCondBr(B->CreateICmpSLT(ic, len), bodyBB, endBB);
+            // body: bind var
+            B->SetInsertPoint(bodyBB);
+            const VType elType = isStr ? VType::Str : VType::Int;
+            llvm::AllocaInst* varSlot = make_alloca(elType, F, "lc.var");
+            llvm::Value* idxv = B->CreateLoad(B->getInt64Ty(), idxSlot);
+            llvm::Value* elem;
+            if (isDict)
+                elem = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_dict_int_key_at", VType::Int, {VType::Dict, VType::Int})), {cont.val, idxv});
+            else if (isStr)
+                elem = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_list_get_str", VType::Str, {VType::StrList, VType::Int})), {cont.val, idxv});
+            else
+                elem = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_list_get", VType::Int, {VType::List, VType::Int})), {cont.val, idxv});
+            B->CreateStore(elem, varSlot);
+            scopes_.emplace_back();
+            scopes_.back()[lc->var] = LVal{elType, B->CreateLoad(llvm_type(elType), varSlot), varSlot};
+            // cond 过滤
+            if (lc->cond) {
+                llvm::BasicBlock* filtBB = llvm::BasicBlock::Create(B->getContext(), "lc.filt", F);
+                llvm::BasicBlock* pushBB = llvm::BasicBlock::Create(B->getContext(), "lc.push", F);
+                LVal cf = gen_expr(lc->cond.get());
+                B->CreateCondBr(cf.val, pushBB, updBB);
+                B->SetInsertPoint(pushBB);
+                LVal ev = gen_expr(lc->element.get());
+                B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_list_push", VType::Void, {VType::List, VType::Int})), {res, to_i64(ev)});
+                scopes_.pop_back();
+                B->CreateBr(updBB);
+                B->SetInsertPoint(filtBB);
+                B->CreateBr(updBB);
+            } else {
+                LVal ev = gen_expr(lc->element.get());
+                B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_list_push", VType::Void, {VType::List, VType::Int})), {res, to_i64(ev)});
+                scopes_.pop_back();
+                B->CreateBr(updBB);
+            }
+            B->SetInsertPoint(endBB);
+            return {VType::List, res};
+        }
+        case ExprKind::DictComp: {
+            auto* dc = static_cast<const DictCompExpr*>(e);
+            LVal cont = gen_expr(dc->container.get());
+            const bool isDict = (cont.type == VType::Dict);
+            if (cont.type != VType::List && !isDict && cont.type != VType::Set
+                && cont.type != VType::Tuple)
+                throw std::runtime_error("dict comprehension: unsupported container type");
+            llvm::Function* F = cur_bb()->getParent();
+            llvm::Value* res = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_dict_new", VType::Dict, {})), {});
+            llvm::BasicBlock* condBB = llvm::BasicBlock::Create(B->getContext(), "dcc.cond", F);
+            llvm::BasicBlock* bodyBB = llvm::BasicBlock::Create(B->getContext(), "dcc.body", F);
+            llvm::BasicBlock* updBB  = llvm::BasicBlock::Create(B->getContext(), "dcc.upd", F);
+            llvm::BasicBlock* endBB  = llvm::BasicBlock::Create(B->getContext(), "dcc.end", F);
+            llvm::AllocaInst* idxSlot = make_alloca(VType::Int, F, "dcc.idx");
+            B->CreateStore(B->getInt64(0), idxSlot);
+            B->CreateBr(condBB);
+            B->SetInsertPoint(updBB);
+            llvm::Value* i1 = B->CreateLoad(B->getInt64Ty(), idxSlot);
+            B->CreateStore(B->CreateAdd(i1, B->getInt64(1)), idxSlot);
+            B->CreateBr(condBB);
+            B->SetInsertPoint(condBB);
+            llvm::Value* len = isDict
+                ? B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_dict_int_key_count", VType::Int, {VType::Dict})), {cont.val})
+                : B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_list_len", VType::Int, {VType::List})), {cont.val});
+            llvm::Value* ic = B->CreateLoad(B->getInt64Ty(), idxSlot);
+            B->CreateCondBr(B->CreateICmpSLT(ic, len), bodyBB, endBB);
+            B->SetInsertPoint(bodyBB);
+            llvm::AllocaInst* varSlot = make_alloca(VType::Int, F, "dcc.var");
+            llvm::Value* idxv = B->CreateLoad(B->getInt64Ty(), idxSlot);
+            llvm::Value* elem = isDict
+                ? B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_dict_int_key_at", VType::Int, {VType::Dict, VType::Int})), {cont.val, idxv})
+                : B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_list_get", VType::Int, {VType::List, VType::Int})), {cont.val, idxv});
+            B->CreateStore(elem, varSlot);
+            scopes_.emplace_back();
+            scopes_.back()[dc->var] = LVal{VType::Int, B->CreateLoad(B->getInt64Ty(), varSlot), varSlot};
+            if (dc->cond) {
+                llvm::BasicBlock* filtBB = llvm::BasicBlock::Create(B->getContext(), "dcc.filt", F);
+                llvm::BasicBlock* pushBB = llvm::BasicBlock::Create(B->getContext(), "dcc.push", F);
+                LVal cf = gen_expr(dc->cond.get());
+                B->CreateCondBr(cf.val, pushBB, updBB);
+                B->SetInsertPoint(pushBB);
+                LVal k = gen_expr(dc->key.get());
+                LVal v = gen_expr(dc->value.get());
+                const bool ks = (k.type == VType::Str);
+                if (v.type == VType::Str)
+                    B->CreateCall(llvm::cast<llvm::Function>(decl_vor(ks ? "vor_dict_set_str_vstr" : "vor_dict_set_int_vstr", VType::Void, ks ? std::vector<VType>{VType::Dict, VType::Str, VType::Str} : std::vector<VType>{VType::Dict, VType::Int, VType::Str})), {res, k.val, v.val});
+                else
+                    B->CreateCall(llvm::cast<llvm::Function>(decl_vor(ks ? "vor_dict_set_str" : "vor_dict_set_int", VType::Void, ks ? std::vector<VType>{VType::Dict, VType::Str, VType::Int} : std::vector<VType>{VType::Dict, VType::Int, VType::Int})), {res, k.val, to_i64(v)});
+                scopes_.pop_back();
+                B->CreateBr(updBB);
+                B->SetInsertPoint(filtBB);
+                B->CreateBr(updBB);
+            } else {
+                LVal k = gen_expr(dc->key.get());
+                LVal v = gen_expr(dc->value.get());
+                const bool ks = (k.type == VType::Str);
+                if (v.type == VType::Str)
+                    B->CreateCall(llvm::cast<llvm::Function>(decl_vor(ks ? "vor_dict_set_str_vstr" : "vor_dict_set_int_vstr", VType::Void, ks ? std::vector<VType>{VType::Dict, VType::Str, VType::Str} : std::vector<VType>{VType::Dict, VType::Int, VType::Str})), {res, k.val, v.val});
+                else
+                    B->CreateCall(llvm::cast<llvm::Function>(decl_vor(ks ? "vor_dict_set_str" : "vor_dict_set_int", VType::Void, ks ? std::vector<VType>{VType::Dict, VType::Str, VType::Int} : std::vector<VType>{VType::Dict, VType::Int, VType::Int})), {res, k.val, to_i64(v)});
+                scopes_.pop_back();
+                B->CreateBr(updBB);
+            }
+            B->SetInsertPoint(endBB);
+            return {VType::Dict, res};
+        }
         case ExprKind::Subscript: {
             auto* sub = static_cast<const SubscriptExpr*>(e);
             LVal obj = gen_expr(sub->object.get());
@@ -633,11 +787,8 @@ LVal Gen::gen_binop(const BinaryOpExpr* b) {
     llvm::Value* res = nullptr;
     if (op == "+") {
         if ((l.type == VType::Str) != (r.type == VType::Str)) {
-            // 一侧为 str、另一侧非 str：与解释器一致抛异常
-            llvm::Value* msg = B->CreateGlobalString("Type 'str' is not numeric", "ncat");
-            B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_throw_str", VType::Void, {VType::Str})),
-                          {B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_str_from_cstr", VType::Str, {VType::Str})), {msg})});
-            return {VType::Int, B->getInt64(0)};
+            // 一侧为 str、另一侧非 str：类型静态可知，直接编译期报错
+            throw std::runtime_error("Type 'str' is not numeric");
         }
         llvm::Value* pr[2] = {decl_vor("vor_str_concat", VType::Str, {VType::Str, VType::Str}),
                               nullptr};
@@ -2687,6 +2838,27 @@ VType Gen::infer_fn_ret(const FunctionDefStmt* fd) {
     return rt;
 }
 
+std::vector<std::string> Gen::ident_candidates() const {
+    std::vector<std::string> c;
+    for (const auto& frame : scopes_)
+        for (const auto& kv : frame) c.push_back(kv.first);
+    for (const auto& f : fns_) {
+        std::string k = f.first;
+        auto d = k.find('.');
+        if (d == std::string::npos) c.push_back(k);   // 非模块成员的内建名
+    }
+    static const char* base[] = {
+        // 常见内置 / 类型名 / 模块名
+        "print", "int", "long", "float", "double", "str", "bool", "uint", "char",
+        "unistr", "bin", "memadr", "size", "len", "abs", "max", "min", "range",
+        "math", "time", "random", "thread", "log", "file", "zip", "xml", "html",
+        "sql", "os", "regex", "json", "base64", "datetime", "csv", "hash", "text",
+        "net", "sys", "gui", "game2d", "render3d"
+    };
+    for (const char* b : base) c.push_back(b);
+    return c;
+}
+
 // 输出一个值到 stdout
 void Gen::emit_any(LVal v) {
     switch (v.type) {
@@ -3121,6 +3293,96 @@ void Gen::gen_stmt(const Stmt* s) {
                 B->CreateUnreachable();
             }
 
+            B->SetInsertPoint(endBB);
+            break;
+        }
+        case StmtKind::Assert: {
+            auto* a = static_cast<const AssertStmt*>(s);
+            llvm::Function* F = cur_bb()->getParent();
+            llvm::BasicBlock* passBB = llvm::BasicBlock::Create(B->getContext(), "assert.pass", F);
+            llvm::BasicBlock* failBB = llvm::BasicBlock::Create(B->getContext(), "assert.fail", F);
+            LVal cond = gen_expr(a->cond.get());
+            B->CreateCondBr(cond.val, passBB, failBB);
+            // fail: throw "Assertion failed[: <msg>]"
+            B->SetInsertPoint(failBB);
+            // 内联 message->string 转换（与 gen_call 内 val_to_str 等价，跨函数复用）
+            llvm::Value* msgStr = B->CreateCall(
+                llvm::cast<llvm::Function>(decl_vor("vor_str_from_cstr", VType::Str, {VType::Str})),
+                {B->CreateGlobalString("Assertion failed", "afail")});
+            if (a->message) {
+                LVal mv = gen_expr(a->message.get());
+                llvm::Value* part = nullptr;
+                if (mv.type == VType::Str) part = mv.val;
+                else if (mv.type == VType::Int)
+                    part = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_i64_to_str", VType::Str, {VType::Int})), {mv.val});
+                else if (mv.type == VType::Float)
+                    part = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_double_to_str", VType::Str, {VType::Float})), {mv.val});
+                else if (mv.type == VType::Bool) {
+                    llvm::Value* t = B->CreateGlobalString("true", "bstr");
+                    llvm::Value* f = B->CreateGlobalString("false", "bstr");
+                    part = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_str_from_cstr", VType::Str, {VType::Str})),
+                                         {B->CreateSelect(mv.val, t, f)});
+                } else {
+                    part = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_str_from_cstr", VType::Str, {VType::Str})),
+                                         {B->CreateGlobalString("", "estr")});
+                }
+                llvm::Value* sep = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_str_from_cstr", VType::Str, {VType::Str})),
+                                                 {B->CreateGlobalString(": ", "asep")});
+                llvm::Value* head = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_str_concat", VType::Str, {VType::Str, VType::Str})), {msgStr, sep});
+                msgStr = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_str_concat", VType::Str, {VType::Str, VType::Str})), {head, part});
+            }
+            B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_throw_str", VType::Void, {VType::Str})), {msgStr});
+            B->CreateUnreachable();
+            B->SetInsertPoint(passBB);
+            break;
+        }
+        case StmtKind::Match: {
+            auto* m = static_cast<const MatchStmt*>(s);
+            llvm::Function* F = cur_bb()->getParent();
+            auto mkBB = [&](const char* n) { return llvm::BasicBlock::Create(B->getContext(), n, F); };
+            llvm::BasicBlock* endBB = mkBB("match.end");
+            LVal subj = gen_expr(m->subject.get());
+            // 每个 case 生成一个条件跳转；default/绑定模式 = 无条件 else
+            llvm::BasicBlock* cur = cur_bb();
+            bool emitted = false;
+            for (auto& cs : m->cases) {
+                llvm::BasicBlock* bodyBB = mkBB("match.body");
+                llvm::BasicBlock* nextBB = mkBB("match.next");
+                if (!cs.pattern || cs.pattern->kind == ExprKind::Identifier) {
+                    // default / 绑定模式：无条件进入（编译器不绑定，视作通配）
+                    B->SetInsertPoint(cur);
+                    B->CreateBr(bodyBB);
+                } else {
+                    // 字面量：subject == pattern
+                    B->SetInsertPoint(cur);
+                    // 构造比较：subject 与 case 字面量相等
+                    // 复用 gen_expr 对 BinaryOpExpr "==" 的处理，但需 subject 作为操作数。
+                    // 直接构造临时表达式不可行（gen_expr 需新节点），改用手动比较。
+                    LVal pv = gen_expr(cs.pattern.get());
+                    llvm::Value* cmp;
+                    if (subj.type == VType::Str || pv.type == VType::Str) {
+                        llvm::Value* fn = decl_vor("vor_str_cmp", VType::Int, {VType::Str, VType::Str});
+                        llvm::Value* l = subj.type == VType::Str ? subj.val
+                                : B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_i64_to_str", VType::Str, {VType::Int})), {to_i64(subj)});
+                        llvm::Value* r = pv.type == VType::Str ? pv.val
+                                : B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_i64_to_str", VType::Str, {VType::Int})), {to_i64(pv)});
+                        llvm::Value* c = B->CreateCall(llvm::cast<llvm::Function>(fn), {l, r});
+                        cmp = B->CreateICmpEQ(c, B->getInt64(0));
+                    } else {
+                        cmp = B->CreateICmpEQ(to_i64(subj), to_i64(pv));
+                    }
+                    B->CreateCondBr(cmp, bodyBB, nextBB);
+                }
+                B->SetInsertPoint(bodyBB);
+                for (auto& st : cs.body->stmts) gen_stmt(st.get());
+                if (!block_has_term(cur_bb())) B->CreateBr(endBB);
+                cur = nextBB;
+                emitted = true;
+            }
+            if (emitted) {
+                B->SetInsertPoint(cur);
+                B->CreateBr(endBB);
+            }
             B->SetInsertPoint(endBB);
             break;
         }

@@ -1,0 +1,13 @@
+print(all([1, 2, 3]));
+print(all([1, 0, 3]));
+print(any([0, 0, 3]));
+print(sorted([3, 1, 2]));
+print(sorted([3, 1, 2], true));
+def dbl(x) { return x * 2; }
+print(map(dbl, [1, 2, 3]));
+object even = lambda(v) { return v % 2 == 0; };
+print(filter(even, [1, 2, 3, 4]));
+def add2(a, b) { return a + b; }
+print(reduce(add2, [1, 2, 3, 4]));
+print(reduce(add2, [1, 2, 3], 10));
+print("done");

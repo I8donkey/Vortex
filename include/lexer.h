@@ -17,7 +17,7 @@ enum class TokenType {
     Kw_def, Kw_const, Kw_del, Kw_if, Kw_else, Kw_elif, Kw_for, Kw_while,
     Kw_break, Kw_continue, Kw_return, Kw_lambda, Kw_import, Kw_from, Kw_as,
     Kw_in, Kw_is, Kw_global,
-    Kw_try, Kw_catch, Kw_finally,
+    Kw_try, Kw_catch, Kw_finally, Kw_assert, Kw_match, Kw_case, Kw_default, Kw_class,
     Kw_and, Kw_or, Kw_not,
 
     // 类型关键字（用于声明）

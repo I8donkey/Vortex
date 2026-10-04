@@ -17,7 +17,9 @@ static const std::unordered_map<std::string, TokenType> KEYWORDS = {
     {"as", TokenType::Kw_as}, {"in", TokenType::Kw_in},
     {"is", TokenType::Kw_is}, {"global", TokenType::Kw_global},
     {"try", TokenType::Kw_try}, {"catch", TokenType::Kw_catch},
-    {"finally", TokenType::Kw_finally},
+    {"finally", TokenType::Kw_finally}, {"assert", TokenType::Kw_assert},
+    {"match", TokenType::Kw_match}, {"case", TokenType::Kw_case},
+    {"default", TokenType::Kw_default}, {"class", TokenType::Kw_class},
     {"and", TokenType::Kw_and}, {"or", TokenType::Kw_or}, {"not", TokenType::Kw_not},
     {"true", TokenType::TrueLit}, {"false", TokenType::FalseLit}, {"None", TokenType::NoneLit},
 
@@ -43,6 +45,7 @@ std::string token_type_name_str(TokenType t) {
         case TokenType::StringLit: return "StringLit"; case TokenType::UniStringLit: return "UniStringLit";
         case TokenType::TrueLit: return "true"; case TokenType::FalseLit: return "false"; case TokenType::NoneLit: return "None";
         case TokenType::Identifier: return "Identifier";
+        case TokenType::Kw_assert: return "assert";
         case TokenType::LParen: return "("; case TokenType::RParen: return ")";
         case TokenType::LBrack: return "["; case TokenType::RBrack: return "]";
         case TokenType::LBrace: return "{"; case TokenType::RBrace: return "}";

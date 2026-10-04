@@ -483,6 +483,8 @@ print(game2d.image_size(img));      # (80, 60)
 
 - **Runtime exceptions** (e.g. `int("bad")`) are raised internally and must be caught with `try/catch(e)`; uncaught ones propagate and abort the program with the message.
 
+- **Positioned diagnostics**: runtime errors use the gcc/clang-style `file:line:col: error: message` format with the offending source line and a `^` caret, and append a `did you mean 'xxx'?` hint for undefined names. The compiler likewise emits `Compile error: [codegen] ...` with `file:line:col` for lexical/parse/codegen errors, and reports statically-knowable type errors (e.g. `str + number`) as compile errors instead of crashing.
+
 - **Statically-linked output**: compiled executables use `-static`, so they run without a runtime DLL.
 
 - **Headless** **`game2d`/`render3d`**: the graphics modules fall back to software rendering when SDL2 is absent, so every script stays runnable headlessly.
@@ -493,20 +495,29 @@ print(game2d.image_size(img));      # (80, 60)
 
 ## 6. Regression Testing
 
-The golden suite compiles each test with `vortexcc`, runs it, and compares stdout/stderr against the interpreter. It also re-verifies `--debug` builds for semantic parity.
+`tests/runtest.ps1` auto-discovers `tests/*.vt` and verifies in two ways:
+
+- **Correctness tests (recommended)**: when `tests/<name>.expected` exists, it asserts the interpreter exits 0 and its stdout exactly equals the expected content (CRLF / trailing-newline insensitive). Adding a new test is just dropping a `Foo.vt` + `Foo.expected` pair into `tests/`.
+- **Golden tests**: without `.expected`, the suite compiles each test with `vortexcc` (also re-verifies `--debug` builds) and compares stdout/stderr against the interpreter for semantic parity.
+
+Common options:
 
 ```sh
-powershell -ExecutionPolicy Bypass -File runtest.ps1
+powershell -ExecutionPolicy Bypass -File runtest.ps1          # default: whitelist + all *.expected tests
+powershell -ExecutionPolicy Bypass -File runtest.ps1 -a       # -a: also golden-verify every *.vt
+powershell -ExecutionPolicy Bypass -File runtest.ps1 -j 16    # -j: parallel workers
+powershell -ExecutionPolicy Bypass -File runtest.ps1 -t 20    # -t: per-step timeout seconds (default 20)
 ```
 
-Covered cases (all must pass): scalars & control flow, containers, references (`@`/`~`), exceptions, closures, modules (`time`/`random`/`log`), threading/channels, and `game2d`/`render3d`.
+Every run/compile step that exceeds `-t` seconds is force-killed and reported as `FAIL (timeout)`, so a hanging test cannot stall the whole suite. A `.vt` with neither `.expected` nor whitelist membership is skipped by default (use `-a` to force it).
+
+Covered cases (all must pass): scalars & control flow, containers, references (`@`/`~`), exceptions, closures, modules (`math`/`time`/`random`/`log`/`file`/`zip`/`xml`/`html`/`sql`/`os`/`regex`/`json`/`base64`/`datetime`/`csv`/`hash`/`text`/`net`), threading/channels, and `game2d`/`render3d`. Tests shipped with a `*.expected` file (e.g. `test_x`, `test_atomic`, `test_log`, `test_mod_import`, `test_mathmod`) are checked by exact output match.
 
 Expected end state:
 
 ```
-[ok] test_p3_closure
+[1/38] errtest ... ok
 ...
-[ok] test_modules_r3d_g2d
 ================================
 ALL PASS
 ```

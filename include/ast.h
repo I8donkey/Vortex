@@ -53,6 +53,8 @@ enum class ExprKind {
     AddressOf,   // @x
     Dereference, // ~x
     Cast,
+    ListComp,
+    DictComp,
 };
 
 struct Expr {
@@ -156,6 +158,25 @@ struct DictInitExpr : Expr {
     DictInitExpr() : Expr(ExprKind::DictInit) {}
 };
 
+// 列表推导式 [expr for var in iterable if cond]
+struct ListCompExpr : Expr {
+    ExprPtr element;
+    std::string var;
+    ExprPtr container;
+    ExprPtr cond; // optional
+    ListCompExpr() : Expr(ExprKind::ListComp) {}
+};
+
+// 字典推导式 {k: v for var in iterable if cond}
+struct DictCompExpr : Expr {
+    ExprPtr key;
+    ExprPtr value;
+    std::string var;
+    ExprPtr container;
+    ExprPtr cond; // optional
+    DictCompExpr() : Expr(ExprKind::DictComp) {}
+};
+
 // Lambda
 struct LambdaExpr : Expr {
     std::vector<ParamDeclPtr> params;
@@ -188,10 +209,15 @@ enum class StmtKind {
     FunctionDef,
     Import,
     TryCatch,
+    Assert,
+    Match,
+    ClassDecl,
 };
 
 struct Stmt {
     StmtKind kind;
+    int line = 0;   // 源码位置（parser 记录；0=未知）
+    int col = 0;
     virtual ~Stmt() = default;
 protected:
     explicit Stmt(StmtKind k) : kind(k) {}
@@ -212,10 +238,40 @@ struct ConstDeclStmt : Stmt {
     ConstDeclStmt() : Stmt(StmtKind::ConstDecl) {}
 };
 
+// 断言 assert <cond> [, <msg>];
+struct AssertStmt : Stmt {
+    ExprPtr cond;
+    ExprPtr message; // optional
+    AssertStmt() : Stmt(StmtKind::Assert) {}
+};
+
 // 赋值语句（包装 AssignOpExpr）
 struct AssignStmt : Stmt {
     ExprPtr assign; // AssignOpExpr 或复合赋值
     explicit AssignStmt(ExprPtr a) : Stmt(StmtKind::Assign), assign(std::move(a)) {}
+};
+
+// match 语句 match <expr> { case <pattern>: <body> ... }
+// pattern: 字面量 / 标识符(绑定到 subject) / None(pattern=nullptr 表示通配)
+struct BlockStmt;
+struct MatchStmt : Stmt {
+    struct Case {
+        ExprPtr pattern;               // 字面量或绑定标识符；nullptr = 通配
+        std::unique_ptr<BlockStmt> body;
+    };
+    ExprPtr subject;
+    std::vector<Case> cases;
+    MatchStmt() : Stmt(StmtKind::Match) {}
+};
+
+// class 声明 class Name { [type field;]* [def method(self,...){...}]* }
+struct FunctionDefStmt;
+struct ClassDeclStmt : Stmt {
+    struct Field { std::string type; std::string name; };
+    std::string name;
+    std::vector<Field> fields;
+    std::vector<std::unique_ptr<FunctionDefStmt>> methods;
+    ClassDeclStmt() : Stmt(StmtKind::ClassDecl) {}
 };
 
 // 表达式语句

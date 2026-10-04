@@ -1,0 +1,19 @@
+def describe(x) {
+    match (x) {
+        case 1: { print("one"); }
+        case 2: { print("two"); }
+        case 3: { print("three"); }
+        default: { print("other"); }
+    }
+}
+describe(1);
+describe(2);
+describe(3);
+describe(9);
+int score = 85;
+match (score) {
+    case 90: { print("A"); }
+    case 80: { print("B"); }
+    default: { print("C"); }
+}
+print("done");

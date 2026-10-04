@@ -1,0 +1,12 @@
+assert(1 == 1);
+int x = 5;
+assert(x > 0, "x must be positive");
+print("asserts passed");
+try {
+    assert(x < 0, "x too big");
+    print("should not print");
+}
+catch(e) {
+    print("caught: " + e);
+}
+print("done");

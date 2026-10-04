@@ -3,6 +3,7 @@
 #include "parser.h"
 #include "vortex_modules.h"
 #include "pack.h"
+#include "suggest.h"
 #include <unordered_set>
 #include "game2d_module.h"
 #include "thread_module.h"
@@ -29,6 +30,24 @@ static std::mt19937& get_rng() {
     return rng;
 }
 
+// 把可迭代容器展开为元素向量（供 for-in 与推导式复用）
+static ValueVec gather_iterable(const ValuePtr& cont) {
+    ValueVec elems;
+    switch (cont->type) {
+        case ValueType::List:    for (auto& e : *cont->list_rep) elems.push_back(e); break;
+        case ValueType::Tuple:   for (auto& e : *cont->tuple_rep) elems.push_back(e); break;
+        case ValueType::Str:
+        case ValueType::UniStr:  for (char c : cont->str_val) elems.push_back(Value::make_char((unsigned char)c)); break;
+        case ValueType::Set:     for (auto& e : *cont->set_rep) elems.push_back(e); break;
+        case ValueType::UndSet:  for (auto& e : *cont->undset_rep) elems.push_back(e); break;
+        case ValueType::Dict:    for (auto& [k, v] : *cont->dict_rep) elems.push_back(k); break;
+        case ValueType::Stack:   for (auto& e : *cont->stack_rep) elems.push_back(e); break;
+        case ValueType::Queue:   for (auto& e : *cont->queue_rep) elems.push_back(e); break;
+        default: throw RuntimeError("Cannot iterate over " + cont->type_name()); break;
+    }
+    return elems;
+}
+
 // ============ Environment ============
 void Environment::define(const std::string& name, ValuePtr value, bool is_const) {
     vars_[name] = {std::move(value), is_const};
@@ -41,7 +60,8 @@ ValuePtr& Environment::lookup(const std::string& name) {
     auto it = vars_.find(name);
     if (it != vars_.end()) return it->second.first;
     if (parent_) return parent_->lookup(name);
-    throw RuntimeError("Undefined variable: '" + name + "'");
+    throw RuntimeError("Undefined variable: '" + name + "'" +
+                       suggest::did_you_mean(name, all_names()));
 }
 void Environment::assign(const std::string& name, ValuePtr value) {
     auto it = vars_.find(name);
@@ -51,18 +71,29 @@ void Environment::assign(const std::string& name, ValuePtr value) {
         return;
     }
     if (parent_) return parent_->assign(name, std::move(value));
-    throw RuntimeError("Undefined variable: '" + name + "'");
+    throw RuntimeError("Undefined variable: '" + name + "'" +
+                       suggest::did_you_mean(name, all_names()));
 }
 void Environment::erase(const std::string& name) {
     auto it = vars_.find(name);
     if (it != vars_.end()) { vars_.erase(it); return; }
     if (parent_) return parent_->erase(name);
-    throw RuntimeError("Undefined variable: '" + name + "'");
+    throw RuntimeError("Undefined variable: '" + name + "'" +
+                       suggest::did_you_mean(name, all_names()));
 }
 void Environment::clear_all() { vars_.clear(); }
 std::vector<std::string> Environment::locals() const {
     std::vector<std::string> r;
     for (auto& [k, v] : vars_) r.push_back(k);
+    return r;
+}
+std::vector<std::string> Environment::all_names() const {
+    std::vector<std::string> r;
+    std::vector<const Environment*> chain;
+    for (const Environment* e = this; e; e = e->parent_) chain.push_back(e);
+    for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+        for (auto& [k, v] : (*it)->vars_) r.push_back(k);   // 祖先→自身，优先外层
+    }
     return r;
 }
 
@@ -246,6 +277,85 @@ void Interpreter::init_builtins() {
         }
         return r;
     });
+
+    // ---------- 函数式内建 ----------
+    auto invoke_fn = [this](const ValuePtr& f, const ValueVec& args) -> ValuePtr {
+        if (f->type != ValueType::Function || !f->fn_rep)
+            throw RuntimeError("Expected a function");
+        auto& fv = f->fn_rep;
+        if (fv->is_builtin) return fv->builtin_fn(args, *current_env_);
+        return call_user_function(fv.get(), args);
+    };
+    // all(iterable)
+    reg_builtin("all", 1, 1, [](const ValueVec& a, Environment&) {
+        for (auto& e : gather_iterable(a[0])) if (!e->truthy()) return Value::make_bool(false);
+        return Value::make_bool(true);
+    });
+    // any(iterable)
+    reg_builtin("any", 1, 1, [](const ValueVec& a, Environment&) {
+        for (auto& e : gather_iterable(a[0])) if (e->truthy()) return Value::make_bool(true);
+        return Value::make_bool(false);
+    });
+    // sorted(iterable [, reverse])
+    reg_builtin("sorted", 1, 2, [](const ValueVec& a, Environment&) {
+        auto elems = gather_iterable(a[0]);
+        bool rev = a.size() >= 2 && a[1]->truthy();
+        std::stable_sort(elems.begin(), elems.end(), [](const ValuePtr& x, const ValuePtr& y) {
+            return value_to_float(x)->float_val < value_to_float(y)->float_val;
+        });
+        if (rev) std::reverse(elems.begin(), elems.end());
+        auto r = Value::make_list();
+        for (auto& e : elems) r->list_rep->push_back(e);
+        return r;
+    });
+    // enumerate(iterable [, start=0]) -> list of (index, value) pairs
+    reg_builtin("enumerate", 1, 2, [](const ValueVec& a, Environment&) {
+        long long start = a.size() >= 2 ? value_to_int(a[1])->int_val : 0;
+        auto elems = gather_iterable(a[0]);
+        auto r = Value::make_list();
+        long long i = start;
+        for (auto& e : elems) r->list_rep->push_back(Value::make_pair(Value::make_int(i++), e));
+        return r;
+    });
+    // zip(a, b, ...) -> list of (elem_a, elem_b, ...) pairs
+    reg_builtin("zip", 1, (size_t)-1, [](const ValueVec& a, Environment&) {
+        std::vector<ValueVec> cols;
+        size_t minlen = (size_t)-1;
+        for (auto& c : a) { cols.push_back(gather_iterable(c)); if (cols.back().size() < minlen) minlen = cols.back().size(); }
+        if (minlen == (size_t)-1) minlen = 0;
+        auto r = Value::make_list();
+        for (size_t i = 0; i < minlen; ++i) {
+            ValueVec tup;
+            for (auto& c : cols) tup.push_back(c[i]);
+            r->list_rep->push_back(Value::make_tuple(tup));
+        }
+        return r;
+    });
+    // map(fn, iterable)
+    reg_builtin("map", 2, 2, [this, invoke_fn](const ValueVec& a, Environment& env) {
+        auto elems = gather_iterable(a[1]);
+        auto r = Value::make_list();
+        for (auto& e : elems) r->list_rep->push_back(invoke_fn(a[0], {e}));
+        return r;
+    });
+    // filter(fn, iterable)
+    reg_builtin("filter", 2, 2, [this, invoke_fn](const ValueVec& a, Environment& env) {
+        auto elems = gather_iterable(a[1]);
+        auto r = Value::make_list();
+        for (auto& e : elems) if (invoke_fn(a[0], {e})->truthy()) r->list_rep->push_back(e);
+        return r;
+    });
+    // reduce(fn, iterable [, init])
+    reg_builtin("reduce", 2, 3, [this, invoke_fn](const ValueVec& a, Environment& env) {
+        auto elems = gather_iterable(a[1]);
+        size_t i = 0;
+        ValuePtr acc;
+        if (a.size() >= 3) { acc = a[2]; }
+        else { if (elems.empty()) throw RuntimeError("reduce of empty sequence with no initial value"); acc = elems[0]; i = 1; }
+        for (; i < elems.size(); ++i) acc = invoke_fn(a[0], {acc, elems[i]});
+        return acc;
+    });
+
     reg_builtin("dict", 0, 1, [](const ValueVec& a, Environment&) {
         auto r = Value::make_dict();
         if (!a.empty() && a[0]->type == ValueType::List) {
@@ -739,6 +849,34 @@ void Interpreter::leave_scope() {
 }
 
 // ============ Run ============
+void Interpreter::set_source_for_errors(const std::string& path, const std::string& src) {
+    err_path_ = path;
+    err_lines_.clear();
+    std::string line;
+    for (size_t i = 0; i < src.size(); ++i) {
+        char c = src[i];
+        if (c == '\n') { err_lines_.push_back(line); line.clear(); }
+        else line.push_back(c);
+    }
+    err_lines_.push_back(line); // 最后一行（可能为空）
+}
+
+std::string Interpreter::format_error(const std::string& msg) const {
+    std::ostringstream oss;
+    if (!err_path_.empty())
+        oss << err_path_ << ":" << cur_line_ << ":" << cur_col_ << ": ";
+    oss << "error: " << msg << "\n";
+    // 源码上下文：caret 指向 cur_line_-1 行的 cur_col_-1（H2 列）；超界则跳过
+    if (cur_line_ >= 1 && size_t(cur_line_-1) < err_lines_.size()) {
+        const std::string& src_line = err_lines_[size_t(cur_line_-1)];
+        oss << "  | " << src_line << "\n  | ";
+        int caret = std::max(1, cur_col_);
+        for (int i = 1; i < caret; ++i) oss << ' ';
+        oss << "^\n";
+    }
+    return oss.str();
+}
+
 ValuePtr Interpreter::run(const Program& program) {
     ValuePtr last = Value::make_none();
     try {
@@ -747,7 +885,7 @@ ValuePtr Interpreter::run(const Program& program) {
             if (cs.type == CtrlFlow::Return) return cs.value ? cs.value : Value::make_none();
         }
     } catch (RuntimeError& e) {
-        print_output(std::string("RuntimeError: ") + e.what() + "\n");
+        print_output(format_error(e.what()));
         return Value::make_none();
     }
     return last;
@@ -755,6 +893,7 @@ ValuePtr Interpreter::run(const Program& program) {
 
 ControlSignal Interpreter::execute(const Stmt* stmt) {
     if (!stmt) return {};
+    if (stmt->line > 0) { cur_line_ = stmt->line; cur_col_ = stmt->col; }
     switch (stmt->kind) {
         case StmtKind::VarDecl:    return exec_var_decl(static_cast<const VarDeclStmt*>(stmt));
         case StmtKind::ConstDecl:  return exec_const_decl(static_cast<const ConstDeclStmt*>(stmt));
@@ -787,6 +926,45 @@ ControlSignal Interpreter::execute(const Stmt* stmt) {
         case StmtKind::FunctionDef: return exec_function_def(static_cast<const FunctionDefStmt*>(stmt));
         case StmtKind::Import:     return exec_import(static_cast<const ImportStmt*>(stmt));
         case StmtKind::TryCatch:   return exec_try(static_cast<const TryCatchStmt*>(stmt));
+        case StmtKind::ClassDecl:  return exec_class(static_cast<const ClassDeclStmt*>(stmt));
+        case StmtKind::Assert: {
+            auto s = static_cast<const AssertStmt*>(stmt);
+            ValuePtr c = evaluate(s->cond.get());
+            if (!c->truthy()) {
+                std::string msg = s->message ? evaluate(s->message.get())->to_string()
+                                             : "assertion failed";
+                throw RuntimeError("Assertion failed: " + msg);
+            }
+            return {};
+        }
+        case StmtKind::Match: {
+            auto* m = static_cast<const MatchStmt*>(stmt);
+            ValuePtr subj = evaluate(m->subject.get());
+            Environment scope(current_env_);
+            Environment* saved = current_env_;
+            current_env_ = &scope;
+            for (auto& cs : m->cases) {
+                bool hit;
+                if (!cs.pattern) {
+                    hit = true; // default / 通配
+                } else if (cs.pattern->kind == ExprKind::Identifier) {
+                    // 绑定模式：匹配任意，绑定到 subj
+                    auto* id = static_cast<const IdentifierExpr*>(cs.pattern.get());
+                    scope.define(id->name, subj, false);
+                    hit = true;
+                } else {
+                    ValuePtr pv = evaluate(cs.pattern.get());
+                    hit = value_eq(subj, pv);
+                }
+                if (hit) {
+                    ControlSignal c2 = execute_block(cs.body->stmts);
+                    current_env_ = saved;
+                    return c2;
+                }
+            }
+            current_env_ = saved;
+            return {};
+        }
     }
     return {};
 }
@@ -924,6 +1102,37 @@ ControlSignal Interpreter::exec_function_def(const FunctionDefStmt* s) {
     current_env_->define(s->name, v, false);
     return {};
 }
+
+ControlSignal Interpreter::exec_class(const ClassDeclStmt* s) {
+    // class 对象：module_rep 存方法表（名→FunctionValue），隐藏键 __fields__ 存字段名列表
+    auto cv = Value::make_module();
+    cv->type = ValueType::Class;
+    auto& tab = *cv->module_rep;
+    // 方法表
+    for (auto& m : s->methods) {
+        auto fv = std::make_shared<FunctionValue>();
+        fv->name = m->name;
+        fv->is_builtin = false;
+        fv->def = m.get();   // def 指针指向 Program 内节点（运行期间保活）
+        for (auto& p : m->params) {
+            fv->param_names.push_back(p->name);
+            fv->default_args.push_back(p->default_value ? evaluate(p->default_value.get()) : nullptr);
+            if (p->is_vararg) fv->has_vararg = true;
+        }
+        auto fnv = Value::make_none();
+        fnv->type = ValueType::Function;
+        fnv->fn_rep = fv;
+        tab[m->name] = fnv;
+    }
+    // 字段名列表（构造时初始化默认值）
+    auto fl = Value::make_list();
+    for (auto& f : s->fields) fl->list_rep->push_back(Value::make_str(f.name));
+    tab["__fields__"] = fl;
+    // 注册 class 名
+    current_env_->define(s->name, cv, false);
+    return {};
+}
+
 void Interpreter::register_extra_module(const std::string& name, ValuePtr mod) {
     std_modules_[name] = std::move(mod);
 }
@@ -1055,6 +1264,8 @@ ValuePtr Interpreter::evaluate(const Expr* e) {
         case ExprKind::AddressOf:
         case ExprKind::Dereference:
         case ExprKind::Cast:         return eval_cast(static_cast<const CastExpr*>(e));
+        case ExprKind::ListComp:     return eval_list_comp(static_cast<const ListCompExpr*>(e));
+        case ExprKind::DictComp:     return eval_dict_comp(static_cast<const DictCompExpr*>(e));
     }
     return Value::make_none();
 }
@@ -1206,6 +1417,14 @@ ValuePtr& Interpreter::resolve_lvalue(const Expr* target) {
             if (m.member == "first")  return obj->pair_rep->first;
             if (m.member == "second") return obj->pair_rep->second;
         }
+        if (obj->type == ValueType::Instance) {
+            auto& tab = *obj->module_rep;
+            // 字段必须已存在（由 __fields__ 初始化）；方法不可赋值
+            auto it = tab.find(m.member);
+            if (it == tab.end() || m.member == "__class__")
+                throw RuntimeError("Instance has no field '" + m.member + "'");
+            return it->second;
+        }
         throw RuntimeError("Member '" + m.member + "' is not assignable on " + obj->type_name());
     }
     throw RuntimeError("Invalid lvalue target");
@@ -1218,16 +1437,22 @@ ValuePtr Interpreter::eval_assign(const AssignOpExpr* e) {
         auto& s = static_cast<const SubscriptExpr&>(*e->target);
         ValuePtr obj = evaluate(s.object.get());
         ValuePtr idx = evaluate(s.index.get());
+        if (obj->type == ValueType::Dict) {
+            // dict 下标赋值 d[i] = v（key 可为 int 或 str，与编译器一致）
+            if (e->op != "=") {
+                auto it = obj->dict_rep->find(idx);
+                ValuePtr old = it != obj->dict_rep->end() ? it->second : Value::make_int(0);
+                perform_assign(old, e->op, rhs);
+                (*obj->dict_rep)[idx] = old;
+            } else {
+                (*obj->dict_rep)[idx] = rhs;
+            }
+            return rhs;
+        }
         long long i;
         if (idx->type == ValueType::Int || idx->type == ValueType::UInt) {
             i = idx->type == ValueType::UInt ? (long long)idx->uint_val : idx->int_val;
         } else {
-            // dict key
-            if (obj->type == ValueType::Dict) {
-                // value update: put
-                (*obj->dict_rep)[idx] = rhs;
-                return rhs;
-            }
             throw RuntimeError("Subscript index must be integer for " + obj->type_name());
         }
         if (obj->type == ValueType::List) {
@@ -1303,6 +1528,32 @@ ValuePtr Interpreter::eval_call(const CallExpr* e) {
     for (auto& [kn, kv] : e->kwargs) kwargs[kn] = evaluate(kv.get());
     kwarg_stack_.push_back(std::move(kwargs));
     struct KwargGuard { Interpreter* i; ~KwargGuard() { i->kwarg_stack_.pop_back(); } } guard{this};
+    if (callee->type == ValueType::Class) {
+        // 构造实例：字段默认值 + __class__；若定义 __init__ 则调用之
+        auto inst = Value::make_module();
+        inst->type = ValueType::Instance;
+        auto& tab = *inst->module_rep;
+        tab["__class__"] = callee;
+        // 字段默认值（按字段类型）
+        auto fit = callee->module_rep->find("__fields__");
+        if (fit != callee->module_rep->end()) {
+            for (auto& fv2 : *fit->second->list_rep) {
+                std::string fname = fv2->str_val;
+                // 简单默认值：数值 0 / 空字符串
+                tab[fname] = Value::make_int(0);
+            }
+        }
+        // 调用 init(self, args...)（构造方法名为 init）
+        auto init = callee->module_rep->find("init");
+        if (init != callee->module_rep->end() && init->second->type == ValueType::Function) {
+            auto initfn = init->second->fn_rep;
+            ValueVec full;
+            full.push_back(inst);
+            for (auto& a : args) full.push_back(a);
+            call_user_function(initfn.get(), full);
+        }
+        return inst;
+    }
     if (callee->type == ValueType::Function) {
         if (callee->fn_rep->is_builtin) {
             return callee->fn_rep->builtin_fn(args, *current_env_);
@@ -1322,6 +1573,44 @@ ValuePtr Interpreter::eval_member(const MemberAccessExpr* e) {
         if (it == obj->module_rep->end())
             throw RuntimeError("Module has no member '" + e->member + "'");
         return it->second;
+    }
+    // class 对象：访问方法表（静态，返回方法 def 的 FunctionValue）
+    if (obj->type == ValueType::Class) {
+        auto it = obj->module_rep->find(e->member);
+        if (it == obj->module_rep->end())
+            throw RuntimeError("Class has no member '" + e->member + "'");
+        return it->second;
+    }
+    // 实例：字段读取；若是方法，返回绑定 self 的可调用
+    if (obj->type == ValueType::Instance) {
+        auto& tab = *obj->module_rep;
+        // 先查字段
+        auto fit = tab.find(e->member);
+        if (fit != tab.end()) return fit->second;
+        // 查方法（存于 __class__）
+        auto cit = tab.find("__class__");
+        if (cit != tab.end() && cit->second->type == ValueType::Class) {
+            auto mit = cit->second->module_rep->find(e->member);
+            if (mit != cit->second->module_rep->end()) {
+                auto fnv = mit->second->fn_rep;
+                // 绑定方法：调用时 self 前置
+                ValuePtr self_keep = obj;
+                auto bound = std::make_shared<FunctionValue>();
+                bound->name = e->member;
+                bound->is_builtin = true;
+                bound->builtin_fn = [this, self_keep, fnv](const ValueVec& args, Environment& env) -> ValuePtr {
+                    ValueVec full;
+                    full.push_back(self_keep);
+                    for (auto& a : args) full.push_back(a);
+                    return call_user_function(fnv.get(), full);
+                };
+                auto bv = Value::make_none();
+                bv->type = ValueType::Function;
+                bv->fn_rep = bound;
+                return bv;
+            }
+        }
+        throw RuntimeError("Instance has no member '" + e->member + "'");
     }
     // pair.first / pair.second 直接读取
     if (obj->type == ValueType::Pair) {
@@ -1427,6 +1716,42 @@ ValuePtr Interpreter::eval_lambda(const LambdaExpr* e) {
     v->type = ValueType::Function;
     v->fn_rep = fv;
     return v;
+}
+
+// 列表推导式 [expr for var in iterable if cond]
+ValuePtr Interpreter::eval_list_comp(const ListCompExpr* e) {
+    ValuePtr cont = evaluate(e->container.get());
+    ValueVec elems = gather_iterable(cont);
+    auto out = Value::make_list();
+    Environment scope(current_env_);
+    Environment* saved = current_env_;
+    current_env_ = &scope;
+    for (auto& el : elems) {
+        scope.define(e->var, el, false);
+        if (e->cond && !evaluate(e->cond.get())->truthy()) continue;
+        out->list_rep->push_back(evaluate(e->element.get()));
+    }
+    current_env_ = saved;
+    return out;
+}
+
+// 字典推导式 {k: v for var in iterable if cond}
+ValuePtr Interpreter::eval_dict_comp(const DictCompExpr* e) {
+    ValuePtr cont = evaluate(e->container.get());
+    ValueVec elems = gather_iterable(cont);
+    auto out = Value::make_dict();
+    Environment scope(current_env_);
+    Environment* saved = current_env_;
+    current_env_ = &scope;
+    for (auto& el : elems) {
+        scope.define(e->var, el, false);
+        if (e->cond && !evaluate(e->cond.get())->truthy()) continue;
+        ValuePtr k = evaluate(e->key.get());
+        ValuePtr v = evaluate(e->value.get());
+        (*out->dict_rep)[k] = v;
+    }
+    current_env_ = saved;
+    return out;
 }
 
 ValuePtr Interpreter::call_user_function(const FunctionValue* fn, const ValueVec& args) {
@@ -1803,6 +2128,12 @@ ValuePtr Interpreter::call_method(const ValuePtr& obj, const std::string& m, con
                 auto it = D.find(args[0]);
                 if (it != D.end()) return it->second;
                 if (argc >= 2) return args[1];
+                throw RuntimeError("Key not found");
+            }
+            if (m == "get_str") {
+                auto it = D.find(args[0]);
+                if (it != D.end()) return Value::make_str(it->second->to_string());
+                if (argc >= 2) return Value::make_str(args[1]->to_string());
                 throw RuntimeError("Key not found");
             }
             if (m == "has") return Value::make_bool(D.count(args[0]) > 0);

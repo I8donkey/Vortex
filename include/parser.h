@@ -40,6 +40,9 @@ private:
     StmtPtr parse_if();
     StmtPtr parse_for();
     StmtPtr parse_while();
+    StmtPtr parse_assert();
+    StmtPtr parse_match();
+    StmtPtr parse_class();
     StmtPtr parse_del();
     StmtPtr parse_function_def();
     StmtPtr parse_import();

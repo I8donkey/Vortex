@@ -41,6 +41,8 @@ enum class ValueType {
     Tuple,      // fixed tuple
     Function,   // user-defined / built-in
     Module,     // 标准库模块（math / time / random）
+    Class,      // class 定义对象（module_rep 存方法表）
+    Instance,   // class 实例（module_rep 存字段值）
     Opaque,     // 不透明句柄：GPU资源 / 2D精灵 / 3D节点 等扩展对象
 };
 

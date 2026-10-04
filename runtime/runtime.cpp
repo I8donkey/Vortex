@@ -695,7 +695,7 @@ namespace vortlog {
 struct State {
     int min_level = 20;
     bool console_on = true;
-    std::string format = "[%(time)] [%(level)] %(name): %(message)";
+    std::string format = "[%(level)] %(message)";
     std::vector<std::shared_ptr<std::ofstream>> files;
     std::mutex mtx;
 };

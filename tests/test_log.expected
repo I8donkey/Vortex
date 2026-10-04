@@ -1,0 +1,3 @@
+pi = 3.14159265358979
+[INFO] hello from log module
+[WARN] a warning message

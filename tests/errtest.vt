@@ -1,0 +1,3 @@
+int t1 = 5;
+int t2 = 10;
+print(t1 + t2);
