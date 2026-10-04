@@ -1,0 +1,428 @@
+[
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DVORTEX_WITH_SDL2_REAL -IE:/newcodering/include -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_core.dir\\src\\lexer.cpp.obj -c E:\\newcodering\\src\\lexer.cpp",
+  "file": "E:/newcodering/src/lexer.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_core.dir/src/lexer.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DVORTEX_WITH_SDL2_REAL -IE:/newcodering/include -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_core.dir\\src\\value.cpp.obj -c E:\\newcodering\\src\\value.cpp",
+  "file": "E:/newcodering/src/value.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_core.dir/src/value.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DVORTEX_WITH_SDL2_REAL -IE:/newcodering/include -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_core.dir\\src\\parser.cpp.obj -c E:\\newcodering\\src\\parser.cpp",
+  "file": "E:/newcodering/src/parser.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_core.dir/src/parser.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DVORTEX_WITH_SDL2_REAL -IE:/newcodering/include -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_core.dir\\src\\interpreter.cpp.obj -c E:\\newcodering\\src\\interpreter.cpp",
+  "file": "E:/newcodering/src/interpreter.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_core.dir/src/interpreter.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DVORTEX_WITH_SDL2_REAL -IE:/newcodering/include -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_core.dir\\src\\vortex_modules.cpp.obj -c E:\\newcodering\\src\\vortex_modules.cpp",
+  "file": "E:/newcodering/src/vortex_modules.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_core.dir/src/vortex_modules.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DVORTEX_WITH_SDL2_REAL -IE:/newcodering/include -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_core.dir\\src\\game2d_module.cpp.obj -c E:\\newcodering\\src\\game2d_module.cpp",
+  "file": "E:/newcodering/src/game2d_module.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_core.dir/src/game2d_module.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DVORTEX_WITH_SDL2_REAL -IE:/newcodering/include -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_core.dir\\src\\render3d_module.cpp.obj -c E:\\newcodering\\src\\render3d_module.cpp",
+  "file": "E:/newcodering/src/render3d_module.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_core.dir/src/render3d_module.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DVORTEX_WITH_SDL2_REAL -IE:/newcodering/include -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_core.dir\\src\\thread_module.cpp.obj -c E:\\newcodering\\src\\thread_module.cpp",
+  "file": "E:/newcodering/src/thread_module.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_core.dir/src/thread_module.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DVORTEX_WITH_SDL2_REAL -IE:/newcodering/include -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_core.dir\\src\\log_module.cpp.obj -c E:\\newcodering\\src\\log_module.cpp",
+  "file": "E:/newcodering/src/log_module.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_core.dir/src/log_module.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DVORTEX_WITH_SDL2_REAL -IE:/newcodering/include -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_core.dir\\src\\file_module.cpp.obj -c E:\\newcodering\\src\\file_module.cpp",
+  "file": "E:/newcodering/src/file_module.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_core.dir/src/file_module.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DVORTEX_WITH_SDL2_REAL -IE:/newcodering/include -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_core.dir\\src\\zip_module.cpp.obj -c E:\\newcodering\\src\\zip_module.cpp",
+  "file": "E:/newcodering/src/zip_module.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_core.dir/src/zip_module.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DVORTEX_WITH_SDL2_REAL -IE:/newcodering/include -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_core.dir\\src\\xml_module.cpp.obj -c E:\\newcodering\\src\\xml_module.cpp",
+  "file": "E:/newcodering/src/xml_module.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_core.dir/src/xml_module.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DVORTEX_WITH_SDL2_REAL -IE:/newcodering/include -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_core.dir\\src\\html_module.cpp.obj -c E:\\newcodering\\src\\html_module.cpp",
+  "file": "E:/newcodering/src/html_module.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_core.dir/src/html_module.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DVORTEX_WITH_SDL2_REAL -IE:/newcodering/include -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_core.dir\\src\\sql_module.cpp.obj -c E:\\newcodering\\src\\sql_module.cpp",
+  "file": "E:/newcodering/src/sql_module.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_core.dir/src/sql_module.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DVORTEX_WITH_SDL2_REAL -IE:/newcodering/include -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_core.dir\\src\\os_module.cpp.obj -c E:\\newcodering\\src\\os_module.cpp",
+  "file": "E:/newcodering/src/os_module.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_core.dir/src/os_module.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DVORTEX_WITH_SDL2_REAL -IE:/newcodering/include -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_core.dir\\src\\regex_module.cpp.obj -c E:\\newcodering\\src\\regex_module.cpp",
+  "file": "E:/newcodering/src/regex_module.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_core.dir/src/regex_module.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DVORTEX_WITH_SDL2_REAL -IE:/newcodering/include -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_core.dir\\src\\json_module.cpp.obj -c E:\\newcodering\\src\\json_module.cpp",
+  "file": "E:/newcodering/src/json_module.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_core.dir/src/json_module.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DVORTEX_WITH_SDL2_REAL -IE:/newcodering/include -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_core.dir\\src\\base64_module.cpp.obj -c E:\\newcodering\\src\\base64_module.cpp",
+  "file": "E:/newcodering/src/base64_module.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_core.dir/src/base64_module.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DVORTEX_WITH_SDL2_REAL -IE:/newcodering/include -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_core.dir\\src\\datetime_module.cpp.obj -c E:\\newcodering\\src\\datetime_module.cpp",
+  "file": "E:/newcodering/src/datetime_module.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_core.dir/src/datetime_module.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DVORTEX_WITH_SDL2_REAL -IE:/newcodering/include -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_core.dir\\src\\csv_module.cpp.obj -c E:\\newcodering\\src\\csv_module.cpp",
+  "file": "E:/newcodering/src/csv_module.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_core.dir/src/csv_module.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DVORTEX_WITH_SDL2_REAL -IE:/newcodering/include -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_core.dir\\src\\hash_module.cpp.obj -c E:\\newcodering\\src\\hash_module.cpp",
+  "file": "E:/newcodering/src/hash_module.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_core.dir/src/hash_module.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DVORTEX_WITH_SDL2_REAL -IE:/newcodering/include -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_core.dir\\src\\str_module.cpp.obj -c E:\\newcodering\\src\\str_module.cpp",
+  "file": "E:/newcodering/src/str_module.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_core.dir/src/str_module.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DVORTEX_WITH_SDL2_REAL -IE:/newcodering/include -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_core.dir\\src\\net_module.cpp.obj -c E:\\newcodering\\src\\net_module.cpp",
+  "file": "E:/newcodering/src/net_module.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_core.dir/src/net_module.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DVORTEX_WITH_SDL2_REAL -IE:/newcodering/include -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_core.dir\\src\\sys_module.cpp.obj -c E:\\newcodering\\src\\sys_module.cpp",
+  "file": "E:/newcodering/src/sys_module.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_core.dir/src/sys_module.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DVORTEX_WITH_SDL2_REAL -IE:/newcodering/include -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_core.dir\\src\\pack.cpp.obj -c E:\\newcodering\\src\\pack.cpp",
+  "file": "E:/newcodering/src/pack.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_core.dir/src/pack.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DVORTEX_WITH_SDL2_REAL -IE:/newcodering/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex.dir\\src\\main.cpp.obj -c E:\\newcodering\\src\\main.cpp",
+  "file": "E:/newcodering/src/main.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex.dir/src/main.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -IE:/newcodering/include -IE:/newcodering/src -ID:/gcc/opt/include -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vtpm.dir\\vtpm\\vtpm.cpp.obj -c E:\\newcodering\\vtpm\\vtpm.cpp",
+  "file": "E:/newcodering/vtpm/vtpm.cpp",
+  "output": "E:/newcodering/CMakeFiles/vtpm.dir/vtpm/vtpm.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -IE:/newcodering/include -IE:/newcodering/src -ID:/gcc/opt/include -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vtpm.dir\\src\\pack.cpp.obj -c E:\\newcodering\\src\\pack.cpp",
+  "file": "E:/newcodering/src/pack.cpp",
+  "output": "E:/newcodering/CMakeFiles/vtpm.dir/src/pack.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -IE:/newcodering/include -IE:/newcodering/runtime -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_runtime.dir\\runtime\\runtime.cpp.obj -c E:\\newcodering\\runtime\\runtime.cpp",
+  "file": "E:/newcodering/runtime/runtime.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_runtime.dir/runtime/runtime.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -IE:/newcodering/include -IE:/newcodering/runtime -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_runtime.dir\\runtime\\g2d_rt.cpp.obj -c E:\\newcodering\\runtime\\g2d_rt.cpp",
+  "file": "E:/newcodering/runtime/g2d_rt.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_runtime.dir/runtime/g2d_rt.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -IE:/newcodering/include -IE:/newcodering/runtime -ID:/gcc/opt/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_runtime.dir\\runtime\\r3d_rt.cpp.obj -c E:\\newcodering\\runtime\\r3d_rt.cpp",
+  "file": "E:/newcodering/runtime/r3d_rt.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_runtime.dir/runtime/r3d_rt.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DMINGW_HAS_SECURE_API=1 -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NO_DEBUG -DQT_WIDGETS_LIB -DUNICODE -DVORTEX_WITH_SDL2_REAL -DWIN32 -DWIN64 -D_ENABLE_EXTENDED_ALIGNED_STORAGE -D_UNICODE -D_WIN64 -IE:/newcodering/include -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -isystem E:/Qt6/6.11.1/mingw_64/include/QtWidgets -isystem E:/Qt6/6.11.1/mingw_64/include -isystem E:/Qt6/6.11.1/mingw_64/include/QtCore -isystem E:/Qt6/6.11.1/mingw_64/mkspecs/win32-g++ -isystem E:/Qt6/6.11.1/mingw_64/include/QtGui -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_gui.dir\\src\\gui_module.cpp.obj -c E:\\newcodering\\src\\gui_module.cpp",
+  "file": "E:/newcodering/src/gui_module.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_gui.dir/src/gui_module.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DMINGW_HAS_SECURE_API=1 -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NO_DEBUG -DQT_WIDGETS_LIB -DUNICODE -DVORTEX_WITH_SDL2_REAL -DWIN32 -DWIN64 -D_ENABLE_EXTENDED_ALIGNED_STORAGE -D_UNICODE -D_WIN64 -IE:/newcodering/vortex_editor_autogen/include -IE:/newcodering/include -IE:/newcodering/editor -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -isystem E:/Qt6/6.11.1/mingw_64/include/QtWidgets -isystem E:/Qt6/6.11.1/mingw_64/include -isystem E:/Qt6/6.11.1/mingw_64/include/QtCore -isystem E:/Qt6/6.11.1/mingw_64/mkspecs/win32-g++ -isystem E:/Qt6/6.11.1/mingw_64/include/QtGui -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_editor.dir\\vortex_editor_autogen\\mocs_compilation.cpp.obj -c E:\\newcodering\\vortex_editor_autogen\\mocs_compilation.cpp",
+  "file": "E:/newcodering/vortex_editor_autogen/mocs_compilation.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_editor.dir/vortex_editor_autogen/mocs_compilation.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DMINGW_HAS_SECURE_API=1 -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NO_DEBUG -DQT_WIDGETS_LIB -DUNICODE -DVORTEX_WITH_SDL2_REAL -DWIN32 -DWIN64 -D_ENABLE_EXTENDED_ALIGNED_STORAGE -D_UNICODE -D_WIN64 -IE:/newcodering/vortex_editor_autogen/include -IE:/newcodering/include -IE:/newcodering/editor -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -isystem E:/Qt6/6.11.1/mingw_64/include/QtWidgets -isystem E:/Qt6/6.11.1/mingw_64/include -isystem E:/Qt6/6.11.1/mingw_64/include/QtCore -isystem E:/Qt6/6.11.1/mingw_64/mkspecs/win32-g++ -isystem E:/Qt6/6.11.1/mingw_64/include/QtGui -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_editor.dir\\editor\\editor_main.cpp.obj -c E:\\newcodering\\editor\\editor_main.cpp",
+  "file": "E:/newcodering/editor/editor_main.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_editor.dir/editor/editor_main.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DMINGW_HAS_SECURE_API=1 -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NO_DEBUG -DQT_WIDGETS_LIB -DUNICODE -DVORTEX_WITH_SDL2_REAL -DWIN32 -DWIN64 -D_ENABLE_EXTENDED_ALIGNED_STORAGE -D_UNICODE -D_WIN64 -IE:/newcodering/vortex_editor_autogen/include -IE:/newcodering/include -IE:/newcodering/editor -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -isystem E:/Qt6/6.11.1/mingw_64/include/QtWidgets -isystem E:/Qt6/6.11.1/mingw_64/include -isystem E:/Qt6/6.11.1/mingw_64/include/QtCore -isystem E:/Qt6/6.11.1/mingw_64/mkspecs/win32-g++ -isystem E:/Qt6/6.11.1/mingw_64/include/QtGui -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_editor.dir\\editor\\MainWindow.cpp.obj -c E:\\newcodering\\editor\\MainWindow.cpp",
+  "file": "E:/newcodering/editor/MainWindow.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_editor.dir/editor/MainWindow.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DMINGW_HAS_SECURE_API=1 -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NO_DEBUG -DQT_WIDGETS_LIB -DUNICODE -DVORTEX_WITH_SDL2_REAL -DWIN32 -DWIN64 -D_ENABLE_EXTENDED_ALIGNED_STORAGE -D_UNICODE -D_WIN64 -IE:/newcodering/vortex_editor_autogen/include -IE:/newcodering/include -IE:/newcodering/editor -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -isystem E:/Qt6/6.11.1/mingw_64/include/QtWidgets -isystem E:/Qt6/6.11.1/mingw_64/include -isystem E:/Qt6/6.11.1/mingw_64/include/QtCore -isystem E:/Qt6/6.11.1/mingw_64/mkspecs/win32-g++ -isystem E:/Qt6/6.11.1/mingw_64/include/QtGui -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_editor.dir\\editor\\CodeEditor.cpp.obj -c E:\\newcodering\\editor\\CodeEditor.cpp",
+  "file": "E:/newcodering/editor/CodeEditor.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_editor.dir/editor/CodeEditor.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\c++.exe\" -DMINGW_HAS_SECURE_API=1 -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NO_DEBUG -DQT_WIDGETS_LIB -DUNICODE -DVORTEX_WITH_SDL2_REAL -DWIN32 -DWIN64 -D_ENABLE_EXTENDED_ALIGNED_STORAGE -D_UNICODE -D_WIN64 -IE:/newcodering/vortex_editor_autogen/include -IE:/newcodering/include -IE:/newcodering/editor -IE:/newcodering/_deps/zlib-build -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-mixer_x64-mingw-dynamic/include/SDL2 -isystem D:/Scoop/apps/vcpkg/current/packages/sdl2-ttf_x64-mingw-dynamic/include/SDL2 -isystem E:/Qt6/6.11.1/mingw_64/include/QtWidgets -isystem E:/Qt6/6.11.1/mingw_64/include -isystem E:/Qt6/6.11.1/mingw_64/include/QtCore -isystem E:/Qt6/6.11.1/mingw_64/mkspecs/win32-g++ -isystem E:/Qt6/6.11.1/mingw_64/include/QtGui -std=c++17 -fdiagnostics-color=always -Wall -Wextra -Wno-unused-parameter -Wno-unused-variable -Wno-unused-but-set-variable -Wno-missing-field-initializers -O2 -static-libgcc -static-libstdc++ -o CMakeFiles\\vortex_editor.dir\\editor\\SyntaxHighlighter.cpp.obj -c E:\\newcodering\\editor\\SyntaxHighlighter.cpp",
+  "file": "E:/newcodering/editor/SyntaxHighlighter.cpp",
+  "output": "E:/newcodering/CMakeFiles/vortex_editor.dir/editor/SyntaxHighlighter.cpp.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlib.dir\\adler32.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\adler32.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/adler32.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlib.dir/adler32.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlib.dir\\compress.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\compress.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/compress.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlib.dir/compress.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlib.dir\\crc32.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\crc32.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/crc32.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlib.dir/crc32.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlib.dir\\deflate.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\deflate.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/deflate.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlib.dir/deflate.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlib.dir\\gzclose.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\gzclose.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/gzclose.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlib.dir/gzclose.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlib.dir\\gzlib.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\gzlib.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/gzlib.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlib.dir/gzlib.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlib.dir\\gzread.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\gzread.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/gzread.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlib.dir/gzread.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlib.dir\\gzwrite.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\gzwrite.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/gzwrite.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlib.dir/gzwrite.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlib.dir\\inflate.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\inflate.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/inflate.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlib.dir/inflate.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlib.dir\\infback.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\infback.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/infback.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlib.dir/infback.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlib.dir\\inftrees.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\inftrees.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/inftrees.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlib.dir/inftrees.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlib.dir\\inffast.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\inffast.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/inffast.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlib.dir/inffast.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlib.dir\\trees.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\trees.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/trees.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlib.dir/trees.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlib.dir\\uncompr.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\uncompr.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/uncompr.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlib.dir/uncompr.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -DZLIB_DLL -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlib.dir\\zutil.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\zutil.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/zutil.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlib.dir/zutil.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlibstatic.dir\\adler32.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\adler32.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/adler32.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlibstatic.dir/adler32.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlibstatic.dir\\compress.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\compress.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/compress.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlibstatic.dir/compress.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlibstatic.dir\\crc32.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\crc32.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/crc32.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlibstatic.dir/crc32.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlibstatic.dir\\deflate.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\deflate.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/deflate.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlibstatic.dir/deflate.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlibstatic.dir\\gzclose.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\gzclose.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/gzclose.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlibstatic.dir/gzclose.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlibstatic.dir\\gzlib.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\gzlib.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/gzlib.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlibstatic.dir/gzlib.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlibstatic.dir\\gzread.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\gzread.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/gzread.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlibstatic.dir/gzread.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlibstatic.dir\\gzwrite.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\gzwrite.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/gzwrite.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlibstatic.dir/gzwrite.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlibstatic.dir\\inflate.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\inflate.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/inflate.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlibstatic.dir/inflate.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlibstatic.dir\\infback.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\infback.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/infback.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlibstatic.dir/infback.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlibstatic.dir\\inftrees.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\inftrees.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/inftrees.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlibstatic.dir/inftrees.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlibstatic.dir\\inffast.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\inffast.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/inffast.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlibstatic.dir/inffast.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlibstatic.dir\\trees.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\trees.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/trees.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlibstatic.dir/trees.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlibstatic.dir\\uncompr.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\uncompr.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/uncompr.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlibstatic.dir/uncompr.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\zlibstatic.dir\\zutil.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\zutil.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/zutil.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/zlibstatic.dir/zutil.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\example.dir\\test\\example.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\test\\example.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/test/example.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/example.dir/test/example.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -o _deps\\zlib-build\\CMakeFiles\\minigzip.dir\\test\\minigzip.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\test\\minigzip.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/test/minigzip.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/minigzip.dir/test/minigzip.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -D_FILE_OFFSET_BITS=64 -o _deps\\zlib-build\\CMakeFiles\\example64.dir\\test\\example.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\test\\example.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/test/example.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/example64.dir/test/example.c.obj"
+},
+{
+  "directory": "E:/newcodering",
+  "command": "\"D:\\jetbrains\\ptr\\CLion 2\\bin\\mingw\\bin\\gcc.exe\" -D_LARGEFILE64_SOURCE=1 -IE:/newcodering/_deps/zlib-build -IE:/newcodering -IE:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522 -fdiagnostics-color=always -D_FILE_OFFSET_BITS=64 -o _deps\\zlib-build\\CMakeFiles\\minigzip64.dir\\test\\minigzip.c.obj -c E:\\newcodering\\.vortex-deps\\cpm\\zlib\\b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522\\test\\minigzip.c",
+  "file": "E:/newcodering/.vortex-deps/cpm/zlib/b5e2c7ec5e8efcfba2a4eb6b6a8c3bd7f8619522/test/minigzip.c",
+  "output": "E:/newcodering/_deps/zlib-build/CMakeFiles/minigzip64.dir/test/minigzip.c.obj"
+}
+]

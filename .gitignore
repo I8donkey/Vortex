@@ -19,6 +19,7 @@ vortex_editor_autogen/
 CMakeCache.txt
 CMakeFiles/
 cmake/
+.cmake/
 docs/
 build.ninja
 cmake_install.cmake
@@ -32,3 +33,8 @@ build_ninja/
 *.exe.ll
 *.exe
 /vortexcc_autogen
+
+#编辑器
+.idea/
+.trae/
+Testing/
