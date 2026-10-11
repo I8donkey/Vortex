@@ -13,6 +13,8 @@
 #ifdef _WIN32
 #include <direct.h>
 #include <windows.h>
+#else
+#include <unistd.h>
 #endif
 
 namespace vortex {

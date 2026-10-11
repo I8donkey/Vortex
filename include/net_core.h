@@ -181,6 +181,12 @@ inline std::string net_http(const std::string& url, const std::string& method,
     WinHttpCloseHandle(hSess);
     return result;
 }
+#else // !_WIN32 — 非 Windows 平台暂不实现真实 HTTP，抛运行时错误（保持模块可编译）
+inline std::string net_http(const std::string& url, const std::string& method,
+                            const std::string& body, bool follow_redirects = true) {
+    (void)url; (void)method; (void)body; (void)follow_redirects;
+    throw std::runtime_error("net: HTTP not supported on this platform");
+}
 #endif // _WIN32
 
 } // namespace vortex

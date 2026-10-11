@@ -53,7 +53,10 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew install qt@6 xz sqlite
-          echo "CMAKE_PREFIX_PATH=$(brew --prefix qt@6)" >> "$GITHUB_ENV"
+          QT_PREFIX=$(brew --prefix qt@6)
+          XZ_PREFIX=$(brew --prefix xz)
+          SQLITE_PREFIX=$(brew --prefix sqlite)
+          echo "CMAKE_PREFIX_PATH=$QT_PREFIX:$XZ_PREFIX:$SQLITE_PREFIX" >> "$GITHUB_ENV"
 
       - name: Install deps (Windows, MSYS2/MinGW)
         if: runner.os == 'Windows'
@@ -64,7 +67,7 @@ jobs:
           install: >-
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-qt6-base
-            mingw-w64-x86_64-liblzma
+            mingw-w64-x86_64-xz
             mingw-w64-x86_64-sqlite3
             mingw-w64-x86_64-zlib
 
@@ -72,12 +75,10 @@ jobs:
       - name: Configure (CMake)
         shell: bash
         run: |
-          LLVM_FLAG="OFF"
-          if [ "${{ inputs.with_llvm }}" = "true" ]; then LLVM_FLAG="ON"; fi
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DVORTEX_USE_CPM=OFF \
-            -DVORTEX_WITH_LLVM=${LLVM_FLAG} \
+            -DVORTEX_WITH_LLVM=${{ inputs.with_llvm }} \
             -DVORTEX_BUILD_EDITOR=ON \
             -DCMAKE_C_COMPILER=${{ matrix.cc }} \
             -DCMAKE_CXX_COMPILER=${{ matrix.cxx }}
