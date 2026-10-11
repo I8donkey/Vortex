@@ -38,3 +38,6 @@ build_ninja/
 .idea/
 .trae/
 Testing/
+
+#发布产物
+releases/
