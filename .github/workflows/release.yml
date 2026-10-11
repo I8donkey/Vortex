@@ -14,9 +14,8 @@ on:
         default: false
         type: boolean
 
-# 产物名称统一，便于多平台合并进一个 Release
+# 统一版本号
 env:
-  ARTIFACT_NAME: vortex-${{ matrix.os }}
   VERSION: ${{ inputs.version }}
 
 jobs:
@@ -108,7 +107,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.ARTIFACT_NAME }}
+          name: vortex-${{ matrix.os }}
           path: staged/
 
   release:
