@@ -905,6 +905,194 @@ LVal Gen::gen_call(const CallExpr* c) {
         }
     }
 
+    // ---- map / filter / reduce（一等函数传参，编译器端支持）----
+    // 需在 args 求值前拦截，因为回调（def 名）不是普通表达式
+    if (fname == "map" || fname == "filter" || fname == "reduce") {
+        if (c->args.size() < 2)
+            throw std::runtime_error("'" + fname + "' expects a function and an iterable");
+        // 生成回调闭包：lambda 已是 Closure；def 名则用 vor_closure_new 包装函数指针
+        auto gen_cb = [&](const ExprPtr& fnexpr) -> llvm::Value* {
+            if (fnexpr->kind == ExprKind::Identifier) {
+                const std::string& nm = static_cast<const IdentifierExpr*>(fnexpr.get())->name;
+                llvm::Function* fn = mod_->getFunction(nm);
+                if (fn) {
+                    llvm::Value* alloc = B->CreateCall(
+                        llvm::cast<llvm::Function>(declare_runtime("vor_closure_new", B->getPtrTy(), {B->getInt64Ty()})),
+                        {B->getInt64(0)});
+                    llvm::Value* cl = B->CreateBitCast(alloc, B->getInt64Ty()->getPointerTo(), "cb.cl");
+                    B->CreateStore(B->CreatePtrToInt(fn, B->getInt64Ty()),
+                                   B->CreateGEP(B->getInt64Ty(), cl, B->getInt64(0)));
+                    return alloc;
+                }
+            }
+            return gen_expr(fnexpr.get()).val; // lambda → Closure 指针
+        };
+        // 闭包间接调用：i64 fn(ptr closure, i64...)
+        auto call_cb = [&](llvm::Value* closure, std::vector<llvm::Value*> a) -> llvm::Value* {
+            llvm::Value* clI64 = B->CreateBitCast(closure, B->getInt64Ty()->getPointerTo());
+            llvm::Value* fnraw = B->CreateLoad(B->getInt64Ty(), B->CreateGEP(B->getInt64Ty(), clI64, B->getInt64(0)));
+            std::vector<llvm::Type*> ft;
+            ft.push_back(B->getPtrTy());
+            for (auto& aa : a) ft.push_back(B->getInt64Ty());
+            llvm::FunctionType* Ftype = llvm::FunctionType::get(B->getInt64Ty(), ft, false);
+            llvm::Value* fn = B->CreateIntToPtr(fnraw, Ftype->getPointerTo());
+            std::vector<llvm::Value*> ca; ca.push_back(closure);
+            for (auto& aa : a) ca.push_back(aa);
+            return B->CreateCall(Ftype, fn, ca, "cb.call");
+        };
+        llvm::Value* cb = gen_cb(c->args[0]);
+        LVal cont = gen_expr(c->args[1].get());
+        if (cont.type != VType::List)
+            throw std::runtime_error("'" + fname + "': expected a list");
+        llvm::Function* F = cur_bb()->getParent();
+        llvm::Value* len = B->CreateCall(llvm::cast<llvm::Function>(
+            decl_vor("vor_list_len", VType::Int, {VType::List})), {cont.val});
+
+        if (fname == "map") {
+            llvm::Value* out = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_list_new", VType::List, {})), {});
+            llvm::BasicBlock* cBB = llvm::BasicBlock::Create(B->getContext(), "map.cond", F);
+            llvm::BasicBlock* bBB = llvm::BasicBlock::Create(B->getContext(), "map.body", F);
+            llvm::BasicBlock* uBB = llvm::BasicBlock::Create(B->getContext(), "map.upd", F);
+            llvm::BasicBlock* eBB = llvm::BasicBlock::Create(B->getContext(), "map.end", F);
+            llvm::AllocaInst* idx = make_alloca(VType::Int, F, "map.i");
+            B->CreateStore(B->getInt64(0), idx);
+            B->CreateBr(cBB);
+            B->SetInsertPoint(uBB);
+            B->CreateStore(B->CreateAdd(B->CreateLoad(B->getInt64Ty(), idx), B->getInt64(1)), idx);
+            B->CreateBr(cBB);
+            B->SetInsertPoint(cBB);
+            B->CreateCondBr(B->CreateICmpSLT(B->CreateLoad(B->getInt64Ty(), idx), len), bBB, eBB);
+            B->SetInsertPoint(bBB);
+            llvm::Value* el = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_list_get", VType::Int, {VType::List, VType::Int})), {cont.val, B->CreateLoad(B->getInt64Ty(), idx)});
+            llvm::Value* r = call_cb(cb, {el});
+            B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_list_push", VType::Void, {VType::List, VType::Int})), {out, r});
+            B->CreateBr(uBB);
+            B->SetInsertPoint(eBB);
+            return {VType::List, out};
+        }
+        if (fname == "filter") {
+            llvm::Value* out = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_list_new", VType::List, {})), {});
+            llvm::BasicBlock* cBB = llvm::BasicBlock::Create(B->getContext(), "fil.cond", F);
+            llvm::BasicBlock* bBB = llvm::BasicBlock::Create(B->getContext(), "fil.body", F);
+            llvm::BasicBlock* uBB = llvm::BasicBlock::Create(B->getContext(), "fil.upd", F);
+            llvm::BasicBlock* eBB = llvm::BasicBlock::Create(B->getContext(), "fil.end", F);
+            llvm::AllocaInst* idx = make_alloca(VType::Int, F, "fil.i");
+            B->CreateStore(B->getInt64(0), idx);
+            B->CreateBr(cBB);
+            B->SetInsertPoint(uBB);
+            B->CreateStore(B->CreateAdd(B->CreateLoad(B->getInt64Ty(), idx), B->getInt64(1)), idx);
+            B->CreateBr(cBB);
+            B->SetInsertPoint(cBB);
+            B->CreateCondBr(B->CreateICmpSLT(B->CreateLoad(B->getInt64Ty(), idx), len), bBB, eBB);
+            B->SetInsertPoint(bBB);
+            llvm::Value* el = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_list_get", VType::Int, {VType::List, VType::Int})), {cont.val, B->CreateLoad(B->getInt64Ty(), idx)});
+            llvm::Value* ok = call_cb(cb, {el});
+            llvm::BasicBlock* pushBB = llvm::BasicBlock::Create(B->getContext(), "fil.push", F);
+            llvm::BasicBlock* skipBB = llvm::BasicBlock::Create(B->getContext(), "fil.skip", F);
+            B->CreateCondBr(B->CreateICmpNE(ok, B->getInt64(0)), pushBB, skipBB);
+            B->SetInsertPoint(pushBB);
+            B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_list_push", VType::Void, {VType::List, VType::Int})), {out, el});
+            B->CreateBr(uBB);
+            B->SetInsertPoint(skipBB);
+            B->CreateBr(uBB);
+            B->SetInsertPoint(eBB);
+            return {VType::List, out};
+        }
+        // reduce
+        llvm::AllocaInst* acc = make_alloca(VType::Int, F, "acc");
+        llvm::Value* startIdx = B->getInt64(1);
+        if (c->args.size() >= 3) {
+            LVal init = gen_expr(c->args[2].get());
+            B->CreateStore(to_i64(init), acc);
+            startIdx = B->getInt64(0);
+        } else {
+            llvm::Value* first = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_list_get", VType::Int, {VType::List, VType::Int})), {cont.val, B->getInt64(0)});
+            B->CreateStore(first, acc);
+        }
+        llvm::BasicBlock* cBB = llvm::BasicBlock::Create(B->getContext(), "red.cond", F);
+        llvm::BasicBlock* bBB = llvm::BasicBlock::Create(B->getContext(), "red.body", F);
+        llvm::BasicBlock* uBB = llvm::BasicBlock::Create(B->getContext(), "red.upd", F);
+        llvm::BasicBlock* eBB = llvm::BasicBlock::Create(B->getContext(), "red.end", F);
+        llvm::AllocaInst* idx = make_alloca(VType::Int, F, "red.i");
+        B->CreateStore(startIdx, idx);
+        B->CreateBr(cBB);
+        B->SetInsertPoint(uBB);
+        B->CreateStore(B->CreateAdd(B->CreateLoad(B->getInt64Ty(), idx), B->getInt64(1)), idx);
+        B->CreateBr(cBB);
+        B->SetInsertPoint(cBB);
+        B->CreateCondBr(B->CreateICmpSLT(B->CreateLoad(B->getInt64Ty(), idx), len), bBB, eBB);
+        B->SetInsertPoint(bBB);
+        llvm::Value* el = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_list_get", VType::Int, {VType::List, VType::Int})), {cont.val, B->CreateLoad(B->getInt64Ty(), idx)});
+        llvm::Value* nr = call_cb(cb, {B->CreateLoad(B->getInt64Ty(), acc), el});
+        B->CreateStore(nr, acc);
+        B->CreateBr(uBB);
+        B->SetInsertPoint(eBB);
+        return {VType::Int, B->CreateLoad(B->getInt64Ty(), acc)};
+    }
+
+    // ---- all / any / sorted（无回调，纯遍历/排序）----
+    if (fname == "all" || fname == "any" || fname == "sorted") {
+        if (c->args.empty()) throw std::runtime_error("'" + fname + "' expects an iterable");
+        LVal cont = gen_expr(c->args[0].get());
+        if (cont.type != VType::List) throw std::runtime_error("'" + fname + "': expected a list");
+        llvm::Function* F = cur_bb()->getParent();
+        llvm::Value* len = B->CreateCall(llvm::cast<llvm::Function>(
+            decl_vor("vor_list_len", VType::Int, {VType::List})), {cont.val});
+        if (fname == "sorted") {
+            llvm::Value* out = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_list_new", VType::List, {})), {});
+            llvm::BasicBlock* cBB = llvm::BasicBlock::Create(B->getContext(), "srt.cond", F);
+            llvm::BasicBlock* bBB = llvm::BasicBlock::Create(B->getContext(), "srt.body", F);
+            llvm::BasicBlock* uBB = llvm::BasicBlock::Create(B->getContext(), "srt.upd", F);
+            llvm::BasicBlock* eBB = llvm::BasicBlock::Create(B->getContext(), "srt.end", F);
+            llvm::AllocaInst* idx = make_alloca(VType::Int, F, "srt.i");
+            B->CreateStore(B->getInt64(0), idx); B->CreateBr(cBB);
+            B->SetInsertPoint(uBB);
+            B->CreateStore(B->CreateAdd(B->CreateLoad(B->getInt64Ty(), idx), B->getInt64(1)), idx);
+            B->CreateBr(cBB);
+            B->SetInsertPoint(cBB);
+            B->CreateCondBr(B->CreateICmpSLT(B->CreateLoad(B->getInt64Ty(), idx), len), bBB, eBB);
+            B->SetInsertPoint(bBB);
+            llvm::Value* el = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_list_get", VType::Int, {VType::List, VType::Int})), {cont.val, B->CreateLoad(B->getInt64Ty(), idx)});
+            B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_list_push", VType::Void, {VType::List, VType::Int})), {out, el});
+            B->CreateBr(uBB);
+            B->SetInsertPoint(eBB);
+            llvm::Value* rev = c->args.size() >= 2 ? to_i64(gen_expr(c->args[1].get())) : B->getInt64(0);
+            B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_list_sort", VType::Void, {VType::List, VType::Int})), {out, rev});
+            return {VType::List, out};
+        }
+        // all / any
+        llvm::AllocaInst* flag = make_alloca(VType::Bool, F, fname == "all" ? "all.f" : "any.f");
+        B->CreateStore(fname == "all" ? B->getInt1(1) : B->getInt1(0), flag);
+        llvm::BasicBlock* cBB = llvm::BasicBlock::Create(B->getContext(), (fname+"c").c_str(), F);
+        llvm::BasicBlock* bBB = llvm::BasicBlock::Create(B->getContext(), (fname+"b").c_str(), F);
+        llvm::BasicBlock* uBB = llvm::BasicBlock::Create(B->getContext(), (fname+"u").c_str(), F);
+        llvm::BasicBlock* eBB = llvm::BasicBlock::Create(B->getContext(), (fname+"e").c_str(), F);
+        llvm::AllocaInst* idx = make_alloca(VType::Int, F, (fname+"i").c_str());
+        B->CreateStore(B->getInt64(0), idx); B->CreateBr(cBB);
+        B->SetInsertPoint(uBB);
+        B->CreateStore(B->CreateAdd(B->CreateLoad(B->getInt64Ty(), idx), B->getInt64(1)), idx);
+        B->CreateBr(cBB);
+        B->SetInsertPoint(cBB);
+        B->CreateCondBr(B->CreateICmpSLT(B->CreateLoad(B->getInt64Ty(), idx), len), bBB, eBB);
+        B->SetInsertPoint(bBB);
+        llvm::Value* el = B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_list_get", VType::Int, {VType::List, VType::Int})), {cont.val, B->CreateLoad(B->getInt64Ty(), idx)});
+        if (fname == "all") {
+            llvm::BasicBlock* failBB = llvm::BasicBlock::Create(B->getContext(), "all.fail", F);
+            B->CreateCondBr(B->CreateICmpEQ(el, B->getInt64(0)), failBB, uBB);
+            B->SetInsertPoint(failBB);
+            B->CreateStore(B->getInt1(0), flag);
+            B->CreateBr(eBB); // 遇 0 即短路 false
+        } else {
+            llvm::BasicBlock* hitBB = llvm::BasicBlock::Create(B->getContext(), "any.hit", F);
+            B->CreateCondBr(B->CreateICmpNE(el, B->getInt64(0)), hitBB, uBB);
+            B->SetInsertPoint(hitBB);
+            B->CreateStore(B->getInt1(1), flag);
+            B->CreateBr(eBB); // 提前退出
+        }
+        B->SetInsertPoint(eBB);
+        return {VType::Bool, B->CreateLoad(B->getInt1Ty(), flag)};
+    }
+
     auto it = fns_.find(fname);
     if (it != fns_.end()) {
         // print / math 内置
@@ -2719,10 +2907,13 @@ LVal Gen::gen_call(const CallExpr* c) {
             return {VType::Int, B->CreateCall(Ftype, fn, callArgs, "call")};
         }
     }
-    // 目标 Function
+    // 目标 Function（签名首参数为 closure 指针，普通调用传 null 占位）
     llvm::Function* callee = mod_->getFunction(fname);
     if (callee) {
-        llvm::Value* r = B->CreateCall(callee, args, "call");
+        std::vector<llvm::Value*> callArgs;
+        callArgs.push_back(llvm::ConstantPointerNull::get(B->getPtrTy()));
+        for (auto& a : args) callArgs.push_back(a);
+        llvm::Value* r = B->CreateCall(callee, callArgs, "call");
         return {fn_ret_of(fname), r};
     }
     // 未转发扩展模块调用（如 render3d./game2d. 等 P4 按需裁减项）：明确报错而非崩溃
@@ -2920,9 +3111,12 @@ void Gen::gen_return(const ReturnStmt* s) {
     fn_ret_ = v.type;
     // 按函数声明的返回类型规整（float/int/bool 互转）
     if (cur_fn_) {
+        VType rt = VType::Void;
         auto it = fn_ret_map_.find(cur_fn_->getName().str());
-        if (it != fn_ret_map_.end() && it->second != v.type) {
-            VType rt = it->second;
+        if (it != fn_ret_map_.end()) rt = it->second;
+        else if (cur_fn_->getReturnType() == B->getInt64Ty()) rt = VType::Int; // lambda 固定 i64
+        else if (cur_fn_->getReturnType() == B->getDoubleTy()) rt = VType::Float;
+        if (rt != VType::Void && rt != v.type) {
             if (rt == VType::Float && v.type == VType::Int) v.val = B->CreateSIToFP(v.val, B->getDoubleTy());
             else if (rt == VType::Float && v.type == VType::Bool) v.val = B->CreateUIToFP(v.val, B->getDoubleTy());
             else if (rt == VType::Int && v.type == VType::Float) v.val = B->CreateFPToSI(v.val, B->getInt64Ty());
@@ -3391,9 +3585,10 @@ void Gen::gen_stmt(const Stmt* s) {
             break;
         case StmtKind::FunctionDef: {
             auto* fd = static_cast<const FunctionDefStmt*>(s);
-            // 函数原型：返回类型默认 i64，参数按类型
+            // 函数原型：返回类型默认 i64，参数按类型；首参数为闭包指针（供一等函数传参统一签名）
             std::vector<llvm::Type*> params;
             std::vector<VType> ptypes;
+            params.push_back(B->getPtrTy()); // closure 参数（函数体内忽略）
             for (auto& p : fd->params) {
                 VType t = VType::Int;
                 if (p->type) {
@@ -3430,7 +3625,7 @@ void Gen::gen_stmt(const Stmt* s) {
             top_level_ = false;   // 函数体内变量为局部
             unsigned i = 0;
             for (auto& p : fd->params) {
-                llvm::Argument* arg = fn->arg_begin() + i;
+                llvm::Argument* arg = fn->arg_begin() + i + 1; // 跳过 closure 参数
                 arg->setName(p->name);
                 llvm::AllocaInst* a = make_alloca(ptypes[i], fn, p->name.c_str());
                 B->CreateStore(arg, a);

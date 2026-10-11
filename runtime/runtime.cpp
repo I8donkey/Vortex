@@ -284,6 +284,16 @@ VStr* vor_list_get_str(const VList* l, int idx) {
     return vor_str_from_bytes(held->data, held->len);
 }
 int vor_list_len(const VList* l) { return l->len; }
+// 对整型列表就排序（reverse 非 0 则降序）
+void vor_list_sort(VList* l, long long reverse) {
+    if (!l || l->len < 2) return;
+    for (int i = 0; i < l->len - 1; ++i)
+        for (int j = 0; j < l->len - i - 1; ++j) {
+            long long a = l->elems[j], b = l->elems[j + 1];
+            bool swap = reverse ? (a < b) : (a > b);
+            if (swap) { l->elems[j] = b; l->elems[j + 1] = a; }
+        }
+}
 // 嵌套字符串列表：取第 idx 个元素，槽位里存的是内层 VList*（行）
 void* vor_list_get_strlist(const VList* l, int idx) {
     if (!l || idx < 0 || idx >= l->len) return nullptr;

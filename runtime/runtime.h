@@ -81,6 +81,7 @@ void*  vor_list_get_strlist(const VList* l, int idx);   // 嵌套列表：取第
 int    vor_list_len(const VList* l);
 long long vor_list_sum(const VList* l);
 long long vor_list_prod(const VList* l);
+void   vor_list_sort(VList* l, long long reverse);
 
 // ========== 字典（引用计数，线性数组）==========
 // key/value 各支持 int 或 str 两种形式。
