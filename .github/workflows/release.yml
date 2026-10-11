@@ -29,12 +29,15 @@ jobs:
           - os: ubuntu-latest
             cc: gcc
             cxx: g++
+            shell: bash
           - os: windows-latest
             cc: gcc
             cxx: g++
+            shell: msys2 {0}
           - os: macos-latest
             cc: clang
             cxx: clang++
+            shell: bash
 
     steps:
       - name: Checkout
@@ -71,9 +74,14 @@ jobs:
             mingw-w64-x86_64-sqlite3
             mingw-w64-x86_64-zlib
 
+      - name: Set CMAKE_PREFIX_PATH (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: echo "CMAKE_PREFIX_PATH=/mingw64" >> "$GITHUB_ENV"
+
       # ---------- 配置与构建 ----------
       - name: Configure (CMake)
-        shell: bash
+        shell: ${{ matrix.shell }}
         run: |
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
@@ -81,9 +89,11 @@ jobs:
             -DVORTEX_WITH_LLVM=${{ inputs.with_llvm }} \
             -DVORTEX_BUILD_EDITOR=ON \
             -DCMAKE_C_COMPILER=${{ matrix.cc }} \
-            -DCMAKE_CXX_COMPILER=${{ matrix.cxx }}
+            -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
+            -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH"
 
       - name: Build
+        shell: ${{ matrix.shell }}
         run: cmake --build build --config Release --parallel
 
       # ---------- 收集产物 ----------
@@ -96,13 +106,14 @@ jobs:
 
       - name: Stage binaries (Windows)
         if: runner.os == 'Windows'
-        shell: bash
+        shell: ${{ matrix.shell }}
         run: |
           mkdir -p staged
           cp build/bin/* staged/ 2>/dev/null || true
           cp README.md README_zh.md USAGE.md USAGE_zh.md staged/ 2>/dev/null || true
 
       - name: List staged files
+        shell: ${{ matrix.shell }}
         run: ls -la staged/
 
       - name: Upload artifact

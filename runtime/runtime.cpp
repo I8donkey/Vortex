@@ -170,6 +170,7 @@ double vor_cast_f64(VStr* s) {
 struct RT_ExFrame { void* jb; char msg[512]; RT_ExFrame* prev; };
 static thread_local RT_ExFrame* rt_ex_top_ = nullptr;
 
+#if defined(_WIN32) && defined(__x86_64__)
 #ifndef VORTEX_RT_EXJMP_ASM
 #define VORTEX_RT_EXJMP_ASM
 __asm__(
@@ -212,7 +213,16 @@ __asm__(
 ".intel_syntax noprefix\n\t"
 ".att_syntax prefix\n\t"
 );
-#endif
+#endif // VORTEX_RT_EXJMP_ASM
+#else // !(_WIN32 && x86_64) — 用标准 setjmp/longjmp 提供同一 ABI
+#include <csetjmp>
+extern "C" int vor_ex_setjmp(void* jb) {
+    return ::setjmp(*reinterpret_cast<std::jmp_buf*>(jb));
+}
+extern "C" void vor_ex_longjmp(void* jb, int val) {
+    ::longjmp(*reinterpret_cast<std::jmp_buf*>(jb), val);
+}
+#endif // _WIN32 && __x86_64__
 
 void vor_ex_push(void* jb) {
     RT_ExFrame* f = (RT_ExFrame*)xmalloc(sizeof(RT_ExFrame));
