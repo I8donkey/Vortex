@@ -30,14 +30,17 @@ jobs:
             cc: gcc
             cxx: g++
             shell: bash
+            generator: Unix Makefiles
           - os: windows-latest
             cc: gcc
             cxx: g++
             shell: msys2 {0}
+            generator: Ninja
           - os: macos-latest
             cc: clang
             cxx: clang++
             shell: bash
+            generator: Unix Makefiles
 
     steps:
       - name: Checkout
@@ -52,6 +55,10 @@ jobs:
             qt6-base-dev liblzma-dev libsqlite3-dev zlib1g-dev libgl1-mesa-dev \
             libx11-dev libxkbcommon-dev libglu1-mesa-dev
 
+      - name: Install LLVM (Linux)
+        if: runner.os == 'Linux' && inputs.with_llvm
+        run: sudo apt-get install -y llvm-dev libclang-dev clang
+
       - name: Install deps (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -61,6 +68,12 @@ jobs:
           SQLITE_PREFIX=$(brew --prefix sqlite)
           echo "CMAKE_PREFIX_PATH=$QT_PREFIX:$XZ_PREFIX:$SQLITE_PREFIX" >> "$GITHUB_ENV"
 
+      - name: Install LLVM (macOS)
+        if: runner.os == 'macOS' && inputs.with_llvm
+        run: |
+          brew install llvm
+          echo "LLVM_DIR=$(brew --prefix llvm)/lib/cmake/llvm" >> "$GITHUB_ENV"
+
       - name: Install deps (Windows, MSYS2/MinGW)
         if: runner.os == 'Windows'
         uses: msys2/setup-msys2@v2
@@ -69,10 +82,17 @@ jobs:
           update: true
           install: >-
             mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
             mingw-w64-x86_64-qt6-base
             mingw-w64-x86_64-xz
             mingw-w64-x86_64-sqlite3
             mingw-w64-x86_64-zlib
+
+      - name: Install LLVM (Windows)
+        if: runner.os == 'Windows' && inputs.with_llvm
+        shell: msys2 {0}
+        run: pacman -S --noconfirm --needed mingw-w64-x86_64-llvm
 
       - name: Set CMAKE_PREFIX_PATH (Windows)
         if: runner.os == 'Windows'
@@ -84,6 +104,7 @@ jobs:
         shell: ${{ matrix.shell }}
         run: |
           cmake -S . -B build \
+            -G "${{ matrix.generator }}" \
             -DCMAKE_BUILD_TYPE=Release \
             -DVORTEX_USE_CPM=OFF \
             -DVORTEX_WITH_LLVM=${{ inputs.with_llvm }} \

@@ -379,8 +379,14 @@ if(VORTEX_WITH_LLVM)
     endif()
     if(LLVM_FOUND)
         message(STATUS "Vortex LLVM: found LLVM ${LLVM_VERSION_MAJOR}.${LLVM_VERSION_MINOR} at ${LLVM_DIR}")
-        set(VORTEX_LLVM_SRC_INCLUDE ${CMAKE_SOURCE_DIR}/.vortex-deps/llvm-src/llvm-project-23.1.0.src/llvm/include)
-        set(VORTEX_LLVM_BUILD_INCLUDE ${CMAKE_SOURCE_DIR}/.vortex-deps/llvm-build/include)
+        # 优先本地 .vortex-deps（Windows/MinGW 开发）；CI/系统 LLVM 用 find_package 提供的头文件
+        if(EXISTS "${CMAKE_SOURCE_DIR}/.vortex-deps/llvm-build/include")
+            set(VORTEX_LLVM_SRC_INCLUDE ${CMAKE_SOURCE_DIR}/.vortex-deps/llvm-src/llvm-project-23.1.0.src/llvm/include)
+            set(VORTEX_LLVM_BUILD_INCLUDE ${CMAKE_SOURCE_DIR}/.vortex-deps/llvm-build/include)
+        else()
+            set(VORTEX_LLVM_SRC_INCLUDE ${LLVM_INCLUDE_DIRS})
+            set(VORTEX_LLVM_BUILD_INCLUDE ${LLVM_INCLUDE_DIRS})
+        endif()
         add_executable(vortexcc
             src/cc/main.cpp
             src/codegen/CodeGen.cpp
@@ -421,16 +427,29 @@ if(VORTEX_WITH_LLVM)
         else()
             message(STATUS "Vortex LLD: LLD unavailable (offline or not built), falling back to g++ for linking generated exes")
         endif()
-        # 静态 LLVM 组件库存在循环依赖，用 --start-group/--end-group 包裹以整体解析
         file(GLOB VORTEX_LLVM_ARCHIVES "${CMAKE_SOURCE_DIR}/.vortex-deps/llvm-build/lib/libLLVM*.a")
-        list(PREPEND VORTEX_LLVM_ARCHIVES "-Wl,--start-group")
-        list(APPEND  VORTEX_LLVM_ARCHIVES "-Wl,--end-group")
+        if(VORTEX_LLVM_ARCHIVES)
+            # 本地静态 LLVM 组件库存在循环依赖，用 --start-group/--end-group 包裹以整体解析
+            list(PREPEND VORTEX_LLVM_ARCHIVES "-Wl,--start-group")
+            list(APPEND  VORTEX_LLVM_ARCHIVES "-Wl,--end-group")
+            set(VORTEX_LLVM_LINK_LIBS ${VORTEX_LLVM_ARCHIVES})
+        elseif(TARGET LLVM)
+            # 发行版/系统 LLVM 提供的单体重链接库（Linux/macOS CI）
+            set(VORTEX_LLVM_LINK_LIBS LLVM)
+        else()
+            set(VORTEX_LLVM_LINK_LIBS ${LLVM_AVAILABLE_LIBS})
+            list(PREPEND VORTEX_LLVM_LINK_LIBS "-Wl,--start-group")
+            list(APPEND  VORTEX_LLVM_LINK_LIBS "-Wl,--end-group")
+        endif()
         target_link_libraries(vortexcc PRIVATE
             vortex_core
             vortex_runtime
-            ${VORTEX_LLVM_ARCHIVES}
-            -lntdll -lpsapi -lshlwapi -lversion -lshell32 -lole32 -luuid -lws2_32
+            ${VORTEX_LLVM_LINK_LIBS}
         )
+        if(WIN32)
+            target_link_libraries(vortexcc PRIVATE
+                -lntdll -lpsapi -lshlwapi -lversion -lshell32 -lole32 -luuid -lws2_32)
+        endif()
         if(MINGW)
             target_link_options(vortexcc PRIVATE -static -static-libgcc -static-libstdc++)
         endif()
