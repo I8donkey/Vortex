@@ -31,6 +31,8 @@ on:
 
 env:
   VERSION: ${{ inputs.version }}
+  # 统一的 shell 表达式：Windows 用 MSYS2，其它平台用 bash
+  DEFAULT_SHELL: ${{ runner.os == 'Windows' && 'msys2 {0}' || 'bash' }}
 
 jobs:
   # ---------- 根据勾选生成构建矩阵 ----------
@@ -47,13 +49,13 @@ jobs:
           set -e
           items=()
           if [ "${{ inputs.build_linux }}" = "true" ]; then
-            items+=('{"os":"ubuntu-latest","cc":"gcc","cxx":"g++","shell":"bash","plat":"linux"}')
+            items+=('{"os":"ubuntu-latest","cc":"gcc","cxx":"g++","plat":"linux"}')
           fi
           if [ "${{ inputs.build_windows }}" = "true" ]; then
-            items+=('{"os":"windows-latest","cc":"gcc","cxx":"g++","shell":"msys2 {0}","plat":"windows"}')
+            items+=('{"os":"windows-latest","cc":"gcc","cxx":"g++","plat":"windows"}')
           fi
           if [ "${{ inputs.build_macos }}" = "true" ]; then
-            items+=('{"os":"macos-latest","cc":"clang","cxx":"clang++","shell":"bash","plat":"macos"}')
+            items+=('{"os":"macos-latest","cc":"clang","cxx":"clang++","plat":"macos"}')
           fi
 
           if [ ${#items[@]} -eq 0 ]; then
@@ -83,6 +85,7 @@ jobs:
       # ---------- 平台依赖 ----------
       - name: Install deps (Linux)
         if: runner.os == 'Linux'
+        shell: bash
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -91,11 +94,13 @@ jobs:
 
       - name: Install LLVM (Linux)
         if: runner.os == 'Linux' && inputs.with_llvm
+        shell: bash
         run: |
           sudo apt-get install -y llvm-dev libclang-dev clang
 
       - name: Install deps (macOS)
         if: runner.os == 'macOS'
+        shell: bash
         run: |
           brew install qt@6 xz sqlite
           QT_PREFIX=$(brew --prefix qt@6)
@@ -106,6 +111,7 @@ jobs:
 
       - name: Install LLVM (macOS)
         if: runner.os == 'macOS' && inputs.with_llvm
+        shell: bash
         run: |
           brew install llvm
           echo "LLVM_DIR=$(brew --prefix llvm)/lib/cmake/llvm" >> "$GITHUB_ENV"
@@ -141,7 +147,7 @@ jobs:
 
       # ---------- 配置与构建 ----------
       - name: Configure (CMake)
-        shell: ${{ matrix.shell }}
+        shell: ${{ env.DEFAULT_SHELL }}
         run: |
           cmake -S . -B build \
             -G Ninja \
@@ -154,7 +160,7 @@ jobs:
             -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH"
 
       - name: Build
-        shell: ${{ matrix.shell }}
+        shell: ${{ env.DEFAULT_SHELL }}
         run: cmake --build build --config Release --parallel
 
       # ---------- Qt 运行时部署 ----------
@@ -168,6 +174,7 @@ jobs:
 
       - name: Deploy Qt (macOS)
         if: runner.os == 'macOS'
+        shell: bash
         run: |
           for app in build/bin/*.app; do
             [ -d "$app" ] && macdeployqt "$app" -always-overwrite || true
@@ -175,7 +182,7 @@ jobs:
 
       # ---------- 收集产物 ----------
       - name: Stage binaries
-        shell: ${{ matrix.shell }}
+        shell: ${{ env.DEFAULT_SHELL }}
         run: |
           mkdir -p staged
           cp -r build/bin/* staged/ 2>/dev/null || true
@@ -184,7 +191,7 @@ jobs:
           done
 
       - name: List staged files
-        shell: ${{ matrix.shell }}
+        shell: ${{ env.DEFAULT_SHELL }}
         run: ls -la staged/
 
       - name: Upload artifact
@@ -209,6 +216,7 @@ jobs:
           merge-multiple: false
 
       - name: Build release zip per platform
+        shell: bash
         run: |
           cd dist
           for d in */; do
