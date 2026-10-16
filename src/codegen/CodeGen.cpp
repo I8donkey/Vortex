@@ -28,14 +28,26 @@
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/MC/TargetRegistry.h>
 #include <llvm/Target/TargetMachine.h>
-#include <llvm/TargetParser/Host.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/IR/LegacyPassManager.h>
-#include <llvm/TargetParser/Triple.h>
 #include <llvm/Support/CodeGen.h>
 #include <llvm/IR/DIBuilder.h>
 #include <llvm/IR/DebugInfoMetadata.h>
+#include <llvm/Config/llvm-config.h>
+
+// LLVM 大版本间的 API 差异（CI 上可能拿到 17，本地/macOS/Windows 为 23，需同时兼容）：
+//   * 17 起 Host/Triple 头文件从 llvm/Support/ 迁到 llvm/TargetParser/
+//   * 17 起 CodeGenOptLevel 取代 CodeGenOpt::Level
+//   * 18 起 CodeGenFileType 变为 enum class（成员名 ObjectFile）
+//   * 较新版本（约 22 起）lookupTarget/createTargetMachine 首参改为 const llvm::Triple&
+#if LLVM_VERSION_MAJOR >= 17
+#include <llvm/TargetParser/Host.h>
+#include <llvm/TargetParser/Triple.h>
+#else
+#include <llvm/Support/Host.h>
+#include <llvm/Support/Triple.h>
+#endif
 
 #include <cstdio>
 #include <memory>
@@ -3767,14 +3779,24 @@ std::string build_vortex_exe(const std::string& src, const BuildConfig& cfg, con
 
     std::string triple = llvm::sys::getDefaultTargetTriple();
     std::string error;
-    const llvm::Target* target = llvm::TargetRegistry::lookupTarget(triple, error);
+#if LLVM_VERSION_MAJOR >= 22
+    llvm::Triple tripleArg(triple);         // 新版本接口收 const llvm::Triple&
+#else
+    const std::string& tripleArg = triple;  // 旧版本接口收 StringRef
+#endif
+    const llvm::Target* target = llvm::TargetRegistry::lookupTarget(tripleArg, error);
     if (!target) return "[Target] " + error;
 
     auto RL = std::make_unique<llvm::TargetOptions>();
     llvm::Reloc::Model RM = llvm::Reloc::PIC_;
+#if LLVM_VERSION_MAJOR >= 17
+    llvm::CodeGenOptLevel optLevel = llvm::CodeGenOptLevel::Default;
+#else
+    llvm::CodeGenOpt::Level optLevel = llvm::CodeGenOpt::Default;
+#endif
     std::unique_ptr<llvm::TargetMachine> tm(
-        target->createTargetMachine(triple, "generic", "", *RL, RM,
-                                    std::nullopt, llvm::CodeGenOptLevel::Default));
+        target->createTargetMachine(tripleArg, "generic", "", *RL, RM,
+                                    std::nullopt, optLevel));
     mod->setDataLayout(tm->createDataLayout());
 
     // 目标文件
@@ -3785,7 +3807,12 @@ std::string build_vortex_exe(const std::string& src, const BuildConfig& cfg, con
 
     {
         llvm::legacy::PassManager pass;
-        bool fail = tm->addPassesToEmitFile(pass, out, nullptr, llvm::CodeGenFileType::ObjectFile);
+#if LLVM_VERSION_MAJOR >= 18
+        llvm::CodeGenFileType fileType = llvm::CodeGenFileType::ObjectFile;
+#else
+        llvm::CodeGenFileType fileType = llvm::CGFT_ObjectFile;
+#endif
+        bool fail = tm->addPassesToEmitFile(pass, out, nullptr, fileType);
         if (fail) return "[Object] addPassesToEmitFile failed";
         pass.run(*mod);
     }
