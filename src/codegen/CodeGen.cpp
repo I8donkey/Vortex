@@ -3767,14 +3767,13 @@ std::string build_vortex_exe(const std::string& src, const BuildConfig& cfg, con
 
     std::string triple = llvm::sys::getDefaultTargetTriple();
     std::string error;
-    const llvm::Target* target = llvm::TargetRegistry::lookupTarget(llvm::Triple(triple), error);
+    const llvm::Target* target = llvm::TargetRegistry::lookupTarget(triple, error);
     if (!target) return "[Target] " + error;
 
     auto RL = std::make_unique<llvm::TargetOptions>();
     llvm::Reloc::Model RM = llvm::Reloc::PIC_;
-    llvm::Triple tripleObj(triple);
     std::unique_ptr<llvm::TargetMachine> tm(
-        target->createTargetMachine(tripleObj, "generic", "", *RL, RM,
+        target->createTargetMachine(triple, "generic", "", *RL, RM,
                                     std::nullopt, llvm::CodeGenOptLevel::Default));
     mod->setDataLayout(tm->createDataLayout());
 
