@@ -8,36 +8,73 @@ on:
         required: true
         default: v0.1.0
         type: string
+      build_linux:
+        description: 'Build for Linux'
+        required: false
+        default: true
+        type: boolean
+      build_windows:
+        description: 'Build for Windows'
+        required: false
+        default: true
+        type: boolean
+      build_macos:
+        description: 'Build for macOS'
+        required: false
+        default: true
+        type: boolean
       with_llvm:
         description: 'Also build vortexcc (requires LLVM on the runner)'
         required: false
         default: false
         type: boolean
 
-# 统一版本号
 env:
   VERSION: ${{ inputs.version }}
 
 jobs:
+  # ---------- 根据勾选生成构建矩阵 ----------
+  prepare:
+    name: Prepare matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+      any:    ${{ steps.gen.outputs.any }}
+    steps:
+      - id: gen
+        shell: bash
+        run: |
+          set -e
+          items=()
+          if [ "${{ inputs.build_linux }}" = "true" ]; then
+            items+=('{"os":"ubuntu-latest","cc":"gcc","cxx":"g++","shell":"bash","plat":"linux"}')
+          fi
+          if [ "${{ inputs.build_windows }}" = "true" ]; then
+            items+=('{"os":"windows-latest","cc":"gcc","cxx":"g++","shell":"msys2 {0}","plat":"windows"}')
+          fi
+          if [ "${{ inputs.build_macos }}" = "true" ]; then
+            items+=('{"os":"macos-latest","cc":"clang","cxx":"clang++","shell":"bash","plat":"macos"}')
+          fi
+
+          if [ ${#items[@]} -eq 0 ]; then
+            echo "any=false" >> "$GITHUB_OUTPUT"
+            echo "matrix={\"include\":[]}" >> "$GITHUB_OUTPUT"
+            echo "::warning::No platform selected, nothing will be built."
+          else
+            joined=$(IFS=,; echo "${items[*]}")
+            echo "any=true" >> "$GITHUB_OUTPUT"
+            echo "matrix={\"include\":[${joined}]}" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ---------- 构建 ----------
   build:
     name: Build on ${{ matrix.os }}
+    needs: prepare
+    if: needs.prepare.outputs.any == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            cc: gcc
-            cxx: g++
-            shell: bash
-          - os: windows-latest
-            cc: gcc
-            cxx: g++
-            shell: msys2 {0}
-          - os: macos-latest
-            cc: clang
-            cxx: clang++
-            shell: bash
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
 
     steps:
       - name: Checkout
@@ -49,8 +86,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            qt6-base-dev liblzma-dev libsqlite3-dev zlib1g-dev libgl1-mesa-dev \
-            libx11-dev libxkbcommon-dev libglu1-mesa-dev
+            qt6-base-dev qt6-base-dev-tools liblzma-dev libsqlite3-dev \
+            zlib1g-dev libgl1-mesa-dev libx11-dev libxkbcommon-dev libglu1-mesa-dev
+
+      - name: Install LLVM (Linux)
+        if: runner.os == 'Linux' && inputs.with_llvm
+        run: |
+          sudo apt-get install -y llvm-dev libclang-dev clang
 
       - name: Install deps (macOS)
         if: runner.os == 'macOS'
@@ -60,6 +102,14 @@ jobs:
           XZ_PREFIX=$(brew --prefix xz)
           SQLITE_PREFIX=$(brew --prefix sqlite)
           echo "CMAKE_PREFIX_PATH=$QT_PREFIX:$XZ_PREFIX:$SQLITE_PREFIX" >> "$GITHUB_ENV"
+          echo "QT_PREFIX=$QT_PREFIX" >> "$GITHUB_ENV"
+
+      - name: Install LLVM (macOS)
+        if: runner.os == 'macOS' && inputs.with_llvm
+        run: |
+          brew install llvm
+          echo "LLVM_DIR=$(brew --prefix llvm)/lib/cmake/llvm" >> "$GITHUB_ENV"
+          echo "Clang_DIR=$(brew --prefix llvm)/lib/cmake/clang" >> "$GITHUB_ENV"
 
       - name: Install deps (Windows, MSYS2/MinGW)
         if: runner.os == 'Windows'
@@ -69,10 +119,20 @@ jobs:
           update: true
           install: >-
             mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
             mingw-w64-x86_64-qt6-base
+            mingw-w64-x86_64-qt6-base-tools
             mingw-w64-x86_64-xz
             mingw-w64-x86_64-sqlite3
             mingw-w64-x86_64-zlib
+            zip
+
+      - name: Install LLVM (Windows)
+        if: runner.os == 'Windows' && inputs.with_llvm
+        shell: msys2 {0}
+        run: |
+          pacman -S --noconfirm --needed mingw-w64-x86_64-llvm
 
       - name: Set CMAKE_PREFIX_PATH (Windows)
         if: runner.os == 'Windows'
@@ -84,6 +144,7 @@ jobs:
         shell: ${{ matrix.shell }}
         run: |
           cmake -S . -B build \
+            -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DVORTEX_USE_CPM=OFF \
             -DVORTEX_WITH_LLVM=${{ inputs.with_llvm }} \
@@ -96,21 +157,31 @@ jobs:
         shell: ${{ matrix.shell }}
         run: cmake --build build --config Release --parallel
 
-      # ---------- 收集产物 ----------
-      - name: Stage binaries (Linux/macOS)
-        if: runner.os != 'Windows'
-        run: |
-          mkdir -p staged
-          cp build/bin/* staged/ 2>/dev/null || true
-          cp README.md README_zh.md USAGE.md USAGE_zh.md staged/ 2>/dev/null || true
-
-      - name: Stage binaries (Windows)
+      # ---------- Qt 运行时部署 ----------
+      - name: Deploy Qt (Windows)
         if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          for exe in build/bin/*.exe; do
+            [ -f "$exe" ] && windeployqt --release --no-translations --no-compiler-runtime "$exe" || true
+          done
+
+      - name: Deploy Qt (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          for app in build/bin/*.app; do
+            [ -d "$app" ] && macdeployqt "$app" -always-overwrite || true
+          done
+
+      # ---------- 收集产物 ----------
+      - name: Stage binaries
         shell: ${{ matrix.shell }}
         run: |
           mkdir -p staged
-          cp build/bin/* staged/ 2>/dev/null || true
-          cp README.md README_zh.md USAGE.md USAGE_zh.md staged/ 2>/dev/null || true
+          cp -r build/bin/* staged/ 2>/dev/null || true
+          for f in README.md README_zh.md USAGE.md USAGE_zh.md; do
+            [ -f "$f" ] && cp "$f" staged/ || true
+          done
 
       - name: List staged files
         shell: ${{ matrix.shell }}
@@ -119,14 +190,17 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vortex-${{ matrix.os }}
+          name: vortex-${{ matrix.plat }}
           path: staged/
 
+  # ---------- 发布 ----------
   release:
     name: Create GitHub Release
-    needs: build
+    needs: [prepare, build]
     runs-on: ubuntu-latest
-    if: always() && needs.build.result == 'success'
+    if: needs.prepare.outputs.any == 'true' && needs.build.result == 'success'
+    permissions:
+      contents: write
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -139,7 +213,7 @@ jobs:
           cd dist
           for d in */; do
             plat="${d%/}"
-            zip -r "${plat}.zip" "$d"
+            (cd "$d" && zip -r "../${plat}.zip" .)
           done
           ls -la
 
