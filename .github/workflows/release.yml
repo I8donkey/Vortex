@@ -100,8 +100,11 @@ jobs:
         run: echo "CMAKE_PREFIX_PATH=/mingw64" >> "$GITHUB_ENV"
 
       # ---------- 配置与构建 ----------
-      - name: Configure (CMake)
-        shell: ${{ matrix.shell }}
+      # 注意：shell 关键字不支持 matrix 上下文（校验会报 Unrecognized named-value: 'matrix'），
+      # 故按 OS 拆分步骤并写死 shell。
+      - name: Configure (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
         run: |
           cmake -S . -B build \
             -G "${{ matrix.generator }}" \
@@ -113,29 +116,48 @@ jobs:
             -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
             -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH"
 
-      - name: Build
-        shell: ${{ matrix.shell }}
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          cmake -S . -B build \
+            -G "${{ matrix.generator }}" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVORTEX_USE_CPM=OFF \
+            -DVORTEX_WITH_LLVM=${{ inputs.with_llvm }} \
+            -DVORTEX_BUILD_EDITOR=ON \
+            -DCMAKE_C_COMPILER=${{ matrix.cc }} \
+            -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
+            -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH"
+
+      - name: Build (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: cmake --build build --config Release --parallel
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
         run: cmake --build build --config Release --parallel
 
       # ---------- 收集产物 ----------
       - name: Stage binaries (Linux/macOS)
         if: runner.os != 'Windows'
+        shell: bash
         run: |
           mkdir -p staged
           cp build/bin/* staged/ 2>/dev/null || true
           cp README.md README_zh.md USAGE.md USAGE_zh.md staged/ 2>/dev/null || true
+          ls -la staged/
 
       - name: Stage binaries (Windows)
         if: runner.os == 'Windows'
-        shell: ${{ matrix.shell }}
+        shell: msys2 {0}
         run: |
           mkdir -p staged
           cp build/bin/* staged/ 2>/dev/null || true
           cp README.md README_zh.md USAGE.md USAGE_zh.md staged/ 2>/dev/null || true
-
-      - name: List staged files
-        shell: ${{ matrix.shell }}
-        run: ls -la staged/
+          ls -la staged/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
