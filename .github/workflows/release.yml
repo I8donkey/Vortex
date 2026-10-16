@@ -31,8 +31,6 @@ on:
 
 env:
   VERSION: ${{ inputs.version }}
-  # 统一的 shell 表达式：Windows 用 MSYS2，其它平台用 bash
-  DEFAULT_SHELL: ${{ runner.os == 'Windows' && 'msys2 {0}' || 'bash' }}
 
 jobs:
   # ---------- 根据勾选生成构建矩阵 ----------
@@ -145,9 +143,10 @@ jobs:
         shell: msys2 {0}
         run: echo "CMAKE_PREFIX_PATH=/mingw64" >> "$GITHUB_ENV"
 
-      # ---------- 配置与构建 ----------
-      - name: Configure (CMake)
-        shell: ${{ env.DEFAULT_SHELL }}
+      # ---------- 配置 (Unix) ----------
+      - name: Configure (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
         run: |
           cmake -S . -B build \
             -G Ninja \
@@ -159,8 +158,31 @@ jobs:
             -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
             -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH"
 
-      - name: Build
-        shell: ${{ env.DEFAULT_SHELL }}
+      # ---------- 配置 (Windows) ----------
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          cmake -S . -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVORTEX_USE_CPM=OFF \
+            -DVORTEX_WITH_LLVM=${{ inputs.with_llvm }} \
+            -DVORTEX_BUILD_EDITOR=ON \
+            -DCMAKE_C_COMPILER=${{ matrix.cc }} \
+            -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
+            -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH"
+
+      # ---------- 构建 (Unix) ----------
+      - name: Build (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: cmake --build build --config Release --parallel
+
+      # ---------- 构建 (Windows) ----------
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
         run: cmake --build build --config Release --parallel
 
       # ---------- Qt 运行时部署 ----------
@@ -180,9 +202,10 @@ jobs:
             [ -d "$app" ] && macdeployqt "$app" -always-overwrite || true
           done
 
-      # ---------- 收集产物 ----------
-      - name: Stage binaries
-        shell: ${{ env.DEFAULT_SHELL }}
+      # ---------- 收集产物 (Unix) ----------
+      - name: Stage binaries (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
         run: |
           mkdir -p staged
           cp -r build/bin/* staged/ 2>/dev/null || true
@@ -190,8 +213,27 @@ jobs:
             [ -f "$f" ] && cp "$f" staged/ || true
           done
 
-      - name: List staged files
-        shell: ${{ env.DEFAULT_SHELL }}
+      # ---------- 收集产物 (Windows) ----------
+      - name: Stage binaries (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          mkdir -p staged
+          cp -r build/bin/* staged/ 2>/dev/null || true
+          for f in README.md README_zh.md USAGE.md USAGE_zh.md; do
+            [ -f "$f" ] && cp "$f" staged/ || true
+          done
+
+      # ---------- 列出产物 (Unix) ----------
+      - name: List staged files (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: ls -la staged/
+
+      # ---------- 列出产物 (Windows) ----------
+      - name: List staged files (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
         run: ls -la staged/
 
       - name: Upload artifact
