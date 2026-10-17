@@ -195,6 +195,9 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: ${{ inputs.create_release && needs.build.result == 'success' }}
+    # 创建 Release 需要写权限；默认 GITHUB_TOKEN 只有只读权限
+    permissions:
+      contents: write
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
