@@ -13,34 +13,59 @@ on:
         required: false
         default: false
         type: boolean
+      build_linux:
+        description: 'Build for Linux'
+        required: false
+        default: true
+        type: boolean
+      build_macos:
+        description: 'Build for macOS'
+        required: false
+        default: true
+        type: boolean
+      build_windows:
+        description: 'Build for Windows'
+        required: false
+        default: true
+        type: boolean
+      create_release:
+        description: 'Create a draft GitHub Release from the build artifacts'
+        required: false
+        default: false
+        type: boolean
 
 # 统一版本号
 env:
   VERSION: ${{ inputs.version }}
 
 jobs:
+  # 按输入决定实际构建哪些平台，输出矩阵 JSON 供 build job 使用（被关掉的平台不占 runner）
+  prepare:
+    name: Prepare build matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.build-matrix.outputs.matrix }}
+    steps:
+      - name: Build matrix JSON
+        id: build-matrix
+        shell: bash
+        run: |
+          ALL='[
+            {"os":"ubuntu-latest","cc":"gcc","cxx":"g++","shell":"bash","generator":"Unix Makefiles","enabled":"${{ inputs.build_linux }}"},
+            {"os":"windows-latest","cc":"gcc","cxx":"g++","shell":"msys2 {0}","generator":"Ninja","enabled":"${{ inputs.build_windows }}"},
+            {"os":"macos-latest","cc":"clang","cxx":"clang++","shell":"bash","generator":"Unix Makefiles","enabled":"${{ inputs.build_macos }}"}
+          ]'
+          MATRIX=$(echo "$ALL" | python3 -c 'import json,sys;d=json.load(sys.stdin);print(json.dumps({"include":[{k:v for k,v in e.items() if k!="enabled"} for e in d if e["enabled"]=="true"]}))')
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "selected matrix: $MATRIX"
+
   build:
     name: Build on ${{ matrix.os }}
+    needs: prepare
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            cc: gcc
-            cxx: g++
-            shell: bash
-            generator: Unix Makefiles
-          - os: windows-latest
-            cc: gcc
-            cxx: g++
-            shell: msys2 {0}
-            generator: Ninja
-          - os: macos-latest
-            cc: clang
-            cxx: clang++
-            shell: bash
-            generator: Unix Makefiles
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
 
     steps:
       - name: Checkout
@@ -169,7 +194,7 @@ jobs:
     name: Create GitHub Release
     needs: build
     runs-on: ubuntu-latest
-    if: always() && needs.build.result == 'success'
+    if: ${{ inputs.create_release && needs.build.result == 'success' }}
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
