@@ -157,6 +157,23 @@ long long vor_tuple_at(const VTuple* t, long long idx);
 int  vor_tuple_len(const VTuple* t);
 void vor_print_tuple(const VTuple* t);
 
+// ========== class / 实例（单继承，字段按名索引）==========
+// 实例是运行时堆对象：字段按名字索引存放 64 位盒（标量直存 / 字符串存指针位）。
+// 单继承由 VClass 的 base 指针表达（无 super）；字段默认值沿父链由根到子置 0。
+typedef struct VClass VClass;
+typedef struct VObj VObj;
+
+// 新建 class：name=类名，base=父类（NULL=无父类）
+VClass* vor_class_new(const char* name, VClass* base);
+// 登记一个自有字段名（继承字段由父链收集，无需重复登记）
+void    vor_class_add_field(VClass* c, const char* name);
+// 构造实例：沿父链由根到子收集全部字段并置默认值 0
+VObj*   vor_obj_new(VClass* cls);
+// 读字段（未命中返回 0）
+long long vor_obj_get(VObj* o, const char* name);
+// 写字段（不存在则按名追加）
+void    vor_obj_set(VObj* o, const char* name, long long v);
+
 // ========== 引用计数 ==========
 void vor_obj_retain(void* obj);   // hdr 必须在对象首部
 void vor_obj_release(void* obj);

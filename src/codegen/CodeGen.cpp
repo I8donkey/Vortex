@@ -70,13 +70,14 @@ static bool block_has_term(llvm::BasicBlock* bb) {
 }
 
 // ==================== 静态类型 ====================
-enum class VType { Int, Float, Bool, Str, List, StrList, StrListList, Dict, Set, Pair, Tuple, Ref, Closure, Void };
+enum class VType { Int, Float, Bool, Str, List, StrList, StrListList, Dict, Set, Pair, Tuple, Object, Ref, Closure, Void };
 
 struct LVal {
     VType type;
     llvm::Value* val = nullptr;     // 值 (标量) 或指针 (Str)
     llvm::Value* slot = nullptr;    // 变量槽（alloca 或模块全局，用于读写）
     VType ref_pointee = VType::Void;  // type==Ref 时的被引用变量类型（Void 表未知/非引用）
+    std::string obj_class;          // type==Object 时的静态类名（供字段/方法静态解析）
 };
 
 // ==================== 代码生成器 ====================
@@ -113,6 +114,38 @@ private:
     int lam_seq_ = 0;
     // 内建函数表
     std::unordered_map<std::string, std::pair<VType, Builtin>> fns_;
+
+    // ---- class 声明（单继承；运行时装箱 + 静态方法解析）----
+    // 类表：类名 -> 父类 / 自有字段 / 方法（方法声明在 Program 内保活）
+    struct ClassInfo {
+        std::string name;
+        std::string parent;                                       // 空 = 无父类
+        std::vector<std::pair<std::string, std::string>> fields;  // (类型, 字段名)，仅自有
+        std::vector<const FunctionDefStmt*> methods;
+    };
+    std::unordered_map<std::string, ClassInfo> classes_;
+    // 预处理：扫描顶层 class 声明，构建 classes_
+    void collect_classes();
+    const ClassInfo* find_class(const std::string& n) const;
+    // 沿父链查找方法（子类优先）；owner 回传定义所在类名
+    const FunctionDefStmt* find_method(const std::string& cls, const std::string& name,
+                                       std::string* owner = nullptr) const;
+    // 取/建某 class 的运行时类对象全局 g_cls_<name>
+    llvm::GlobalVariable* class_global(const std::string& name);
+    // 常量 C 字符串（字段名/方法名/类名用）
+    llvm::Value* cstr(const std::string& s);
+    // 生成一个 class：运行时登记（类/父类/自有字段）+ 生成各方法函数
+    void gen_class(const ClassDeclStmt* cd);
+    // 生成一个方法函数：签名 (self, 形参...) → 推断返回类型
+    void gen_method_fn(const std::string& cls, const FunctionDefStmt* fd);
+    // 构造实例：vor_obj_new + 沿父链调用 init
+    LVal gen_construct(const std::string& cls, const CallExpr* c);
+    // 实例方法调用：静态解析目标 + 直接调用（自动前置 self）
+    LVal gen_method_call(const LVal& obj, const std::string& name, const CallExpr* c);
+    // 实例字段读取
+    LVal gen_obj_field_read(const LVal& obj, const std::string& member);
+    // 把实参规整为目标形参类型
+    llvm::Value* coerce_arg(LVal v, VType target);
 
     // ---- 调试信息（P3，DIBuilder 发射 DWARF） ----
     llvm::DIBuilder* DB = nullptr;
@@ -184,6 +217,7 @@ llvm::Type* Gen::llvm_type(VType t) const {
         case VType::Set:   return B->getPtrTy();          // VList* (集合复用)
         case VType::Pair:  return B->getPtrTy();          // VPair*
         case VType::Tuple: return B->getPtrTy();          // VTuple*
+        case VType::Object:return B->getPtrTy();          // VObj*（class 实例）
         case VType::Closure: return B->getPtrTy();        // RT_Closure*
         case VType::Void:  return B->getVoidTy();
     }
@@ -329,7 +363,7 @@ LVal Gen::gen_expr(const Expr* e) {
                                          vortex::suggest::did_you_mean(iname, ident_candidates()));
             }
             // 有 alloca 槽则每次重新 load，保证读到最新值
-            if (v.slot) return {v.type, B->CreateLoad(llvm_type(v.type), v.slot)};
+            if (v.slot) return {v.type, B->CreateLoad(llvm_type(v.type), v.slot), nullptr, VType::Void, v.obj_class};
             return v;
         }
         case ExprKind::Cast: {
@@ -404,6 +438,20 @@ LVal Gen::gen_expr(const Expr* e) {
         }
         case ExprKind::AssignOp: {
             auto* a = static_cast<const AssignOpExpr*>(e);
+            // 实例字段赋值 p.x = v
+            if (a->target->kind == ExprKind::MemberAccess && a->op == "=") {
+                auto* m = static_cast<const MemberAccessExpr*>(a->target.get());
+                LVal obj = gen_expr(m->object.get());
+                if (obj.type == VType::Object) {
+                    LVal v = gen_expr(a->value.get());
+                    llvm::Value* iv = (v.type == VType::Float)
+                                          ? B->CreateFPToSI(v.val, B->getInt64Ty(), "f2i") : v.val;
+                    llvm::Function* setFn = llvm::cast<llvm::Function>(declare_runtime(
+                        "vor_obj_set", B->getVoidTy(), {B->getPtrTy(), B->getPtrTy(), B->getInt64Ty()}));
+                    B->CreateCall(setFn, {obj.val, cstr(m->member), iv});
+                    return v;
+                }
+            }
             // dict 下标赋值 d[k] = v
             if (a->target->kind == ExprKind::Subscript && a->op == "=") {
                 auto* sub = static_cast<const SubscriptExpr*>(a->target.get());
@@ -718,6 +766,8 @@ LVal Gen::gen_expr(const Expr* e) {
             // pair.first / pair.second（作为值表达式，非调用）
             auto* m = static_cast<const MemberAccessExpr*>(e);
             LVal obj = gen_expr(m->object.get());
+            // class 实例：字段按名读取
+            if (obj.type == VType::Object) return gen_obj_field_read(obj, m->member);
             if (obj.type == VType::Pair && m->member == "first") {
                 llvm::Value* fn = decl_vor("vor_pair_first", VType::Int, {VType::Pair});
                 return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {obj.val})};
@@ -906,6 +956,23 @@ LVal Gen::gen_binop(const BinaryOpExpr* b) {
 
 // ---------- 函数调用 ----------
 LVal Gen::gen_call(const CallExpr* c) {
+    // class 构造：Point(...) / Point3(...)
+    if (c->callee->kind == ExprKind::Identifier) {
+        const std::string& cn = static_cast<const IdentifierExpr*>(c->callee.get())->name;
+        if (classes_.count(cn)) return gen_construct(cn, c);
+    }
+    // 实例方法调用：obj.method(...)（仅当接收者是已声明的实例变量，避免误伤模块调用）
+    if (c->callee->kind == ExprKind::MemberAccess) {
+        auto* mm = static_cast<const MemberAccessExpr*>(c->callee.get());
+        if (mm->object->kind == ExprKind::Identifier) {
+            const std::string& rn = static_cast<const IdentifierExpr*>(mm->object.get())->name;
+            LVal probe;
+            if (lookup_var(rn, probe) && probe.type == VType::Object) {
+                LVal recv = gen_expr(mm->object.get());
+                if (recv.type == VType::Object) return gen_method_call(recv, mm->member, c);
+            }
+        }
+    }
     // 成员访问：math.pow 等
     std::string fname;
     if (c->callee->kind == ExprKind::Identifier) {
@@ -3261,15 +3328,17 @@ void Gen::gen_stmt(const Stmt* s) {
                 else if (vd->type->base_name == "set") t = VType::Set;
                 else if (vd->type->base_name == "pair") t = VType::Pair;
                 else if (vd->type->base_name == "tuple") t = VType::Tuple;
+                else if (classes_.count(vd->type->base_name)) t = VType::Object;   // 用户 class
                 else t = VType::Int;
             }
             for (auto& [nm, init] : vd->names) {
                 LVal sv = init ? gen_expr(init.get()) : LVal{t, llvm::Constant::getNullValue(llvm_type(t)), nullptr};
-                // 动态绑定：容器/字符串按初值实际类型（list 声明等）
+                // 动态绑定：容器/字符串/实例按初值实际类型（list 声明等）
                 VType tEff = t;
                 if (init && (sv.type == VType::List || sv.type == VType::Str || sv.type == VType::Dict
                              || sv.type == VType::StrList || sv.type == VType::Set || sv.type == VType::Pair
-                             || sv.type == VType::Tuple || sv.type == VType::Closure)) tEff = sv.type;
+                             || sv.type == VType::Tuple || sv.type == VType::Closure
+                             || sv.type == VType::Object)) tEff = sv.type;
                 llvm::Value* store = sv.val;
                 if (tEff == VType::Bool && sv.type != VType::Bool) store = B->CreateICmpNE(sv.val, B->getInt64(0));
                 llvm::Value* slot = nullptr;
@@ -3286,8 +3355,15 @@ void Gen::gen_stmt(const Stmt* s) {
                     if (debug_on()) dbg_declare(nm, tEff, slot);
                 }
                 // 记录槽 + 类型；标识符访问时按需重新 load
-                scopes_.back()[nm] = LVal{tEff, B->CreateLoad(llvm_type(tEff), slot), slot};
+                std::string oc;
+                if (tEff == VType::Object)
+                    oc = (init && !sv.obj_class.empty()) ? sv.obj_class : vd->type->base_name;
+                scopes_.back()[nm] = LVal{tEff, B->CreateLoad(llvm_type(tEff), slot), slot, VType::Void, oc};
             }
+            break;
+        }
+        case StmtKind::ClassDecl: {
+            gen_class(static_cast<const ClassDeclStmt*>(s));
             break;
         }
         case StmtKind::ExprStmt: {
@@ -3669,6 +3745,203 @@ void Gen::gen_stmt(const Stmt* s) {
     }
 }
 
+// ==================== class / 实例（运行时装箱） ====================
+void Gen::collect_classes() {
+    for (auto& st : prog_.stmts) {
+        if (st->kind != StmtKind::ClassDecl) continue;
+        auto* cd = static_cast<const ClassDeclStmt*>(st.get());
+        ClassInfo ci;
+        ci.name = cd->name;
+        ci.parent = cd->parent;
+        for (auto& f : cd->fields) ci.fields.emplace_back(f.type, f.name);
+        for (auto& m : cd->methods) ci.methods.push_back(m.get());
+        classes_[cd->name] = std::move(ci);
+    }
+}
+
+const Gen::ClassInfo* Gen::find_class(const std::string& n) const {
+    auto it = classes_.find(n);
+    return it == classes_.end() ? nullptr : &it->second;
+}
+
+// 沿父链查找方法（子类优先）；owner 回传定义所在类名
+const FunctionDefStmt* Gen::find_method(const std::string& cls, const std::string& name,
+                                        std::string* owner) const {
+    const ClassInfo* ci = find_class(cls);
+    while (ci) {
+        for (auto* m : ci->methods)
+            if (m->name == name) { if (owner) *owner = ci->name; return m; }
+        ci = ci->parent.empty() ? nullptr : find_class(ci->parent);
+    }
+    return nullptr;
+}
+
+llvm::GlobalVariable* Gen::class_global(const std::string& name) {
+    const std::string gname = "g_cls_" + name;
+    if (llvm::GlobalVariable* gv = mod_->getGlobalVariable(gname)) return gv;
+    return new llvm::GlobalVariable(*mod_, B->getPtrTy(), false,
+                                    llvm::GlobalValue::InternalLinkage,
+                                    llvm::Constant::getNullValue(B->getPtrTy()), gname);
+}
+
+llvm::Value* Gen::cstr(const std::string& s) { return B->CreateGlobalString(s, "cstr"); }
+
+llvm::Value* Gen::coerce_arg(LVal v, VType target) {
+    if (target == VType::Float && v.type != VType::Float)
+        return B->CreateSIToFP(v.val, B->getDoubleTy(), "a.f");
+    if (target == VType::Bool && v.type != VType::Bool)
+        return B->CreateICmpNE(v.val, B->getInt64(0), "a.b");
+    return v.val;   // int / 指针同宽
+}
+
+void Gen::gen_class(const ClassDeclStmt* cd) {
+    llvm::GlobalVariable* gv = class_global(cd->name);
+    llvm::Value* basePtr = llvm::Constant::getNullValue(B->getPtrTy());
+    if (!cd->parent.empty()) {
+        if (!classes_.count(cd->parent))
+            throw std::runtime_error("unknown parent class '" + cd->parent +
+                                     "' (in class " + cd->name + ")");
+        basePtr = B->CreateLoad(B->getPtrTy(), class_global(cd->parent), "base");
+    }
+    llvm::Function* newFn = llvm::cast<llvm::Function>(declare_runtime(
+        "vor_class_new", B->getPtrTy(), {B->getPtrTy(), B->getPtrTy()}));
+    llvm::Value* cls = B->CreateCall(newFn, {cstr(cd->name), basePtr}, "cls");
+    B->CreateStore(cls, gv);
+    llvm::Function* addFn = llvm::cast<llvm::Function>(declare_runtime(
+        "vor_class_add_field", B->getVoidTy(), {B->getPtrTy(), B->getPtrTy()}));
+    for (auto& f : cd->fields) B->CreateCall(addFn, {cls, cstr(f.name)});
+    for (auto& m : cd->methods) gen_method_fn(cd->name, m.get());
+}
+
+// 方法：签名 (self, 形参...)；self 为 Object，其余形参按声明类型
+void Gen::gen_method_fn(const std::string& cls, const FunctionDefStmt* fd) {
+    const std::string mname = cls + "." + fd->name;
+    if (mod_->getFunction(mname)) return;
+    auto pv = [](const auto& p) -> VType {
+        if (!p || !p->type) return VType::Int;
+        const std::string& b = p->type->base_name;
+        if (b == "float" || b == "double") return VType::Float;
+        if (b == "bool") return VType::Bool;
+        if (b == "str" || b == "string") return VType::Str;
+        return VType::Int;
+    };
+    std::vector<llvm::Type*> params{B->getPtrTy()};   // self
+    std::vector<VType> ptypes;
+    for (size_t i = 1; i < fd->params.size(); ++i) {
+        VType t = pv(fd->params[i]);
+        params.push_back(llvm_type(t));
+        ptypes.push_back(t);
+    }
+    // 推断返回类型：临时作用域放入 self 与形参
+    scopes_.emplace_back();
+    scopes_.back()["self"] = LVal{VType::Object, nullptr, nullptr, VType::Void, cls};
+    for (size_t i = 0; i < ptypes.size(); ++i)
+        scopes_.back()[fd->params[i + 1]->name] = LVal{ptypes[i], nullptr};
+    VType rt = infer_fn_ret(fd);
+    scopes_.pop_back();
+    fn_ret_map_[mname] = rt;
+
+    llvm::FunctionType* FT = llvm::FunctionType::get(llvm_type(rt), params, false);
+    llvm::Function* fn = llvm::Function::Create(FT, llvm::Function::ExternalLinkage, mname, mod_);
+    llvm::Function* saved = cur_fn_;
+    cur_fn_ = fn;
+    llvm::IRBuilderBase::InsertPointGuard guard(*B);
+    llvm::BasicBlock* entry = llvm::BasicBlock::Create(B->getContext(), "entry", fn);
+    B->SetInsertPoint(entry);
+    llvm::DISubprogram* saved_sp = cur_sp_;
+    unsigned saved_dbg_line = dbg_line_;
+    if (debug_on()) dbg_begin_func(fn, mname.c_str());
+    scopes_.emplace_back();
+    bool saved_toplevel = top_level_;
+    top_level_ = false;
+    fn->arg_begin()->setName("self");
+    scopes_.back()["self"] = LVal{VType::Object, fn->getArg(0), nullptr, VType::Void, cls};
+    for (size_t i = 0; i < ptypes.size(); ++i) {
+        const std::string& pn = fd->params[i + 1]->name;
+        llvm::Argument* arg = fn->arg_begin() + (unsigned)i + 1;
+        arg->setName(pn);
+        llvm::AllocaInst* a = make_alloca(ptypes[i], fn, pn.c_str());
+        B->CreateStore(arg, a);
+        scopes_.back()[pn] = LVal{ptypes[i], B->CreateLoad(llvm_type(ptypes[i]), a)};
+        if (debug_on()) dbg_declare(pn, ptypes[i], a);
+    }
+    for (auto& st : fd->body->stmts) {
+        if (block_has_term(B->GetInsertBlock())) break;
+        gen_stmt(st.get());
+    }
+    if (!block_has_term(B->GetInsertBlock()))
+        B->CreateRet(llvm::Constant::getNullValue(llvm_type(rt)));
+    scopes_.pop_back();
+    cur_sp_ = saved_sp;
+    dbg_line_ = saved_dbg_line;
+    top_level_ = saved_toplevel;
+    cur_fn_ = saved;
+    fn_ret_ = rt;
+}
+
+LVal Gen::gen_construct(const std::string& cls, const CallExpr* c) {
+    if (!classes_.count(cls)) throw std::runtime_error("unknown class '" + cls + "'");
+    auto pv = [](const auto& p) -> VType {
+        if (!p || !p->type) return VType::Int;
+        const std::string& b = p->type->base_name;
+        if (b == "float" || b == "double") return VType::Float;
+        if (b == "bool") return VType::Bool;
+        if (b == "str" || b == "string") return VType::Str;
+        return VType::Int;
+    };
+    llvm::Value* clsPtr = B->CreateLoad(B->getPtrTy(), class_global(cls), "cls");
+    llvm::Function* newFn = llvm::cast<llvm::Function>(declare_runtime(
+        "vor_obj_new", B->getPtrTy(), {B->getPtrTy()}));
+    llvm::Value* obj = B->CreateCall(newFn, {clsPtr}, "obj");
+    // init：沿父链解析（子类优先）
+    std::string owner;
+    const FunctionDefStmt* init = find_method(cls, "init", &owner);
+    if (init) {
+        llvm::Function* fn = mod_->getFunction(owner + ".init");
+        if (!fn) throw std::runtime_error("method '" + owner + ".init' not generated");
+        std::vector<llvm::Value*> args{obj};
+        for (size_t i = 0; i < c->args.size(); ++i) {
+            LVal a = gen_expr(c->args[i].get());
+            VType want = (i + 1 < init->params.size()) ? pv(init->params[i + 1]) : VType::Int;
+            args.push_back(coerce_arg(a, want));
+        }
+        B->CreateCall(fn, args);
+    }
+    return LVal{VType::Object, obj, nullptr, VType::Void, cls};
+}
+
+LVal Gen::gen_method_call(const LVal& obj, const std::string& name, const CallExpr* c) {
+    auto pv = [](const auto& p) -> VType {
+        if (!p || !p->type) return VType::Int;
+        const std::string& b = p->type->base_name;
+        if (b == "float" || b == "double") return VType::Float;
+        if (b == "bool") return VType::Bool;
+        if (b == "str" || b == "string") return VType::Str;
+        return VType::Int;
+    };
+    std::string owner;
+    const FunctionDefStmt* fd = find_method(obj.obj_class, name, &owner);
+    if (!fd)
+        throw std::runtime_error("class '" + obj.obj_class + "' has no method '" + name + "'");
+    const std::string mname = owner + "." + name;
+    llvm::Function* fn = mod_->getFunction(mname);
+    if (!fn) throw std::runtime_error("method '" + mname + "' not generated");
+    std::vector<llvm::Value*> args{obj.val};
+    for (size_t i = 0; i < c->args.size(); ++i) {
+        LVal a = gen_expr(c->args[i].get());
+        VType want = (i + 1 < fd->params.size()) ? pv(fd->params[i + 1]) : VType::Int;
+        args.push_back(coerce_arg(a, want));
+    }
+    VType rt = fn_ret_map_.count(mname) ? fn_ret_map_[mname] : VType::Int;
+    return {rt, B->CreateCall(fn, args, "mcall")};
+}
+
+LVal Gen::gen_obj_field_read(const LVal& obj, const std::string& member) {
+    llvm::Function* fn = llvm::cast<llvm::Function>(declare_runtime(
+        "vor_obj_get", B->getInt64Ty(), {B->getPtrTy(), B->getPtrTy()}));
+    return {VType::Int, B->CreateCall(fn, {obj.val, cstr(member)}, "fld")};
+}
+
 // ==================== 顶层：模块生成 ====================
 std::string Gen::run(llvm::Module& mod) {
     mod_ = &mod;
@@ -3691,6 +3964,7 @@ std::string Gen::run(llvm::Module& mod) {
     // 全局作用域
     top_level_ = true;
     scopes_.emplace_back();
+    collect_classes();   // 先扫描 class 声明，供 VarDecl / 构造 / 方法调用解析
 
     // 遍历顶层语句（P1：顺序生成，函数定义内置在 gen_stmt 中）
 

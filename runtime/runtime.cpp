@@ -519,6 +519,64 @@ void vor_print_tuple(const VTuple* t) {
     }
     std::fputc(')', stdout);
 }
+// ========== class / 实例（单继承，字段按名索引）==========
+struct VClass {
+    std::string name;                  // 类名（诊断用）
+    VClass* base = nullptr;            // 父类（单继承；NULL=无父类）
+    std::vector<std::string> fields;   // 仅自有字段名
+};
+struct VObj {
+    VObject hdr;                       // 引用计数头（实例不参与释放，仅对齐）
+    VClass* cls = nullptr;             // 实例所属类
+    std::vector<std::pair<std::string, long long>> fields;  // 沿父链收集的字段
+};
+
+VClass* vor_class_new(const char* name, VClass* base) {
+    VClass* c = new VClass();
+    c->name = name ? name : "";
+    c->base = base;
+    return c;
+}
+void vor_class_add_field(VClass* c, const char* name) {
+    if (c && name) c->fields.emplace_back(name);
+}
+// 沿父链由根到子收集字段名（去重：子类同名以子类为准）
+static void obj_collect_fields(VClass* c, std::vector<std::string>& out) {
+    if (!c) return;
+    obj_collect_fields(c->base, out);
+    for (auto& f : c->fields) {
+        bool dup = false;
+        for (auto& o : out) if (o == f) { dup = true; break; }
+        if (!dup) out.push_back(f);
+    }
+}
+VObj* vor_obj_new(VClass* cls) {
+    VObj* o = new VObj();
+    o->hdr.refcount = 1;
+    o->hdr.tag = 5;
+    o->hdr.next = nullptr;
+    o->cls = cls;
+    std::vector<std::string> names;
+    obj_collect_fields(cls, names);
+    for (auto& n : names) o->fields.emplace_back(n, 0LL);   // 字段默认值：int 0
+    return o;
+}
+static long long* obj_field_slot(VObj* o, const char* name) {
+    if (!o || !name) return nullptr;
+    for (auto& kv : o->fields) if (kv.first == name) return &kv.second;
+    return nullptr;
+}
+long long vor_obj_get(VObj* o, const char* name) {
+    long long* p = obj_field_slot(o, name);
+    return p ? *p : 0;
+}
+void vor_obj_set(VObj* o, const char* name, long long v) {
+    if (!o || !name) return;
+    long long* p = obj_field_slot(o, name);
+    if (p) { *p = v; return; }
+    o->fields.emplace_back(name, v);
+}
+
 void vor_print_str(VStr* s) {
     if (s) std::fwrite(s->data, 1, (size_t)s->len, stdout);
 }
