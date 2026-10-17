@@ -20,6 +20,7 @@ static const std::unordered_map<std::string, TokenType> KEYWORDS = {
     {"finally", TokenType::Kw_finally}, {"assert", TokenType::Kw_assert},
     {"match", TokenType::Kw_match}, {"case", TokenType::Kw_case},
     {"default", TokenType::Kw_default}, {"class", TokenType::Kw_class},
+    {"operator", TokenType::Kw_operator},
     {"and", TokenType::Kw_and}, {"or", TokenType::Kw_or}, {"not", TokenType::Kw_not},
     {"true", TokenType::TrueLit}, {"false", TokenType::FalseLit}, {"None", TokenType::NoneLit},
 

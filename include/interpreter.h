@@ -151,6 +151,15 @@ private:
     ControlSignal exec_import(const ImportStmt* s);
     ControlSignal exec_try(const TryCatchStmt* s);
     ControlSignal exec_class(const ClassDeclStmt* s);
+    // ---- operator 重载（只能顶层声明）----
+    // 重载表：key = "op#左类型" (一元) 或 "op#左类型#右类型" (二元)
+    std::unordered_map<std::string, const OperatorDeclStmt*> op_overloads_;
+    // 已声明的 class：类名 -> class 值（供父链回退查找）
+    std::unordered_map<std::string, ValuePtr> classes_;
+    ControlSignal exec_operator_decl(const OperatorDeclStmt* s);
+    const OperatorDeclStmt* find_operator(const std::string& op, const std::string& lt,
+                                          const std::string& rt, bool unary) const;
+    ValuePtr call_operator(const OperatorDeclStmt* od, const ValuePtr& l, const ValuePtr& r);
 
     // 表达式求值分派
     ValuePtr eval_literal(const LiteralExpr* e);

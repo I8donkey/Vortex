@@ -44,6 +44,7 @@ private:
     StmtPtr parse_match();
     StmtPtr parse_class();
     StmtPtr parse_del();
+    StmtPtr parse_operator_decl();
     StmtPtr parse_function_def();
     StmtPtr parse_import();
     StmtPtr parse_try();

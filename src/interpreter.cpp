@@ -927,6 +927,7 @@ ControlSignal Interpreter::execute(const Stmt* stmt) {
         case StmtKind::Import:     return exec_import(static_cast<const ImportStmt*>(stmt));
         case StmtKind::TryCatch:   return exec_try(static_cast<const TryCatchStmt*>(stmt));
         case StmtKind::ClassDecl:  return exec_class(static_cast<const ClassDeclStmt*>(stmt));
+        case StmtKind::OperatorDecl: return exec_operator_decl(static_cast<const OperatorDeclStmt*>(stmt));
         case StmtKind::Assert: {
             auto s = static_cast<const AssertStmt*>(stmt);
             ValuePtr c = evaluate(s->cond.get());
@@ -1103,6 +1104,27 @@ ControlSignal Interpreter::exec_function_def(const FunctionDefStmt* s) {
     return {};
 }
 
+// 操作数类型名：class 实例 → 类名（取自类对象的 __name__）；其余 → 内建类型名
+static std::string op_type_name(const ValuePtr& v) {
+    if (!v) return "none";
+    if (v->type == ValueType::Instance) {
+        auto cit = v->module_rep->find("__class__");
+        if (cit != v->module_rep->end() && cit->second->type == ValueType::Class) {
+            auto nit = cit->second->module_rep->find("__name__");
+            if (nit != cit->second->module_rep->end() && nit->second->type == ValueType::Str)
+                return nit->second->str_val;
+        }
+        return "instance";
+    }
+    return v->type_name();
+}
+
+// 重载表 key：一元 "op#T"，二元 "op#T#U"
+static std::string op_key(const std::string& op, const std::string& lt,
+                          const std::string& rt, bool unary) {
+    return unary ? (op + "#" + lt) : (op + "#" + lt + "#" + rt);
+}
+
 ControlSignal Interpreter::exec_class(const ClassDeclStmt* s) {
     // class 对象：module_rep 存方法表（名→FunctionValue），隐藏键 __fields__ 存字段名列表
     auto cv = Value::make_module();
@@ -1143,9 +1165,69 @@ ControlSignal Interpreter::exec_class(const ClassDeclStmt* s) {
         }
         tab["__base__"] = base;
     }
+    // 类名（供 operator 类型匹配与父链回退使用）
+    tab["__name__"] = Value::make_str(s->name);
     // 注册 class 名
     current_env_->define(s->name, cv, false);
+    classes_[s->name] = cv;
     return {};
+}
+
+// ---- operator 重载：登记、查找与调用 ----
+ControlSignal Interpreter::exec_operator_decl(const OperatorDeclStmt* s) {
+    op_overloads_[op_key(s->op, s->left_type, s->right_type, s->unary)] = s;
+    return {};
+}
+
+// 查重载：先精确匹配 (左类型, 右类型)，再沿左/右操作数的类父链回退
+const OperatorDeclStmt* Interpreter::find_operator(const std::string& op, const std::string& lt,
+                                                   const std::string& rt, bool unary) const {
+    auto probe = [&](const std::string& a, const std::string& b) -> const OperatorDeclStmt* {
+        auto it = op_overloads_.find(op_key(op, a, b, unary));
+        return it == op_overloads_.end() ? nullptr : it->second;
+    };
+    if (auto* od = probe(lt, rt)) return od;
+    auto chain_of = [&](const std::string& cls) {
+        std::vector<std::string> out;
+        auto it = classes_.find(cls);
+        while (it != classes_.end()) {
+            out.push_back(it->first);
+            auto bit = it->second->module_rep->find("__base__");
+            if (bit == it->second->module_rep->end() || bit->second->type != ValueType::Class) break;
+            auto nit = bit->second->module_rep->find("__name__");
+            if (nit == bit->second->module_rep->end() || nit->second->type != ValueType::Str) break;
+            it = classes_.find(nit->second->str_val);
+        }
+        return out;
+    };
+    auto lc = chain_of(lt);
+    for (size_t i = 1; i < lc.size(); ++i)
+        if (auto* od = probe(lc[i], rt)) return od;
+    auto rc = chain_of(rt);
+    for (size_t i = 1; i < rc.size(); ++i)
+        if (auto* od = probe(lt, rc[i])) return od;
+    return nullptr;
+}
+
+ValuePtr Interpreter::call_operator(const OperatorDeclStmt* od, const ValuePtr& l, const ValuePtr& r) {
+    Environment* saved = current_env_;
+    Environment scope(current_env_);
+    current_env_ = &scope;
+    scope.define(od->left_name, l, false);
+    if (!od->unary && r) scope.define(od->right_name, r, false);
+    ControlSignal cs;
+    try {
+        for (auto& st : od->body->stmts) {
+            cs = execute(st.get());
+            if (cs.type != CtrlFlow::None) break;
+        }
+    } catch (...) {
+        current_env_ = saved;
+        throw;
+    }
+    current_env_ = saved;
+    if (cs.type == CtrlFlow::Return && cs.value) return cs.value;
+    return Value::make_none();
 }
 
 void Interpreter::register_extra_module(const std::string& name, ValuePtr mod) {
@@ -1334,6 +1416,9 @@ ValuePtr Interpreter::eval_unary(const UnaryOpExpr* e) {
         return value_bit_not(operand);
     }
     auto operand = evaluate(e->operand.get());
+    // 用户自定义一元运算符优先
+    if (auto* od = find_operator(op, op_type_name(operand), "", true))
+        return call_operator(od, operand, nullptr);
     if (op == "!") return value_not(operand);
     if (op == "-") return value_neg(operand);
     if (op == "+") return value_pos(operand);
@@ -1356,6 +1441,9 @@ ValuePtr Interpreter::eval_binary(const BinaryOpExpr* e) {
     }
     auto l = evaluate(e->left.get());
     auto r = evaluate(e->right.get());
+    // 用户自定义运算符优先：按 (运算符, 左类型, 右类型) 命中则调用其函数体
+    if (auto* od = find_operator(e->op, op_type_name(l), op_type_name(r), false))
+        return call_operator(od, l, r);
     if (e->op == "+") return value_add(l, r);
     if (e->op == "-") return value_sub(l, r);
     if (e->op == "*") return value_mul(l, r);

@@ -1,0 +1,32 @@
+class node {
+    int a;
+    int b;
+    int c;
+    def init(self, a, b, c) { self.a = a; self.b = b; self.c = c; }
+    def merge(self, other) {
+        return node(self.a + other.a, self.b + other.b, self.c + other.c);
+    }
+}
+node operator node x+node y {
+    return x.merge(y);
+}
+node operator -node x {
+    return node(-x.a, -x.b, -x.c);
+}
+node operator >node x {
+    return x.merge(x);
+}
+node operator node x+int k {
+    return x.merge(node(k, k, k));
+}
+node p = node(1, 2, 3);
+node q = node(10, 20, 30);
+node r = p + q;
+print(r.a);
+node s = -q;
+print(s.a);
+node t = >q;
+print(t.a);
+node u = p + 5;
+print(u.a);
+print("done");

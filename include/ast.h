@@ -212,6 +212,7 @@ enum class StmtKind {
     Assert,
     Match,
     ClassDecl,
+    OperatorDecl,
 };
 
 struct Stmt {
@@ -273,6 +274,19 @@ struct ClassDeclStmt : Stmt {
     std::vector<Field> fields;
     std::vector<std::unique_ptr<FunctionDefStmt>> methods;
     ClassDeclStmt() : Stmt(StmtKind::ClassDecl) {}
+};
+
+// operator 重载声明（只能写在顶层，不能写在 class 内）
+//   一元： 返回类型 operator 运算符 类型 形参 { 体 }
+//   二元： 返回类型 operator 类型 形参 运算符 类型 形参 { 体 }
+struct OperatorDeclStmt : Stmt {
+    std::string ret_type;                 // 返回类型名
+    std::string op;                       // 运算符文本（如 "+" / "-" / ">"）
+    bool unary = false;
+    std::string left_type, left_name;     // 左（一元时即唯一）操作数
+    std::string right_type, right_name;   // 二元时的右操作数
+    std::unique_ptr<BlockStmt> body;
+    OperatorDeclStmt() : Stmt(StmtKind::OperatorDecl) {}
 };
 
 // 表达式语句

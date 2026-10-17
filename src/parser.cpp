@@ -30,6 +30,27 @@ void Parser::error(const std::string& msg) {
     throw std::runtime_error(msg);
 }
 
+// operator 重载允许的运算符 token（禁止 ~ @ = 以及括号/花括号/#）
+static bool is_overloadable_op(TokenType t) {
+    switch (t) {
+        case TokenType::Plus: case TokenType::Minus: case TokenType::Star:
+        case TokenType::Slash: case TokenType::SlashSlash: case TokenType::Percent:
+        case TokenType::StarStar: case TokenType::Amp: case TokenType::Pipe:
+        case TokenType::Caret: case TokenType::Shl: case TokenType::Shr:
+        case TokenType::AmpAmp: case TokenType::PipePipe:
+        case TokenType::EqEq: case TokenType::NotEq:
+        case TokenType::Less: case TokenType::Greater:
+        case TokenType::LessEq: case TokenType::GreaterEq:
+        case TokenType::Bang:
+            return true;
+        default: return false;
+    }
+}
+
+static bool is_forbidden_op_token(TokenType t) {
+    return t == TokenType::Tilde || t == TokenType::At || t == TokenType::Assign;
+}
+
 // ======= helpers =======
 static bool is_assign_op(TokenType t) {
     switch (t) {
@@ -95,6 +116,11 @@ StmtPtr Parser::parse_stmt() {
         return parse_expr_as_stmt(std::move(e));
     }
 
+    // operator 重载声明（只能顶层）：<类型> operator ...
+    if ((is_type_keyword(peek_t()) || check(TokenType::Identifier)) &&
+        peek_t(1) == TokenType::Kw_operator) {
+        return parse_operator_decl();
+    }
     // 变量声明或表达式：检查下一个标识符后面是否是另一个标识符（声明形式: typename x;）
     // 或者是 type keyword 开头
     if (is_type_keyword(peek_t())) {
@@ -301,6 +327,8 @@ StmtPtr Parser::parse_class() {
     }
     expect(TokenType::LBrace);
     while (!check(TokenType::RBrace) && !check(TokenType::EndOfFile)) {
+        if (check(TokenType::Kw_operator))
+            error("operator declarations cannot be written inside a class; put them at top level");
         if (check(TokenType::Kw_def)) {
             auto fn = parse_function_def();
             auto* fd = static_cast<FunctionDefStmt*>(fn.release());
@@ -319,6 +347,40 @@ StmtPtr Parser::parse_class() {
         }
     }
     expect(TokenType::RBrace);
+    return stmt;
+}
+
+// 顶层 operator 重载声明
+//   一元： 返回类型 operator 运算符 类型 形参 { 体 }
+//   二元： 返回类型 operator 类型 形参 运算符 类型 形参 { 体 }
+StmtPtr Parser::parse_operator_decl() {
+    auto stmt = std::make_unique<OperatorDeclStmt>();
+    stmt->ret_type = parse_type_spec()->base_name;
+    expect(TokenType::Kw_operator, "operator");
+    if (is_overloadable_op(peek_t())) {
+        // 一元
+        Token op = advance();
+        stmt->op = op.text;
+        stmt->unary = true;
+        stmt->left_type = parse_type_spec()->base_name;
+        stmt->left_name = expect(TokenType::Identifier, "operand name").text;
+    } else {
+        if (is_forbidden_op_token(peek_t()))
+            error("operator '" + peek().text + "' cannot be overloaded");
+        stmt->left_type = parse_type_spec()->base_name;
+        stmt->left_name = expect(TokenType::Identifier, "operand name").text;
+        if (!is_overloadable_op(peek_t())) {
+            if (is_forbidden_op_token(peek_t()))
+                error("operator '" + peek().text + "' cannot be overloaded");
+            error("expected an operator in operator declaration");
+        }
+        Token op = advance();
+        stmt->op = op.text;
+        stmt->unary = false;
+        stmt->right_type = parse_type_spec()->base_name;
+        stmt->right_name = expect(TokenType::Identifier, "operand name").text;
+    }
+    stmt->body = parse_block();
     return stmt;
 }
 
@@ -596,6 +658,13 @@ ExprPtr Parser::parse_unary() {
     if (match(TokenType::Minus)) {
         auto operand = parse_unary();
         return std::make_unique<UnaryOpExpr>("-", std::move(operand));
+    }
+    // 任意可重载运算符都可作前缀一元（如 `>x`）：语义由 operator 重载表决定，
+    // 没有对应重载时在求值阶段报错
+    if (is_overloadable_op(peek_t())) {
+        Token t = advance();
+        auto operand = parse_unary();
+        return std::make_unique<UnaryOpExpr>(t.text, std::move(operand));
     }
     if (match(TokenType::Plus)) {
         auto operand = parse_unary();
