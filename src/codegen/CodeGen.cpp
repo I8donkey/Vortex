@@ -38,8 +38,8 @@
 
 // LLVM 大版本间的 API 差异（CI 上可能拿到 17，本地/macOS/Windows 为 23，需同时兼容）：
 //   * 17 起 Host/Triple 头文件从 llvm/Support/ 迁到 llvm/TargetParser/
-//   * 17 起 CodeGenOptLevel 取代 CodeGenOpt::Level
-//   * 18 起 CodeGenFileType 变为 enum class（成员名 ObjectFile）
+//   * 18 起 CodeGenOptLevel 取代 CodeGenOpt::Level（17 及更早没有该枚举）
+//   * 18 起 CodeGenFileType 变为 enum class（成员名 ObjectFile；更早为 CGFT_ObjectFile）
 //   * 较新版本（约 22 起）lookupTarget/createTargetMachine 首参改为 const llvm::Triple&
 #if LLVM_VERSION_MAJOR >= 17
 #include <llvm/TargetParser/Host.h>
@@ -3789,7 +3789,7 @@ std::string build_vortex_exe(const std::string& src, const BuildConfig& cfg, con
 
     auto RL = std::make_unique<llvm::TargetOptions>();
     llvm::Reloc::Model RM = llvm::Reloc::PIC_;
-#if LLVM_VERSION_MAJOR >= 17
+#if LLVM_VERSION_MAJOR >= 18
     llvm::CodeGenOptLevel optLevel = llvm::CodeGenOptLevel::Default;
 #else
     llvm::CodeGenOpt::Level optLevel = llvm::CodeGenOpt::Default;
