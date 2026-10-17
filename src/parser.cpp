@@ -288,11 +288,17 @@ StmtPtr Parser::parse_match() {
     return stmt;
 }
 
-// class Name { [type field;]* [def method(...){...}]* }
+// class Name(Father) { [type field;]* [def method(...){...}]* }
+// Father 可省略；单继承
 StmtPtr Parser::parse_class() {
     auto stmt = std::make_unique<ClassDeclStmt>();
     expect(TokenType::Kw_class);
     stmt->name = expect(TokenType::Identifier, "class name").text;
+    // 可选父类：class Name(Father) { ... }
+    if (match(TokenType::LParen)) {
+        stmt->parent = expect(TokenType::Identifier, "parent class name").text;
+        expect(TokenType::RParen);
+    }
     expect(TokenType::LBrace);
     while (!check(TokenType::RBrace) && !check(TokenType::EndOfFile)) {
         if (check(TokenType::Kw_def)) {

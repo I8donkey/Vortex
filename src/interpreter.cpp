@@ -1128,6 +1128,21 @@ ControlSignal Interpreter::exec_class(const ClassDeclStmt* s) {
     auto fl = Value::make_list();
     for (auto& f : s->fields) fl->list_rep->push_back(Value::make_str(f.name));
     tab["__fields__"] = fl;
+    // 父类：解析并挂到 __base__（单继承，父链查找用）
+    if (!s->parent.empty()) {
+        if (!current_env_->has(s->parent))
+            throw RuntimeError("Unknown parent class '" + s->parent + "' (in class " + s->name + ")");
+        ValuePtr base = current_env_->lookup(s->parent);
+        if (base->type != ValueType::Class)
+            throw RuntimeError("'" + s->parent + "' is not a class (in class " + s->name + ")");
+        // 环检测：沿父链上溯，若回到自身则说明存在继承环
+        for (ValuePtr c = base; c && c->type == ValueType::Class; ) {
+            if (c == cv) throw RuntimeError("Class inheritance cycle detected: " + s->name);
+            auto bit = c->module_rep->find("__base__");
+            c = (bit != c->module_rep->end()) ? bit->second : ValuePtr();
+        }
+        tab["__base__"] = base;
+    }
     // 注册 class 名
     current_env_->define(s->name, cv, false);
     return {};
@@ -1534,23 +1549,32 @@ ValuePtr Interpreter::eval_call(const CallExpr* e) {
         inst->type = ValueType::Instance;
         auto& tab = *inst->module_rep;
         tab["__class__"] = callee;
-        // 字段默认值（按字段类型）
-        auto fit = callee->module_rep->find("__fields__");
-        if (fit != callee->module_rep->end()) {
+        // 字段默认值：沿父链由根到子依次初始化（子类重复声明同名字段则子类生效）
+        std::vector<ValuePtr> chain;                 // 子 → 父
+        for (ValuePtr c = callee; c && c->type == ValueType::Class; ) {
+            chain.push_back(c);
+            auto bit = c->module_rep->find("__base__");
+            c = (bit != c->module_rep->end()) ? bit->second : ValuePtr();
+        }
+        for (auto it2 = chain.rbegin(); it2 != chain.rend(); ++it2) {
+            auto fit = (*it2)->module_rep->find("__fields__");
+            if (fit == (*it2)->module_rep->end()) continue;
             for (auto& fv2 : *fit->second->list_rep) {
                 std::string fname = fv2->str_val;
                 // 简单默认值：数值 0 / 空字符串
                 tab[fname] = Value::make_int(0);
             }
         }
-        // 调用 init(self, args...)（构造方法名为 init）
-        auto init = callee->module_rep->find("init");
-        if (init != callee->module_rep->end() && init->second->type == ValueType::Function) {
-            auto initfn = init->second->fn_rep;
-            ValueVec full;
-            full.push_back(inst);
-            for (auto& a : args) full.push_back(a);
-            call_user_function(initfn.get(), full);
+        // 调用 init(self, args...)（构造方法名 init；沿父链查找，子类优先）
+        for (auto& c : chain) {
+            auto iit = c->module_rep->find("init");
+            if (iit != c->module_rep->end() && iit->second->type == ValueType::Function) {
+                ValueVec full;
+                full.push_back(inst);
+                for (auto& a : args) full.push_back(a);
+                call_user_function(iit->second->fn_rep.get(), full);
+                break;
+            }
         }
         return inst;
     }
@@ -1565,6 +1589,18 @@ ValuePtr Interpreter::eval_call(const CallExpr* e) {
     throw RuntimeError("Cannot call non-function: " + callee->type_name());
 }
 
+// 沿 __base__ 父链查找类方法（子类优先）；未找到返回 nullptr
+static ValuePtr find_class_method(const ValuePtr& cls, const std::string& name) {
+    for (ValuePtr c = cls; c && c->type == ValueType::Class; ) {
+        auto it = c->module_rep->find(name);
+        if (it != c->module_rep->end() && it->second->type == ValueType::Function)
+            return it->second;
+        auto bit = c->module_rep->find("__base__");
+        c = (bit != c->module_rep->end()) ? bit->second : ValuePtr();
+    }
+    return nullptr;
+}
+
 ValuePtr Interpreter::eval_member(const MemberAccessExpr* e) {
     ValuePtr obj = evaluate(e->object.get());
     // 模块成员：常量或函数（如 math.pi / math.sqrt）
@@ -1574,12 +1610,13 @@ ValuePtr Interpreter::eval_member(const MemberAccessExpr* e) {
             throw RuntimeError("Module has no member '" + e->member + "'");
         return it->second;
     }
-    // class 对象：访问方法表（静态，返回方法 def 的 FunctionValue）
+    // class 对象：访问方法表（静态，返回方法 def 的 FunctionValue；含父链查找）
     if (obj->type == ValueType::Class) {
         auto it = obj->module_rep->find(e->member);
-        if (it == obj->module_rep->end())
-            throw RuntimeError("Class has no member '" + e->member + "'");
-        return it->second;
+        if (it != obj->module_rep->end()) return it->second;
+        auto m = find_class_method(obj, e->member);
+        if (m) return m;
+        throw RuntimeError("Class has no member '" + e->member + "'");
     }
     // 实例：字段读取；若是方法，返回绑定 self 的可调用
     if (obj->type == ValueType::Instance) {
@@ -1590,9 +1627,9 @@ ValuePtr Interpreter::eval_member(const MemberAccessExpr* e) {
         // 查方法（存于 __class__）
         auto cit = tab.find("__class__");
         if (cit != tab.end() && cit->second->type == ValueType::Class) {
-            auto mit = cit->second->module_rep->find(e->member);
-            if (mit != cit->second->module_rep->end()) {
-                auto fnv = mit->second->fn_rep;
+            auto m = find_class_method(cit->second, e->member);
+            if (m) {
+                auto fnv = m->fn_rep;
                 // 绑定方法：调用时 self 前置
                 ValuePtr self_keep = obj;
                 auto bound = std::make_shared<FunctionValue>();

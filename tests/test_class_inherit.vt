@@ -1,0 +1,24 @@
+class Point {
+    int x;
+    int y;
+    def init(self, x, y) { self.x = x; self.y = y; }
+    def sum(self) { return self.x + self.y; }
+}
+class Point3(Point) {
+    int z;
+    def init(self, x, y, z) { self.x = x; self.y = y; self.z = z; }
+    def sum(self) { return self.x + self.y + self.z; }
+}
+Point3 q = Point3(1, 2, 3);
+print(q.sum());
+print(q.x);
+print(q.z);
+class Point3b(Point) {
+}
+Point3b r = Point3b(5, 6);
+print(r.sum());
+class Point4(Point3) {
+}
+Point4 s = Point4(1, 1, 1);
+print(s.sum());
+print("done");

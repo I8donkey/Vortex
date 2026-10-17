@@ -264,11 +264,12 @@ struct MatchStmt : Stmt {
     MatchStmt() : Stmt(StmtKind::Match) {}
 };
 
-// class 声明 class Name { [type field;]* [def method(self,...){...}]* }
+// class 声明 class Name(Father) { [type field;]* [def method(self,...){...}]* }
 struct FunctionDefStmt;
 struct ClassDeclStmt : Stmt {
     struct Field { std::string type; std::string name; };
     std::string name;
+    std::string parent;                 // 父类名（空 = 无父类，单继承）
     std::vector<Field> fields;
     std::vector<std::unique_ptr<FunctionDefStmt>> methods;
     ClassDeclStmt() : Stmt(StmtKind::ClassDecl) {}
