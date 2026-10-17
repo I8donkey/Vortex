@@ -3,7 +3,7 @@ class node {
     int b;
     int c;
     def init(self, a, b, c) { self.a = a; self.b = b; self.c = c; }
-    def merge(self, other) {
+    def merge(self, other: node) {
         return node(self.a + other.a, self.b + other.b, self.c + other.c);
     }
 }
