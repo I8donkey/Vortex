@@ -74,11 +74,14 @@ std::unique_ptr<Program> Parser::parse_program() {
             auto s = parse_stmt();
             if (s) { s->line = start.line; s->col = start.col; prog->stmts.push_back(std::move(s)); }
         } catch (const std::runtime_error& e) {
-            // 错误同步：跳过直到分号或右大括号
+            // Error recovery: skip until a semicolon or a closing brace.
             while (!check(TokenType::EndOfFile) &&
                    !check(TokenType::Semicolon) && !check(TokenType::RBrace))
                 advance();
-            if (check(TokenType::Semicolon)) advance();
+            // Always consume the stop token. Otherwise, when recovery lands on a
+            // stray '}', the outer loop would re-parse from the same position and
+            // spin forever.
+            if (check(TokenType::Semicolon) || check(TokenType::RBrace)) advance();
         }
     }
     return prog;
@@ -327,7 +330,9 @@ StmtPtr Parser::parse_class() {
     }
     expect(TokenType::LBrace);
     while (!check(TokenType::RBrace) && !check(TokenType::EndOfFile)) {
-        if (check(TokenType::Kw_operator))
+        if (check(TokenType::Kw_operator) ||
+            ((is_type_keyword(peek_t()) || check(TokenType::Identifier)) &&
+             peek_t(1) == TokenType::Kw_operator))
             error("operator declarations cannot be written inside a class; put them at top level");
         if (check(TokenType::Kw_def)) {
             auto fn = parse_function_def();
