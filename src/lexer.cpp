@@ -39,11 +39,13 @@ static const std::unordered_map<std::string, TokenType> KEYWORDS = {
     {"pair", TokenType::Typ_pair}, {"tuple", TokenType::Typ_tuple},
     {"object", TokenType::Typ_object}, {"function", TokenType::Typ_function},
     {"auto", TokenType::Typ_auto},
+    {"extfloat", TokenType::Typ_extfloat},
 };
 
 std::string token_type_name_str(TokenType t) {
     switch (t) {
         case TokenType::IntLit: return "IntLit"; case TokenType::FloatLit: return "FloatLit";
+        case TokenType::ExtFloatLit: return "ExtFloatLit";
         case TokenType::CharLit: return "CharLit"; case TokenType::UnicharLit: return "UnicharLit";
         case TokenType::StringLit: return "StringLit"; case TokenType::UniStringLit: return "UniStringLit";
         case TokenType::TrueLit: return "true"; case TokenType::FalseLit: return "false"; case TokenType::NoneLit: return "None";
@@ -78,7 +80,7 @@ std::string token_type_name_str(TokenType t) {
 std::string token_type_name(TokenType t) { return token_type_name_str(t); }
 
 bool is_type_keyword(TokenType t) {
-    return t >= TokenType::Typ_int && t <= TokenType::Typ_auto;
+    return t >= TokenType::Typ_int && t <= TokenType::Typ_extfloat;
 }
 
 // ========== Lexer 实现 ==========
@@ -146,17 +148,22 @@ Token Lexer::make_number() {
     while (is_digit(peek())) { num_str += advance(); }
 
     bool is_float = false;
-    if (base == 10 && (peek() == '.' || peek() == 'e' || peek() == 'E')) {
+    bool is_ext = false;   // extfloat 字面量后缀
+    if (base == 10 && peek() == '.') {
         is_float = true;
-        if (peek() == '.') {
-            num_str += advance();
-            while (std::isdigit((unsigned char)peek())) num_str += advance();
-        }
-        if (peek() == 'e' || peek() == 'E') {
-            num_str += advance();
-            if (peek() == '+' || peek() == '-') num_str += advance();
-            while (std::isdigit((unsigned char)peek())) num_str += advance();
-        }
+        num_str += advance();
+        while (std::isdigit((unsigned char)peek())) num_str += advance();
+    }
+    // extfloat 字面量：0.1ext / 123ext（后缀后不能紧跟标识符字符）
+    if (base == 10 && peek() == 'e' && peek(1) == 'x' && peek(2) == 't' &&
+        !(std::isalnum((unsigned char)peek(3)) || peek(3) == '_')) {
+        advance(); advance(); advance();
+        is_ext = true;
+    } else if (base == 10 && (peek() == 'e' || peek() == 'E')) {
+        is_float = true;
+        num_str += advance();
+        if (peek() == '+' || peek() == '-') num_str += advance();
+        while (std::isdigit((unsigned char)peek())) num_str += advance();
     }
     // 十六进制浮点 0x1.2p3
     if (base == 16 && peek() == '.') {
@@ -172,7 +179,10 @@ Token Lexer::make_number() {
     }
 
     tok.text = src_.substr(start_pos, pos_ - start_pos);
-    if (is_float) {
+    if (is_ext) {
+        tok.type = TokenType::ExtFloatLit;
+        tok.str_val = num_str;   // 仅数字与小数点，供精确十进制解析
+    } else if (is_float) {
         tok.type = TokenType::FloatLit;
         try {
             tok.float_val = std::stod(tok.text);

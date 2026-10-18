@@ -66,7 +66,7 @@ protected:
 
 // 字面量
 struct LiteralExpr : Expr {
-    enum class LitKind { Int, Float, Char, Unichar, Bool, String, UniString, None };
+    enum class LitKind { Int, Float, ExtFloat, Char, Unichar, Bool, String, UniString, None };
     LitKind lit_kind;
     long long int_val = 0;
     unsigned long long uint_val = 0;

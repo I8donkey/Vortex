@@ -45,6 +45,7 @@ enum class ValueType {
     Instance,   // class 实例（module_rep 存字段值）
     Opaque,     // 不透明句柄：GPU资源 / 2D精灵 / 3D节点 等扩展对象
     Error,      // 错误对象（类型名 + 消息），供 raise / catch 使用
+    ExtFloat,   // 精确十进制浮点（str_val 存规范十进制文本）
 };
 
 struct Value;
@@ -174,6 +175,7 @@ struct Value : std::enable_shared_from_this<Value> {
     static ValuePtr make_dict();
     static ValuePtr make_pair(ValuePtr a, ValuePtr b);
     static ValuePtr make_error(std::string type, std::string message);
+    static ValuePtr make_ext(std::string canonical);
     static ValuePtr make_tuple(std::vector<ValuePtr> items);
     static ValuePtr make_adr(std::string name, Environment* env);
     static ValuePtr make_module();
@@ -230,6 +232,8 @@ ValuePtr value_to_long(const ValuePtr& a);
 ValuePtr value_to_ulong(const ValuePtr& a);
 ValuePtr value_to_uint(const ValuePtr& a);
 ValuePtr value_to_float(const ValuePtr& a);
+// 转为精确十进制浮点（str 按十进制文本解析；int/float 等按值转换）
+ValuePtr value_to_extfloat(const ValuePtr& a);
 ValuePtr value_to_bool(const ValuePtr& a);
 ValuePtr value_to_str(const ValuePtr& a);
 ValuePtr value_to_unistr(const ValuePtr& a);

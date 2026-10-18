@@ -4,6 +4,7 @@
 #include "vortex_modules.h"
 #include "pack.h"
 #include "suggest.h"
+#include "extdecimal.h"
 #include <unordered_set>
 #include "game2d_module.h"
 #include "thread_module.h"
@@ -23,6 +24,8 @@
 #include <cctype>
 
 namespace vortex {
+
+namespace dec = ::vortex::dec;
 
 // ============ 随机数生成器（供 random 模块复用） ============
 static std::mt19937& get_rng() {
@@ -1089,6 +1092,7 @@ ControlSignal Interpreter::exec_var_decl(const VarDeclStmt* s) {
             else if (tname == "dict") v = Value::make_dict();
             else if (tname == "tuple") v = Value::make_tuple({});
             else if (tname == "pair") v = Value::make_pair(Value::make_none(), Value::make_none());
+            else if (tname == "extfloat") v = Value::make_ext("0");
             else v = Value::make_none();
         }
         current_env_->define(name, v, false);
@@ -1495,6 +1499,13 @@ ValuePtr Interpreter::eval_literal(const LiteralExpr* e) {
             return Value::make_int(e->int_val);
         }
         case LiteralExpr::LitKind::Float:  return Value::make_float(e->float_val);
+        case LiteralExpr::LitKind::ExtFloat: {
+            // 精确十进制字面量：按原始文本解析并规范化为规范文本
+            dec::Decimal d;
+            try { d = dec::parse(e->str_val); }
+            catch (...) { throw RuntimeError("invalid extfloat literal: '" + e->str_val + "'", "ValueError"); }
+            return Value::make_ext(dec::format(d));
+        }
         case LiteralExpr::LitKind::Bool:   return Value::make_bool(e->bool_val);
         case LiteralExpr::LitKind::Char:   return Value::make_char(e->char_val);
         case LiteralExpr::LitKind::String: return Value::make_str(e->str_val);
@@ -1721,6 +1732,7 @@ ValuePtr Interpreter::eval_cast(const CastExpr* e) {
     if (t == "bool") return value_to_bool(v);
     if (t == "str") return value_to_str(v);
     if (t == "unistr") return value_to_unistr(v);
+    if (t == "extfloat") return value_to_extfloat(v);
     if (t == "bin") return value_to_bin(v);
     if (t == "char") {
         auto vi = value_to_int(v);

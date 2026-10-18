@@ -769,7 +769,8 @@ ExprPtr Parser::parse_postfix() {
                     (id.name == "int" || id.name == "uint" || id.name == "long" ||
                      id.name == "ulong" || id.name == "float" || id.name == "double" ||
                      id.name == "bool" || id.name == "str" || id.name == "unistr" ||
-                     id.name == "bin" || id.name == "char" || id.name == "unichar")) {
+                     id.name == "bin" || id.name == "char" || id.name == "unichar" ||
+                     id.name == "extfloat")) {
                     // Cast
                     base = std::make_unique<CastExpr>(id.name, std::move(args[0]));
                     continue;
@@ -813,6 +814,13 @@ ExprPtr Parser::parse_atom() {
         }
         e->int_val = t.int_val; e->uint_val = t.uint_val;
         e->str_val = t.text;
+        return e;
+    }
+    if (check(TokenType::ExtFloatLit)) {
+        Token t = advance();
+        auto e = std::make_unique<LiteralExpr>();
+        e->lit_kind = LiteralExpr::LitKind::ExtFloat;
+        e->str_val = t.str_val;   // 原始十进制文本（保持精确）
         return e;
     }
     if (check(TokenType::FloatLit)) {

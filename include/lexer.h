@@ -9,7 +9,7 @@ namespace vortex {
 
 enum class TokenType {
     // 字面量
-    IntLit, FloatLit, CharLit, UnicharLit, StringLit, UniStringLit,
+    IntLit, FloatLit, ExtFloatLit, CharLit, UnicharLit, StringLit, UniStringLit,
     TrueLit, FalseLit, NoneLit,
 
     // 标识符 / 关键字
@@ -27,7 +27,7 @@ enum class TokenType {
     Typ_float, Typ_double, Typ_char, Typ_unichar, Typ_memadr, Typ_bool,
     Typ_str, Typ_unistr, Typ_bin,
     Typ_list, Typ_stack, Typ_queue, Typ_set, Typ_undset, Typ_dict,
-    Typ_pair, Typ_tuple, Typ_object, Typ_function, Typ_auto,
+    Typ_pair, Typ_tuple, Typ_object, Typ_function, Typ_auto, Typ_extfloat,
 
     // 标点
     LParen, RParen,        // ( )

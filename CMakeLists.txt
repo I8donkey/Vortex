@@ -164,6 +164,7 @@ set(VORTEX_SOURCES
     src/parser.cpp
     src/interpreter.cpp
     src/vortex_modules.cpp
+    runtime/extdecimal.cpp
 )
 
 # 扩展模块源文件
@@ -178,7 +179,7 @@ list(APPEND VORTEX_SOURCES src/thread_module.cpp src/log_module.cpp src/file_mod
 
 # 静态库：编译器核心
 add_library(vortex_core STATIC ${VORTEX_SOURCES})
-target_include_directories(vortex_core PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_include_directories(vortex_core PUBLIC ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/runtime)
 target_compile_features(vortex_core PUBLIC cxx_std_17)
 
 # zip / file 模块使用 zlib：优先用 CPM 提供的 zlib 目标，否则回退系统 ZLIB / -lz
@@ -286,6 +287,7 @@ endif()
 # ============ 原生编译器运行时（引用计数，C ABI） ============
 # vortexcc 链路生成的可执行文件会链接此库。
 add_library(vortex_runtime STATIC runtime/runtime.cpp
+    runtime/extdecimal.cpp
     runtime/g2d_rt.cpp runtime/r3d_rt.cpp runtime/r3d_g2d.h)
 target_include_directories(vortex_runtime PUBLIC ${CMAKE_SOURCE_DIR}/runtime)
 if(MSVC)

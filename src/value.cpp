@@ -1,10 +1,47 @@
 #include "value.h"
+#include "extdecimal.h"
 #include <cmath>
 #include <algorithm>
 #include <cstring>
 #include <iomanip>
 
 namespace vortex {
+
+namespace dec = vortex::dec;
+
+// 把标量值转成精确十进制；不可转换（str/list/... ）返回 false
+static bool value_to_dec(const ValuePtr& v, dec::Decimal& out) {
+    switch (v->type) {
+        case ValueType::ExtFloat: out = dec::parse(v->str_val); return true;
+        case ValueType::Int:      out = dec::from_i64(v->int_val); return true;
+        case ValueType::Char:
+        case ValueType::Unichar:  out = dec::from_i64(v->char_val); return true;
+        case ValueType::Bool:     out = dec::from_i64(v->bool_val ? 1 : 0); return true;
+        case ValueType::Float:    out = dec::from_f64(v->float_val); return true;
+        case ValueType::UInt: {
+            // 无符号值可能超出 i64：直接按 1e9 进制构造尾数
+            dec::Decimal d; d.neg = false; d.exp = 0;
+            unsigned long long u = v->uint_val;
+            if (u == 0) { out = d; return true; }
+            while (u) { d.coeff.push_back((uint32_t)(u % 1000000000ull)); u /= 1000000000ull; }
+            out = d; return true;
+        }
+        default: return false;
+    }
+}
+
+// 精确十进制运算的公共入口：把 dec 抛出的异常翻译为带类型的 RuntimeError
+static ValuePtr dec_result(const std::function<std::string()>& f) {
+    try {
+        return Value::make_ext(f());
+    } catch (const RuntimeError&) {
+        throw;
+    } catch (const std::exception& ex) {
+        std::string m = ex.what();
+        throw RuntimeError(m, m.find("Division by zero") != std::string::npos
+                                  ? "ZeroDivisionError" : "ValueError");
+    }
+}
 
 // ================ Value factory ================
 ValuePtr Value::make_none()     { auto p = std::make_shared<Value>(ValueType::None); return p; }
@@ -29,6 +66,11 @@ ValuePtr Value::make_error(std::string type, std::string message) {
     p->error_rep = std::make_shared<ErrorRep>();
     p->error_rep->type = std::move(type);
     p->error_rep->message = std::move(message);
+    return p;
+}
+ValuePtr Value::make_ext(std::string canonical) {
+    auto p = std::make_shared<Value>(ValueType::ExtFloat);
+    p->str_val = std::move(canonical);
     return p;
 }
 ValuePtr Value::make_tuple(std::vector<ValuePtr> items) { auto p = std::make_shared<Value>(ValueType::Tuple); p->tuple_rep = std::make_shared<TupleRep>(std::move(items)); return p; }
@@ -62,6 +104,7 @@ std::string Value::type_name() const {
         case ValueType::Class: return "class";
         case ValueType::Instance: return "instance";
         case ValueType::Error:    return error_rep ? error_rep->type : "Error";
+        case ValueType::ExtFloat: return "extfloat";
         case ValueType::Opaque:
             return opaque_rep ? ("opaque<" + opaque_rep->kind + ">") : "opaque";
     }
@@ -92,6 +135,7 @@ std::string Value::to_string() const {
         case ValueType::Str:
         case ValueType::UniStr: return str_val;
         case ValueType::Error: return error_rep ? error_rep->message : std::string();
+        case ValueType::ExtFloat: return str_val;   // 规范十进制文本
         case ValueType::Bin: {
             std::string r;
             for (unsigned char c : bin_val) { r += (char)c; }
@@ -178,6 +222,7 @@ bool Value::truthy() const {
         case ValueType::MemAdr: case ValueType::Function: return true;
         case ValueType::Module: case ValueType::Class: case ValueType::Instance: return true;
         case ValueType::Error: return true;   // 错误对象恒为真
+        case ValueType::ExtFloat: return str_val != "0" && !str_val.empty();
         case ValueType::Opaque: return opaque_rep != nullptr;
     }
     return false;
@@ -270,16 +315,25 @@ static ValuePtr apply_arith(const ValuePtr& a, const ValuePtr& b,
 // 解决上面引用 ULong/ULong 未枚举问题，简化：只要是 UInt 就算 unsigned
 
 ValuePtr value_add(const ValuePtr& a, const ValuePtr& b) {
-    // 字符串拼接（错误对象按其消息参与拼接，与编译器端 catch 变量为字符串一致）
-    {
+    // 字符串拼接：至少要有一侧是真正的字符串（extfloat + extfloat 走精确加法）
+    if (a->type == ValueType::Str || a->type == ValueType::UniStr ||
+        b->type == ValueType::Str || b->type == ValueType::UniStr ||
+        a->type == ValueType::Error || b->type == ValueType::Error) {
         auto as_str = [](const ValuePtr& v) -> const std::string* {
             if (v->type == ValueType::Str || v->type == ValueType::UniStr) return &v->str_val;
             if (v->type == ValueType::Error && v->error_rep) return &v->error_rep->message;
+            if (v->type == ValueType::ExtFloat) return &v->str_val;   // 十进制文本参与拼接
             return nullptr;
         };
         const std::string* sa = as_str(a);
         const std::string* sb = as_str(b);
         if (sa && sb) return Value::make_str(*sa + *sb);
+    }
+    // 精确十进制：任一操作数为 extfloat 则提升另一侧后做精确加法
+    if (a->type == ValueType::ExtFloat || b->type == ValueType::ExtFloat) {
+        dec::Decimal x, y;
+        if (value_to_dec(a, x) && value_to_dec(b, y))
+            return dec_result([&] { return dec::format(dec::add(x, y)); });
     }
     if (a->type == ValueType::List && b->type == ValueType::List) {
         auto r = Value::make_list();
@@ -296,6 +350,11 @@ ValuePtr value_add(const ValuePtr& a, const ValuePtr& b) {
 }
 
 ValuePtr value_sub(const ValuePtr& a, const ValuePtr& b) {
+    if (a->type == ValueType::ExtFloat || b->type == ValueType::ExtFloat) {
+        dec::Decimal x, y;
+        if (value_to_dec(a, x) && value_to_dec(b, y))
+            return dec_result([&] { return dec::format(dec::sub(x, y)); });
+    }
     return apply_arith(a, b, std::minus<double>{}, std::minus<long long>{}, std::minus<unsigned long long>{});
 }
 
@@ -317,10 +376,20 @@ ValuePtr value_mul(const ValuePtr& a, const ValuePtr& b) {
             for (auto& e : *a->list_rep) r->list_rep->push_back(e);
         return r;
     }
+    if (a->type == ValueType::ExtFloat || b->type == ValueType::ExtFloat) {
+        dec::Decimal x, y;
+        if (value_to_dec(a, x) && value_to_dec(b, y))
+            return dec_result([&] { return dec::format(dec::mul(x, y)); });
+    }
     return apply_arith(a, b, std::multiplies<double>{}, std::multiplies<long long>{}, std::multiplies<unsigned long long>{});
 }
 
 ValuePtr value_div(const ValuePtr& a, const ValuePtr& b) {
+    if (a->type == ValueType::ExtFloat || b->type == ValueType::ExtFloat) {
+        dec::Decimal x, y;
+        if (value_to_dec(a, x) && value_to_dec(b, y))
+            return dec_result([&] { return dec::format(dec::div(x, y)); });
+    }
     Numeric A(a), B(b);
     double av = A.is_float ? A.d : (A.u ? (double)A.u : (double)A.i);
     double bv = B.is_float ? B.d : (B.u ? (double)B.u : (double)B.i);
@@ -329,6 +398,18 @@ ValuePtr value_div(const ValuePtr& a, const ValuePtr& b) {
 }
 
 ValuePtr value_floordiv(const ValuePtr& a, const ValuePtr& b) {
+    if (a->type == ValueType::ExtFloat || b->type == ValueType::ExtFloat) {
+        dec::Decimal x, y;
+        if (value_to_dec(a, x) && value_to_dec(b, y))
+            return dec_result([&] {
+                // 向下取整除法：q = (x - rem) / y 为精确商，异号且有余数时减一
+                dec::Decimal r = dec::rem(x, y);
+                dec::Decimal q = dec::div(dec::sub(x, r), y);
+                if (dec::cmp(r, dec::Decimal{}) != 0 && x.neg != y.neg)
+                    q = dec::sub(q, dec::from_i64(1));
+                return dec::format(q);
+            });
+    }
     Numeric A(a), B(b);
     if (A.is_float || B.is_float) {
         double av = A.is_float ? A.d : (A.u ? (double)A.u : (double)A.i);
@@ -350,6 +431,11 @@ ValuePtr value_floordiv(const ValuePtr& a, const ValuePtr& b) {
 }
 
 ValuePtr value_mod(const ValuePtr& a, const ValuePtr& b) {
+    if (a->type == ValueType::ExtFloat || b->type == ValueType::ExtFloat) {
+        dec::Decimal x, y;
+        if (value_to_dec(a, x) && value_to_dec(b, y))
+            return dec_result([&] { return dec::format(dec::rem(x, y)); });
+    }
     Numeric A(a), B(b);
     if (A.is_float || B.is_float) {
         double av = A.is_float ? A.d : (A.u ? (double)A.u : (double)A.i);
@@ -370,6 +456,13 @@ ValuePtr value_mod(const ValuePtr& a, const ValuePtr& b) {
 }
 
 ValuePtr value_pow(const ValuePtr& a, const ValuePtr& b) {
+    if (a->type == ValueType::ExtFloat || b->type == ValueType::ExtFloat) {
+        dec::Decimal x, y;
+        if (value_to_dec(a, x) && value_to_dec(b, y))
+            return dec_result([&] {
+                return dec::format(dec::pow_int(x, dec::to_i64_trunc(y)));
+            });
+    }
     Numeric A(a), B(b);
     double av = A.is_float ? A.d : (A.u ? (double)A.u : (double)A.i);
     double bv = B.is_float ? B.d : (B.u ? (double)B.u : (double)B.i);
@@ -378,8 +471,9 @@ ValuePtr value_pow(const ValuePtr& a, const ValuePtr& b) {
 
 // ================ 位运算 ================
 static void as_ull(const ValuePtr& a, const ValuePtr& b, unsigned long long& x, unsigned long long& y) {
-    if (a->type == ValueType::Float || b->type == ValueType::Float)
-        throw RuntimeError("Bitwise operator on float");
+    if (a->type == ValueType::Float || b->type == ValueType::Float ||
+        a->type == ValueType::ExtFloat || b->type == ValueType::ExtFloat)
+        throw RuntimeError("Bitwise operator on float", "TypeError");
     x = (a->type == ValueType::UInt) ? a->uint_val : (unsigned long long)a->int_val;
     y = (b->type == ValueType::UInt) ? b->uint_val : (unsigned long long)b->int_val;
     (void)x; (void)y;
@@ -423,6 +517,10 @@ ValuePtr value_bit_not(const ValuePtr& a) {
     return Value::make_int(~a->int_val);
 }
 ValuePtr value_neg(const ValuePtr& a) {
+    if (a->type == ValueType::ExtFloat) {
+        dec::Decimal x;
+        if (value_to_dec(a, x)) return dec_result([&] { return dec::format(dec::neg(x)); });
+    }
     if (a->type == ValueType::Float) return Value::make_float(-a->float_val);
     if (a->type == ValueType::UInt) return Value::make_int(-(long long)a->uint_val);
     return Value::make_int(-a->int_val);
@@ -437,6 +535,11 @@ bool value_eq(const ValuePtr& a, const ValuePtr& b) {
     if (a->type == ValueType::Bool || b->type == ValueType::Bool) {
         return a->truthy() == b->truthy() && (a->type == b->type ||
             (a->type == ValueType::None && b->type == ValueType::None));
+    }
+    if (a->type == ValueType::ExtFloat || b->type == ValueType::ExtFloat) {
+        dec::Decimal x, y;
+        if (value_to_dec(a, x) && value_to_dec(b, y)) return dec::cmp(x, y) == 0;
+        return false;
     }
     if (a->type == ValueType::Float || b->type == ValueType::Float) {
         Numeric A(a), B(b);
@@ -495,6 +598,10 @@ bool value_eq(const ValuePtr& a, const ValuePtr& b) {
 bool value_ne(const ValuePtr& a, const ValuePtr& b) { return !value_eq(a, b); }
 
 static int numeric_cmp(const ValuePtr& a, const ValuePtr& b) {
+    if (a->type == ValueType::ExtFloat || b->type == ValueType::ExtFloat) {
+        dec::Decimal x, y;
+        if (value_to_dec(a, x) && value_to_dec(b, y)) return dec::cmp(x, y);
+    }
     Numeric A(a), B(b);
     double av = A.is_float ? A.d : (A.u ? (double)A.u : (double)A.i);
     double bv = B.is_float ? B.d : (B.u ? (double)B.u : (double)B.i);
@@ -599,6 +706,10 @@ ValuePtr value_symmetric_diff(const ValuePtr& a, const ValuePtr& b) {
 
 // ================ 类型转换 ================
 ValuePtr value_to_int(const ValuePtr& a) {
+    if (a->type == ValueType::ExtFloat) {
+        dec::Decimal d;
+        if (value_to_dec(a, d)) return Value::make_int(dec::to_i64_trunc(d));
+    }
     if (a->type == ValueType::Int) return a;
     if (a->type == ValueType::UInt) return Value::make_int((long long)a->uint_val);
     if (a->type == ValueType::Float) return Value::make_int((long long)a->float_val);
@@ -625,6 +736,10 @@ ValuePtr value_to_uint(const ValuePtr& a) {
 }
 ValuePtr value_to_ulong(const ValuePtr& a) { return value_to_uint(a); }
 ValuePtr value_to_float(const ValuePtr& a) {
+    if (a->type == ValueType::ExtFloat) {
+        dec::Decimal d;
+        if (value_to_dec(a, d)) return Value::make_float(dec::to_f64(d));
+    }
     if (a->type == ValueType::Float) return a;
     if (a->type == ValueType::Int) return Value::make_float((double)a->int_val);
     if (a->type == ValueType::UInt) return Value::make_float((double)a->uint_val);
@@ -635,6 +750,20 @@ ValuePtr value_to_float(const ValuePtr& a) {
         catch (...) { throw RuntimeError("Cannot convert '" + a->str_val + "' to float", "ValueError"); }
     }
     throw RuntimeError("Cannot convert " + a->type_name() + " to float", "ValueError");
+}
+ValuePtr value_to_extfloat(const ValuePtr& a) {
+    if (a->type == ValueType::ExtFloat) return a;
+    if (a->type == ValueType::Str || a->type == ValueType::UniStr) {
+        dec::Decimal d;
+        try { d = dec::parse(a->str_val); }
+        catch (...) {
+            throw RuntimeError("Cannot convert '" + a->str_val + "' to extfloat", "ValueError");
+        }
+        return Value::make_ext(dec::format(d));
+    }
+    dec::Decimal d;
+    if (value_to_dec(a, d)) return dec_result([&] { return dec::format(d); });
+    throw RuntimeError("Cannot convert " + a->type_name() + " to extfloat", "ValueError");
 }
 ValuePtr value_to_bool(const ValuePtr& a) { return Value::make_bool(a->truthy()); }
 ValuePtr value_to_str(const ValuePtr& a) {
