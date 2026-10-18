@@ -22,6 +22,7 @@ static const std::unordered_map<std::string, TokenType> KEYWORDS = {
     {"default", TokenType::Kw_default}, {"class", TokenType::Kw_class},
     {"operator", TokenType::Kw_operator},
     {"and", TokenType::Kw_and}, {"or", TokenType::Kw_or}, {"not", TokenType::Kw_not},
+    {"raise", TokenType::Kw_raise},
     {"true", TokenType::TrueLit}, {"false", TokenType::FalseLit}, {"None", TokenType::NoneLit},
 
     {"int", TokenType::Typ_int}, {"uint", TokenType::Typ_uint},

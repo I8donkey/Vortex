@@ -115,6 +115,10 @@ private:
     // 由本解释器持有并执行的 Program（供模块导入复用，保活函数 def 指针）
     std::shared_ptr<Program> held_prog_;
 
+    // 当前正在处理的异常（供 `raise;` 重抛）
+    std::string cur_exc_type_;
+    std::string cur_exc_msg_;
+
     // 加载用户源码模块（import 未命中 std_modules_ 时）；失败抛 RuntimeError
     ValuePtr load_user_module(const std::string& module);
 
@@ -150,6 +154,7 @@ private:
     ControlSignal exec_function_def(const FunctionDefStmt* s);
     ControlSignal exec_import(const ImportStmt* s);
     ControlSignal exec_try(const TryCatchStmt* s);
+    ControlSignal exec_raise(const RaiseStmt* s);
     ControlSignal exec_class(const ClassDeclStmt* s);
     // ---- operator 重载（只能顶层声明）----
     // 重载表：key = "op#左类型" (一元) 或 "op#左类型#右类型" (二元)

@@ -257,6 +257,16 @@ void Interpreter::init_builtins() {
         return Value::make_str(value_type_desc(a[0]));
     });
 
+    // 内建错误类型（构造器）：Error 基类 + 派生；Error("msg") 造出错误值
+    for (const char* et : {"Error", "TypeError", "ValueError", "IndexError", "KeyError",
+                           "ZeroDivisionError", "NameError", "RuntimeError",
+                           "AssertionError", "SintaxError", "SyntaxError"}) {
+        std::string etype = et;
+        reg_builtin(etype, 0, 1, [etype](const ValueVec& a, Environment&) {
+            return Value::make_error(etype, a.empty() ? std::string() : a[0]->to_string());
+        });
+    }
+
     // range
     reg_builtin("range", 2, 3, [](const ValueVec& a, Environment&) {
         long long start = value_to_int(a[0])->int_val;
@@ -987,6 +997,7 @@ ControlSignal Interpreter::execute(const Stmt* stmt) {
         case StmtKind::FunctionDef: return exec_function_def(static_cast<const FunctionDefStmt*>(stmt));
         case StmtKind::Import:     return exec_import(static_cast<const ImportStmt*>(stmt));
         case StmtKind::TryCatch:   return exec_try(static_cast<const TryCatchStmt*>(stmt));
+        case StmtKind::Raise:      return exec_raise(static_cast<const RaiseStmt*>(stmt));
         case StmtKind::ClassDecl:  return exec_class(static_cast<const ClassDeclStmt*>(stmt));
         case StmtKind::OperatorDecl: return exec_operator_decl(static_cast<const OperatorDeclStmt*>(stmt));
         case StmtKind::Assert: {
@@ -1391,27 +1402,57 @@ ControlSignal Interpreter::exec_try(const TryCatchStmt* s) {
         if (s->finally_body) execute_block(s->finally_body->stmts);
         return cs;
     } catch (const RuntimeError& e) {
-        ControlSignal cs;
-        if (s->catch_body) {
-            Environment scope(entry_env);
-            current_env_ = &scope;
-            if (!s->exception_var.empty()) {
-                scope.define(s->exception_var, Value::make_str(e.message()), false);
-            }
-            try {
-                cs = execute_block(s->catch_body->stmts);
-            } catch (...) {
-                current_env_ = entry_env;
-                throw;
-            }
-            current_env_ = entry_env;
-        } else {
-            current_env_ = entry_env;
+        // 类型匹配：未写类型 = 全捕获；写了则精确匹配或父类 Error 兜底
+        const bool matched = s->exception_type.empty() ||
+                             s->exception_type == e.type() || s->exception_type == "Error";
+        if (!s->catch_body || !matched) {
+            if (s->finally_body) execute_block(s->finally_body->stmts);
+            throw;   // 不匹配：finally 已执行，继续向上抛
         }
+        ControlSignal cs;
+        Environment scope(entry_env);
+        current_env_ = &scope;
+        if (!s->exception_var.empty()) {
+            // 不写类型 -> 消息字符串（保持既有语义）；写了类型 -> 错误对象
+            if (s->exception_type.empty())
+                scope.define(s->exception_var, Value::make_str(e.message()), false);
+            else
+                scope.define(s->exception_var,
+                             Value::make_error(e.type(), e.message()), false);
+        }
+        std::string saved_t = cur_exc_type_, saved_m = cur_exc_msg_;
+        cur_exc_type_ = e.type();
+        cur_exc_msg_ = e.message();
+        try {
+            cs = execute_block(s->catch_body->stmts);
+        } catch (...) {
+            current_env_ = entry_env;
+            cur_exc_type_ = saved_t;
+            cur_exc_msg_ = saved_m;
+            throw;
+        }
+        current_env_ = entry_env;
+        cur_exc_type_ = saved_t;
+        cur_exc_msg_ = saved_m;
         if (s->finally_body) execute_block(s->finally_body->stmts);
-        if (!s->catch_body) throw;
         return cs;
     }
+}
+
+// raise [表达式];  无表达式 = 重抛当前异常
+ControlSignal Interpreter::exec_raise(const RaiseStmt* s) {
+    if (!s->value) {
+        if (cur_exc_msg_.empty() && cur_exc_type_.empty())
+            throw RuntimeError("No active exception to re-raise");
+        throw RuntimeError(cur_exc_msg_, cur_exc_type_.empty() ? "Error" : cur_exc_type_);
+    }
+    ValuePtr v = evaluate(s->value.get());
+    if (!v) throw RuntimeError("Cannot raise none");
+    if (v->type == ValueType::Error && v->error_rep)
+        throw RuntimeError(v->error_rep->message, v->error_rep->type);
+    if (v->type == ValueType::Str || v->type == ValueType::UniStr)
+        throw RuntimeError(v->str_val, "Error");
+    throw RuntimeError(v->to_string(), "Error");
 }
 
 // ============ Expressions ============
@@ -1628,11 +1669,11 @@ ValuePtr Interpreter::eval_assign(const AssignOpExpr* e) {
         if (idx->type == ValueType::Int || idx->type == ValueType::UInt) {
             i = idx->type == ValueType::UInt ? (long long)idx->uint_val : idx->int_val;
         } else {
-            throw RuntimeError("Subscript index must be integer for " + obj->type_name());
+            throw RuntimeError("Subscript index must be integer for " + obj->type_name(), "TypeError");
         }
         if (obj->type == ValueType::List) {
             if (i < 0 || (size_t)i >= obj->list_rep->size())
-                throw RuntimeError("List index out of range");
+                throw RuntimeError("List index out of range", "IndexError");
             auto it = obj->list_rep->begin(); std::advance(it, i);
             if (e->op == "=") *it = rhs;
             else perform_assign(*it, e->op, rhs);
@@ -1640,7 +1681,7 @@ ValuePtr Interpreter::eval_assign(const AssignOpExpr* e) {
         }
         if (obj->type == ValueType::Str || obj->type == ValueType::UniStr) {
             if (i < 0 || (size_t)i >= obj->str_val.size())
-                throw RuntimeError("String index out of range");
+                throw RuntimeError("String index out of range", "IndexError");
             std::string ch = rhs->to_string();
             if (e->op == "=") obj->str_val[i] = ch.empty() ? '\0' : ch[0];
             else {
@@ -1652,7 +1693,7 @@ ValuePtr Interpreter::eval_assign(const AssignOpExpr* e) {
         }
         if (obj->type == ValueType::Bin) {
             if (i < 0 || (size_t)i >= obj->bin_val.size())
-                throw RuntimeError("Bin index out of range");
+                throw RuntimeError("Bin index out of range", "IndexError");
             auto vv = value_to_int(rhs);
             if (e->op == "=") obj->bin_val[i] = (unsigned char)vv->int_val;
             else {
@@ -1835,26 +1876,26 @@ ValuePtr Interpreter::eval_subscript(const SubscriptExpr* e) {
     if (obj->type == ValueType::List) {
         long long i = idx->type == ValueType::UInt ? (long long)idx->uint_val : idx->int_val;
         if (i < 0 || (size_t)i >= obj->list_rep->size())
-            throw RuntimeError("List index out of range");
+            throw RuntimeError("List index out of range", "IndexError");
         auto it = obj->list_rep->begin(); std::advance(it, i);
         return *it;
     }
     if (obj->type == ValueType::Tuple) {
         long long i = idx->type == ValueType::UInt ? (long long)idx->uint_val : idx->int_val;
         if (i < 0 || (size_t)i >= obj->tuple_rep->size())
-            throw RuntimeError("Tuple index out of range");
+            throw RuntimeError("Tuple index out of range", "IndexError");
         return (*obj->tuple_rep)[(size_t)i];
     }
     if (obj->type == ValueType::Str || obj->type == ValueType::UniStr) {
         long long i = idx->type == ValueType::UInt ? (long long)idx->uint_val : idx->int_val;
         if (i < 0 || (size_t)i >= obj->str_val.size())
-            throw RuntimeError("String index out of range");
+            throw RuntimeError("String index out of range", "IndexError");
         return Value::make_char((unsigned char)obj->str_val[(size_t)i]);
     }
     if (obj->type == ValueType::Bin) {
         long long i = idx->type == ValueType::UInt ? (long long)idx->uint_val : idx->int_val;
         if (i < 0 || (size_t)i >= obj->bin_val.size())
-            throw RuntimeError("Bin index out of range");
+            throw RuntimeError("Bin index out of range", "IndexError");
         return Value::make_int(obj->bin_val[(size_t)i]);
     }
     if (obj->type == ValueType::Dict) {
@@ -2388,7 +2429,7 @@ ValuePtr Interpreter::call_method(const ValuePtr& obj, const std::string& m, con
             if (m == "len") return value_from_uint(T.size());
             if (m == "get") {
                 size_t i = (size_t)value_to_int(args[0])->int_val;
-                if (i >= T.size()) throw RuntimeError("tuple index out of range");
+                if (i >= T.size()) throw RuntimeError("tuple index out of range", "IndexError");
                 return T[i];
             }
             if (m == "swap") {

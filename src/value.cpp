@@ -24,6 +24,13 @@ ValuePtr Value::make_set() { auto p = std::make_shared<Value>(ValueType::Set); p
 ValuePtr Value::make_undset() { auto p = std::make_shared<Value>(ValueType::UndSet); p->undset_rep = std::make_shared<UndSetRep>(); return p; }
 ValuePtr Value::make_dict() { auto p = std::make_shared<Value>(ValueType::Dict); p->dict_rep = std::make_shared<DictRep>(); return p; }
 ValuePtr Value::make_pair(ValuePtr a, ValuePtr b) { auto p = std::make_shared<Value>(ValueType::Pair); p->pair_rep = std::make_shared<PairRep>(); p->pair_rep->first = std::move(a); p->pair_rep->second = std::move(b); return p; }
+ValuePtr Value::make_error(std::string type, std::string message) {
+    auto p = std::make_shared<Value>(ValueType::Error);
+    p->error_rep = std::make_shared<ErrorRep>();
+    p->error_rep->type = std::move(type);
+    p->error_rep->message = std::move(message);
+    return p;
+}
 ValuePtr Value::make_tuple(std::vector<ValuePtr> items) { auto p = std::make_shared<Value>(ValueType::Tuple); p->tuple_rep = std::make_shared<TupleRep>(std::move(items)); return p; }
 ValuePtr Value::make_adr(std::string name, Environment* env) { auto p = std::make_shared<Value>(ValueType::MemAdr); p->adr_rep = std::make_shared<MemAdrValue>(); p->adr_rep->var_name = std::move(name); p->adr_rep->env = env; return p; }
 ValuePtr Value::make_module() { auto p = std::make_shared<Value>(ValueType::Module); p->module_rep = std::make_shared<ModuleRep>(); return p; }
@@ -54,6 +61,7 @@ std::string Value::type_name() const {
         case ValueType::Module: return "module";
         case ValueType::Class: return "class";
         case ValueType::Instance: return "instance";
+        case ValueType::Error:    return error_rep ? error_rep->type : "Error";
         case ValueType::Opaque:
             return opaque_rep ? ("opaque<" + opaque_rep->kind + ">") : "opaque";
     }
@@ -83,6 +91,7 @@ std::string Value::to_string() const {
         }
         case ValueType::Str:
         case ValueType::UniStr: return str_val;
+        case ValueType::Error: return error_rep ? error_rep->message : std::string();
         case ValueType::Bin: {
             std::string r;
             for (unsigned char c : bin_val) { r += (char)c; }
@@ -168,6 +177,7 @@ bool Value::truthy() const {
         case ValueType::Pair: case ValueType::Tuple: return true;
         case ValueType::MemAdr: case ValueType::Function: return true;
         case ValueType::Module: case ValueType::Class: case ValueType::Instance: return true;
+        case ValueType::Error: return true;   // 错误对象恒为真
         case ValueType::Opaque: return opaque_rep != nullptr;
     }
     return false;
@@ -260,10 +270,16 @@ static ValuePtr apply_arith(const ValuePtr& a, const ValuePtr& b,
 // 解决上面引用 ULong/ULong 未枚举问题，简化：只要是 UInt 就算 unsigned
 
 ValuePtr value_add(const ValuePtr& a, const ValuePtr& b) {
-    // 字符串拼接
-    if ((a->type == ValueType::Str && b->type == ValueType::Str) ||
-        (a->type == ValueType::UniStr && b->type == ValueType::UniStr)) {
-        return Value::make_str(a->str_val + b->str_val);
+    // 字符串拼接（错误对象按其消息参与拼接，与编译器端 catch 变量为字符串一致）
+    {
+        auto as_str = [](const ValuePtr& v) -> const std::string* {
+            if (v->type == ValueType::Str || v->type == ValueType::UniStr) return &v->str_val;
+            if (v->type == ValueType::Error && v->error_rep) return &v->error_rep->message;
+            return nullptr;
+        };
+        const std::string* sa = as_str(a);
+        const std::string* sb = as_str(b);
+        if (sa && sb) return Value::make_str(*sa + *sb);
     }
     if (a->type == ValueType::List && b->type == ValueType::List) {
         auto r = Value::make_list();
@@ -308,7 +324,7 @@ ValuePtr value_div(const ValuePtr& a, const ValuePtr& b) {
     Numeric A(a), B(b);
     double av = A.is_float ? A.d : (A.u ? (double)A.u : (double)A.i);
     double bv = B.is_float ? B.d : (B.u ? (double)B.u : (double)B.i);
-    if (bv == 0) throw RuntimeError("Division by zero");
+    if (bv == 0) throw RuntimeError("Division by zero", "ZeroDivisionError");
     return Value::make_float(av / bv);
 }
 
@@ -317,16 +333,16 @@ ValuePtr value_floordiv(const ValuePtr& a, const ValuePtr& b) {
     if (A.is_float || B.is_float) {
         double av = A.is_float ? A.d : (A.u ? (double)A.u : (double)A.i);
         double bv = B.is_float ? B.d : (B.u ? (double)B.u : (double)B.i);
-        if (bv == 0) throw RuntimeError("Division by zero");
+        if (bv == 0) throw RuntimeError("Division by zero", "ZeroDivisionError");
         return Value::make_float(std::floor(av / bv));
     }
     if (a->type == ValueType::UInt || b->type == ValueType::UInt) {
         unsigned long long av = A.u ? A.u : (unsigned long long)A.i;
         unsigned long long bv = B.u ? B.u : (unsigned long long)B.i;
-        if (bv == 0) throw RuntimeError("Division by zero");
+        if (bv == 0) throw RuntimeError("Division by zero", "ZeroDivisionError");
         return Value::make_uint(av / bv);
     }
-    if (B.i == 0) throw RuntimeError("Division by zero");
+    if (B.i == 0) throw RuntimeError("Division by zero", "ZeroDivisionError");
     // floor div
     long long q = A.i / B.i;
     if ((A.i ^ B.i) < 0 && A.i % B.i != 0) q -= 1;
@@ -338,16 +354,16 @@ ValuePtr value_mod(const ValuePtr& a, const ValuePtr& b) {
     if (A.is_float || B.is_float) {
         double av = A.is_float ? A.d : (A.u ? (double)A.u : (double)A.i);
         double bv = B.is_float ? B.d : (B.u ? (double)B.u : (double)B.i);
-        if (bv == 0) throw RuntimeError("Modulo by zero");
+        if (bv == 0) throw RuntimeError("Modulo by zero", "ZeroDivisionError");
         return Value::make_float(std::fmod(av, bv));
     }
     if (a->type == ValueType::UInt || b->type == ValueType::UInt) {
         unsigned long long av = A.u ? A.u : (unsigned long long)A.i;
         unsigned long long bv = B.u ? B.u : (unsigned long long)B.i;
-        if (bv == 0) throw RuntimeError("Modulo by zero");
+        if (bv == 0) throw RuntimeError("Modulo by zero", "ZeroDivisionError");
         return Value::make_uint(av % bv);
     }
-    if (B.i == 0) throw RuntimeError("Modulo by zero");
+    if (B.i == 0) throw RuntimeError("Modulo by zero", "ZeroDivisionError");
     long long r = A.i % B.i;
     if ((B.i > 0 && r < 0) || (B.i < 0 && r > 0)) r += B.i;
     return Value::make_int(r);
@@ -590,9 +606,9 @@ ValuePtr value_to_int(const ValuePtr& a) {
     if (a->type == ValueType::Char || a->type == ValueType::Unichar) return Value::make_int(a->char_val);
     if (a->type == ValueType::Str || a->type == ValueType::UniStr) {
         try { return Value::make_int(std::stoll(a->str_val)); }
-        catch (...) { throw RuntimeError("Cannot convert '" + a->str_val + "' to int"); }
+        catch (...) { throw RuntimeError("Cannot convert '" + a->str_val + "' to int", "ValueError"); }
     }
-    throw RuntimeError("Cannot convert " + a->type_name() + " to int");
+    throw RuntimeError("Cannot convert " + a->type_name() + " to int", "ValueError");
 }
 ValuePtr value_to_long(const ValuePtr& a) { return value_to_int(a); } // 简化：long = long long
 ValuePtr value_to_uint(const ValuePtr& a) {
@@ -603,9 +619,9 @@ ValuePtr value_to_uint(const ValuePtr& a) {
     if (a->type == ValueType::Char) return Value::make_uint(a->char_val);
     if (a->type == ValueType::Str || a->type == ValueType::UniStr) {
         try { return Value::make_uint(std::stoull(a->str_val)); }
-        catch (...) { throw RuntimeError("Cannot convert '" + a->str_val + "' to uint"); }
+        catch (...) { throw RuntimeError("Cannot convert '" + a->str_val + "' to uint", "ValueError"); }
     }
-    throw RuntimeError("Cannot convert " + a->type_name() + " to uint");
+    throw RuntimeError("Cannot convert " + a->type_name() + " to uint", "ValueError");
 }
 ValuePtr value_to_ulong(const ValuePtr& a) { return value_to_uint(a); }
 ValuePtr value_to_float(const ValuePtr& a) {
@@ -616,9 +632,9 @@ ValuePtr value_to_float(const ValuePtr& a) {
     if (a->type == ValueType::Char) return Value::make_float(a->char_val);
     if (a->type == ValueType::Str || a->type == ValueType::UniStr) {
         try { return Value::make_float(std::stod(a->str_val)); }
-        catch (...) { throw RuntimeError("Cannot convert '" + a->str_val + "' to float"); }
+        catch (...) { throw RuntimeError("Cannot convert '" + a->str_val + "' to float", "ValueError"); }
     }
-    throw RuntimeError("Cannot convert " + a->type_name() + " to float");
+    throw RuntimeError("Cannot convert " + a->type_name() + " to float", "ValueError");
 }
 ValuePtr value_to_bool(const ValuePtr& a) { return Value::make_bool(a->truthy()); }
 ValuePtr value_to_str(const ValuePtr& a) {
@@ -640,7 +656,7 @@ ValuePtr value_to_bin(const ValuePtr& a) {
         for (int i = 0; i < 8; ++i) { v.push_back(x & 0xFF); x >>= 8; }
         return Value::make_bin(v);
     }
-    throw RuntimeError("Cannot convert " + a->type_name() + " to bin");
+    throw RuntimeError("Cannot convert " + a->type_name() + " to bin", "ValueError");
 }
 
 // ================ format ================

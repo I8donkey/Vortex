@@ -256,6 +256,12 @@ static void dump_stmt(const Stmt* s, int i) {
             }
             break;
         }
+        case StmtKind::Raise: {
+            auto r = static_cast<const RaiseStmt*>(s);
+            std::cout << ind(i) << "Raise\n";
+            if (r->value) dump_expr(r->value.get(), i+1);
+            break;
+        }
     }
 }
 

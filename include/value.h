@@ -44,6 +44,7 @@ enum class ValueType {
     Class,      // class 定义对象（module_rep 存方法表）
     Instance,   // class 实例（module_rep 存字段值）
     Opaque,     // 不透明句柄：GPU资源 / 2D精灵 / 3D节点 等扩展对象
+    Error,      // 错误对象（类型名 + 消息），供 raise / catch 使用
 };
 
 struct Value;
@@ -88,6 +89,7 @@ using UndSetRep = std::unordered_set<ValuePtr, ValueHash, ValueEqual>;
 using DictRep   = std::unordered_map<ValuePtr, ValuePtr, ValueHash, ValueEqual>;
 
 struct PairRep { ValuePtr first; ValuePtr second; };
+struct ErrorRep { std::string type; std::string message; };
 using TupleRep  = std::vector<ValuePtr>;
 using ModuleRep = std::unordered_map<std::string, ValuePtr>; // 模块成员：常量或函数
 
@@ -142,6 +144,7 @@ struct Value : std::enable_shared_from_this<Value> {
     std::shared_ptr<UndSetRep> undset_rep;
     std::shared_ptr<DictRep> dict_rep;
     std::shared_ptr<PairRep> pair_rep;
+    std::shared_ptr<ErrorRep> error_rep;
     std::shared_ptr<TupleRep> tuple_rep;
     std::shared_ptr<FunctionValue> fn_rep;
     std::shared_ptr<MemAdrValue> adr_rep;
@@ -170,6 +173,7 @@ struct Value : std::enable_shared_from_this<Value> {
     static ValuePtr make_undset();
     static ValuePtr make_dict();
     static ValuePtr make_pair(ValuePtr a, ValuePtr b);
+    static ValuePtr make_error(std::string type, std::string message);
     static ValuePtr make_tuple(std::vector<ValuePtr> items);
     static ValuePtr make_adr(std::string name, Environment* env);
     static ValuePtr make_module();
@@ -237,11 +241,14 @@ std::string format_value(const ValuePtr& v, const std::string& spec);
 // 异常类
 class RuntimeError : public std::exception {
 public:
-    explicit RuntimeError(std::string m) : msg_(std::move(m)) {}
+    explicit RuntimeError(std::string m, std::string t = "Error")
+        : msg_(std::move(m)), type_(std::move(t)) {}
     const char* what() const noexcept override { return msg_.c_str(); }
     const std::string& message() const { return msg_; }
+    const std::string& type() const { return type_; }
 private:
     std::string msg_;
+    std::string type_;
 };
 
 } // namespace vortex

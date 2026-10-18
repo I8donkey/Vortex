@@ -213,6 +213,7 @@ enum class StmtKind {
     Match,
     ClassDecl,
     OperatorDecl,
+    Raise,
 };
 
 struct Stmt {
@@ -351,6 +352,13 @@ struct FunctionDefStmt : Stmt {
     std::vector<ParamDeclPtr> params;
     std::unique_ptr<BlockStmt> body;
     FunctionDefStmt() : Stmt(StmtKind::FunctionDef) {}
+};
+
+// raise 语句：raise [表达式];
+//   无表达式 = 重抛当前异常
+struct RaiseStmt : Stmt {
+    ExprPtr value;
+    RaiseStmt() : Stmt(StmtKind::Raise) {}
 };
 
 // import

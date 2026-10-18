@@ -52,6 +52,7 @@ private:
     StmtPtr parse_function_def_body(std::unique_ptr<FunctionDefStmt> stmt);
     StmtPtr parse_import();
     StmtPtr parse_try();
+    StmtPtr parse_raise();
     StmtPtr parse_expr_as_stmt(ExprPtr first_expr = nullptr);
 
     // ==== 表达式（按优先级） ====

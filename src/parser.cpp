@@ -102,6 +102,7 @@ StmtPtr Parser::parse_stmt() {
     if (check(TokenType::Kw_def)) return parse_function_def();
     if (check(TokenType::Kw_import) || check(TokenType::Kw_from)) return parse_import();
     if (check(TokenType::Kw_try)) return parse_try();
+    if (check(TokenType::Kw_raise)) return parse_raise();
     if (check(TokenType::Kw_break)) { advance(); expect(TokenType::Semicolon); return std::make_unique<BreakStmt>(); }
     if (check(TokenType::Kw_continue)) { advance(); expect(TokenType::Semicolon); return std::make_unique<ContinueStmt>(); }
     if (check(TokenType::Kw_return)) {
@@ -536,9 +537,12 @@ StmtPtr Parser::parse_try() {
     stmt->try_body = parse_block();
     if (match(TokenType::Kw_catch)) {
         if (match(TokenType::LParen)) {
+            // catch (e) 或 catch (Type e)：类型位接受内建类型关键字或用户/错误类名
             if (is_type_keyword(peek_t())) {
-                auto tp = parse_type_spec();
-                stmt->exception_type = tp->base_name;
+                stmt->exception_type = parse_type_spec()->base_name;
+            } else if (check(TokenType::Identifier) &&
+                       peek(1).type == TokenType::Identifier) {
+                stmt->exception_type = advance().text;   // 类名作类型
             }
             Token var = expect(TokenType::Identifier, "exception var");
             stmt->exception_var = var.text;
@@ -549,6 +553,15 @@ StmtPtr Parser::parse_try() {
     if (match(TokenType::Kw_finally)) {
         stmt->finally_body = parse_block();
     }
+    return stmt;
+}
+
+// raise [表达式];  无表达式 = 重抛当前异常
+StmtPtr Parser::parse_raise() {
+    auto stmt = std::make_unique<RaiseStmt>();
+    expect(TokenType::Kw_raise);
+    if (!check(TokenType::Semicolon)) stmt->value = parse_expr();
+    expect(TokenType::Semicolon);
     return stmt;
 }
 

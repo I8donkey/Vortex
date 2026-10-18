@@ -131,10 +131,10 @@ VStr* vor_bool_to_str(int b) {
     return vor_str_from_cstr(b ? "true" : "false");
 }
 
-// str -> 标量（解析失败抛异常，与解释器一致）
+// str -> 标量（解析失败抛异常，与解释器一致；类型化 ValueError）
 static VORTEX_RT_NORETURN void throw_rt(const char* msg) {
     VStr* m = vor_str_from_cstr(msg);
-    vor_throw_str(m);
+    vor_throw_typed(vor_str_from_cstr("ValueError"), m);
     vor_obj_release(m);
 }
 long long vor_cast_i64(VStr* s) {
@@ -167,7 +167,7 @@ double vor_cast_f64(VStr* s) {
 // ========== 异常：setjmp/longjmp (P3 try/catch) ==========
 // UCRT 不导出普通 `setjmp`（它是 SEH 内建），故自行提供 Win64 低层
 // setjmp/longjmp（naked asm），避免任何 DLL 入口依赖。
-struct RT_ExFrame { void* jb; char msg[512]; RT_ExFrame* prev; };
+struct RT_ExFrame { void* jb; char msg[512]; char etype[64]; RT_ExFrame* prev; };
 static thread_local RT_ExFrame* rt_ex_top_ = nullptr;
 
 #if defined(_WIN32) && defined(__x86_64__)
@@ -226,16 +226,23 @@ extern "C" void vor_ex_longjmp(void* jb, int val) {
 
 void vor_ex_push(void* jb) {
     RT_ExFrame* f = (RT_ExFrame*)xmalloc(sizeof(RT_ExFrame));
-    f->jb = jb; f->msg[0] = '\0'; f->prev = rt_ex_top_;
+    f->jb = jb; f->msg[0] = '\0';
+    std::snprintf(f->etype, sizeof(f->etype), "%s", "Error");
+    f->prev = rt_ex_top_;
     rt_ex_top_ = f;
 }
 void vor_ex_pop(void) {
     if (rt_ex_top_) { RT_ExFrame* p = rt_ex_top_->prev; std::free(rt_ex_top_); rt_ex_top_ = p; }
 }
 void VORTEX_RT_NORETURN vor_throw_str(VStr* msg) {
+    vor_throw_typed(nullptr, msg);
+}
+void VORTEX_RT_NORETURN vor_throw_typed(VStr* type, VStr* msg) {
     if (rt_ex_top_) {
         std::snprintf(rt_ex_top_->msg, sizeof(rt_ex_top_->msg), "%s",
                       msg ? msg->data : "");
+        std::snprintf(rt_ex_top_->etype, sizeof(rt_ex_top_->etype), "%s",
+                      (type && type->data[0]) ? type->data : "Error");
         vor_ex_longjmp(rt_ex_top_->jb, 1);
     }
     std::fprintf(stderr, "%s\n", msg ? msg->data : "");
@@ -243,6 +250,9 @@ void VORTEX_RT_NORETURN vor_throw_str(VStr* msg) {
 }
 VStr* vor_ex_caught(void) {
     return vor_str_from_cstr(rt_ex_top_ ? rt_ex_top_->msg : "");
+}
+VStr* vor_ex_type(void) {
+    return vor_str_from_cstr(rt_ex_top_ ? rt_ex_top_->etype : "Error");
 }
 
 // ========== 列表 ==========
