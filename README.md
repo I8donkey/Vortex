@@ -4,13 +4,18 @@
 
 Vortex is a Python-inspired scripting language with three interoperable modes: a **tree-walking interpreter**, an **LLVM native compiler** (`vortexcc`) that turns `.vt` sources into standalone machine-code executables, and a **Qt editor** that integrates both. Every language feature is implemented for *both* the interpreter and the compiler, and the two backends are kept semantically identical through golden regression tests.
 
-Vortex ships batteries for scripting: dynamic-typed scalars, containers, functions with closures, reference semantics, exception handling, modules (`math`, `time`, `random`, `thread`, `log`, `game2d`, `render3d`), and software-rendered 2D/3D graphics.
+Vortex ships batteries for scripting: dynamic-typed scalars, containers, functions with closures, classes with single inheritance, operator overloading, type inference (`auto`) and destructuring, exact base-10 decimals (`extfloat`), reference semantics, exception handling (`raise` / typed `catch`), external C function calls (`extdef`), modules (`math`, `time`, `random`, `thread`, `log`, `game2d`, `render3d`), and software-rendered 2D/3D graphics.
 
 ---
 
 ## Table of Contents
 
 - [Language Reference](#language-reference) (full syntax, Python-oriented)
+  - [Classes & Inheritance](#classes--inheritance)
+  - [Operator Overloading](#operator-overloading)
+  - [Type Inference (`auto`) & Destructuring](#type-inference-auto--destructuring)
+  - [Exact Decimals (`extfloat`)](#exact-decimals-extfloat)
+  - [External C Functions (`extdef`)](#external-c-functions-extdef)
 - [Standard Library Modules](#standard-library-modules)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
@@ -163,6 +168,138 @@ Named arguments use `name = value` at the call site.
 
 
 
+### Classes & Inheritance
+
+`class` declares a type with fields and methods; `class Child(Parent)` adds **single inheritance**. `init(self, ...)` is the constructor, and every method takes an explicit `self`. Method lookup walks the parent chain (child first), so subclasses **override**; fields are initialized root → child.
+
+```vt
+class Point {
+    int x;
+    int y;
+    def init(self, x, y) { self.x = x; self.y = y; }
+    def sum(self) { return self.x + self.y; }
+}
+Point p = Point(3, 4);
+print(p.sum());          # 7
+p.x = 10;                # fields are mutable
+print(p.sum());          # 14
+
+class Point3(Point) {                     # single inheritance
+    int z;
+    def init(self, x, y, z) { self.x = x; self.y = y; self.z = z; }
+    def sum(self) { return self.x + self.y + self.z; }   # override
+}
+Point3 q = Point3(1, 2, 3);
+print(q.sum());          # 6
+print(q.x);              # 1 — inherited field
+```
+
+A subclass inherits fields and methods even when it declares no `init` of its own (the parent `init` is used).
+
+
+
+### Operator Overloading
+
+Top-level `operator` declarations overload a binary or unary operator for specific operand types (static dispatch on the operand types).
+
+```vt
+class node {
+    int a; int b; int c;
+    def init(self, a, b, c) { self.a = a; self.b = b; self.c = c; }
+    def merge(self, other: node) { return node(self.a + other.a, self.b + other.b, self.c + other.c); }
+}
+
+node operator node x + node y     { return x.merge(y); }            # binary, same types
+node operator node x + int  k     { return x.merge(node(k, k, k)); } # binary, mixed types
+node operator - node x            { return node(-x.a, -x.b, -x.c); } # unary prefix
+node operator > node x            { return x.merge(x); }             # unary prefix
+
+node p = node(1, 2, 3);
+node r = p + node(10, 20, 30);
+node s = -r;
+node u = p + 5;
+```
+
+Form: `<ret> operator <ltype> <lname> <op> <rtype> <rname> { ... }` for binary, `<ret> operator <op> <type> <name> { ... }` for unary. Declarations are allowed **only at top level** — not inside a `class` body. Both `>` and `<` may be used as prefix unary operators this way.
+
+
+
+### Type Inference (`auto`) & Destructuring
+
+`auto` infers a variable's type from its initializer. `auto [a, b, ...] = expr;` destructures a value positionally.
+
+```vt
+auto i = 3;
+auto s = "asd";
+auto l = [1, 2, 3];
+auto t = (1, 2, 3);           # tuple literal
+auto d = {1: 1, 2: 2};        # dict literal
+auto n = node(7, 8, 9);
+
+auto [t0, t1, t2] = t;              # tuple
+auto [p, q] = (10, 20);             # pair / 2-tuple
+auto [m, k] = [2, 3];               # list elements
+auto [x, y, z] = node(4, 5, 6);     # class instance fields (root → child)
+```
+
+Rules: `auto` requires an initializer; destructuring is only allowed with `auto`; the unpacked elements are bound as `int`; the name count must match (for an instance, the total field count along the parent chain). Supported sources: tuple, pair, list, and class instances (fields only, not methods).
+
+Functions and methods accept a **`auto` return type** as well:
+
+```vt
+int add(int a, int b) { return a + b; }   # explicit return type
+auto twice(int a) { return a * 2; }       # return type inferred
+```
+
+Destructuring binds by position, and the tuple literal `(a, b, c)` is also how tuples are written (`tuple` values report `auto_generated_class(...)` via `type()`, see [Built-in Functions](#built-in-functions)).
+
+
+
+### Exact Decimals (`extfloat`)
+
+`extfloat` is an exact base-10 decimal type (like Python's `decimal`), written with an `ext` suffix. Arithmetic, comparison and conversion are exact and identical across both backends.
+
+```vt
+extfloat a = 0.1ext;
+extfloat b = 0.2ext;
+print(a + b);          # 0.3
+print(0.1 + 0.2ext);   # 0.3
+print(1ext / 3ext);    # 0.3333333333333333333333333  (25 significant digits)
+print(7ext // 3ext);   # 2
+print(7ext % 3ext);    # 1
+print(0.1ext ** 3ext); # 0.001
+print(a == 0.1ext);    # true
+print(type(a));        # extfloat
+
+extfloat d = extfloat("1.25");
+print(int(2.9ext));    # 2   (truncates toward zero)
+print(float(0.5ext));  # 0.5
+print(str(a));         # 0.1
+```
+
+An `extfloat` literal is written `0.1ext` (or `1ext`). Mixing with `int`/`float` promotes the other operand exactly (e.g. `a + 1`, `1 + a`, `0.1 + 0.2ext`). Division keeps 25 significant digits; `//` (floor division) and `%` follow sign conventions consistent with the integer operators.
+
+
+
+### External C Functions (`extdef`)
+
+`extdef` declares a function that lives in an external C library / DLL and calls it directly. Supported C types: `cint`, `cuint`, `clong`, `culong`, `cdouble`, `cstr` (string), `cptr` (opaque pointer).
+
+```vt
+extdef cstr zlibVersion() from "../bin/libzlib.dll";
+extdef cuint crc32(cuint crc, cstr buf, cuint len) from "../bin/libzlib.dll";
+
+print(zlibVersion());        # 1.3.1
+print(crc32(0, "hello", 5)); # 907060870
+```
+
+- The **interpreter** loads the library at runtime (`LoadLibrary` + `GetProcAddress`) and marshals arguments/return values. `cdouble` **parameters** are not supported by the interpreter (a `cdouble` *return* value is fine).
+- **`vortexcc`** declares the symbol and links automatically: for each `from` DLL it generates a MinGW import library (`gendef` + `dlltool`) and appends it to the link step — no manual linking required.
+- **`vtpm pack`** bundles the DLLs referenced by `extdef ... from` into the `.vtp` (and recursively scans the PE import tables of any `.exe`/`.dll` input), so the package is self-contained.
+- The `.dll` must be resolvable at runtime (next to the executable or on `PATH`).
+
+
+
 ### Containers & Subscripting
 
 ```vt
@@ -175,7 +312,7 @@ print(d["k"]);
 
 set s = set([1, 2, 3]);
 pair p = pair(1, "one");
-tuple t = tuple(...);
+tuple t = (1, 2, 3);              # tuple literal
 ```
 
 `stack`, `queue`, `undset` are also available. `a.b` performs member access.
@@ -207,7 +344,7 @@ int y = x;
 
 
 
-### Exceptions (`try` / `catch` / `finally`)
+### Exceptions (`try` / `catch` / `finally`, `raise`)
 
 ```vt
 try {
@@ -219,7 +356,24 @@ try {
 }
 ```
 
-`throw` is not a user-facing keyword; library operations (e.g. `int("bad")`) throw internally and are caught via `try/catch`.
+Programs can also raise their own exceptions with `raise`, and `catch` can **filter by type**:
+
+```vt
+try {
+    raise Error("boom");          # raise a built-in error object
+} catch (Error e) {               # typed catch: matches Error and its subclasses
+    print("caught:" + e);         # caught:boom
+}
+
+try { raise TypeError("typed"); } catch (e) { print(e); }
+
+try { raise "plain"; } catch (e) { print(e); }   # a bare value is caught by an untyped catch
+```
+
+- `raise <value>` throws. The value may be a built-in error object or a plain value.
+- Built-in error types: `Error` (base), `TypeError`, `ValueError`, `SintaxError`, `IndexError`, `ZeroDivisionError`. `e` prints/concatenates as its message.
+- `catch (<Type> e)` matches that type and its subclasses; a **non-matching** exception propagates to the next enclosing `try`. `catch (e)` (no type) catches everything.
+- Built-in runtime errors are typed too: `int("bad")` raises a `ValueError`, so `catch (ValueError e)` matches it.
 
 
 
@@ -239,6 +393,8 @@ See [Standard Library Modules](#standard-library-modules).
 
 - `print(...)` — write one or more values, space-separated.
 - Type conversion casts: `int()`, `long()`, `float()`, `double()`, `str()`, `bool()`, `uint()`, `ulong()`, `char()`.
+- `extfloat(x)` — build an exact decimal from a string or number.
+- `type(v)` — the value's type name (`int` / `double` / `bool` / `char` / `str` / `list` / `dict` / `extfloat`, a class name for instances, and `auto_generated_class(<elem types>)` for tuples, e.g. `type((1, 2, true, 'c'))` → `auto_generated_class(int,int,bool,char)`).
 - `range(start, stop, step)` — iterate a numeric range.
 
 ### Concurrency
@@ -249,9 +405,11 @@ The `thread` module provides thread creation/join, mutex, atomics, channels, and
 
 ### Notes vs Python
 
-- Vortex is **type-embedded**: declarations carry explicit types (`int x = 1;`), unlike Python's implicit typing.
+- Vortex is **type-embedded**: declarations carry explicit types (`int x = 1;`), unlike Python's implicit typing. `auto` offers inference (`auto x = expr;`).
 - Blocks use `{ }` and terminate statements with `;`, not indentation.
 - Logic operators are `&&`/`||`/`!` (Python words `and`/`or`/`not` are accepted equivalently).
+- Classes use `class Child(Parent)` for single inheritance and an explicit `self`; operators are overloaded with top-level `operator` declarations.
+- Exact base-10 decimals use an `ext` suffix (`0.1ext`) instead of Python's `decimal.Decimal`.
 - Users write `#comment` the same way, and `for`/`while`/`if`/`def`/`lambda` map one-to-one.
 
 ---
@@ -364,7 +522,9 @@ vtpm list mymath.vtp                # list entries
 import mymath;                      # still resolves when the .vt is gone
 ```
 
-Both the interpreter and `vortexcc` support `.vt`/`.vtp` module imports. See [USAGE.md](USAGE.md#23-vtpm--packager-vt--vtp-lzma2-compression).
+When a packed `.vt` declares `extdef ... from "..."`, `vtpm` also bundles the referenced DLLs (and recursively the PE imports of any `.exe`/`.dll` input) so the package is self-contained. See [USAGE.md](USAGE.md#23-vtpm--packager-vt--vtp-lzma2-compression).
+
+Both the interpreter and `vortexcc` support `.vt`/`.vtp` module imports.
 
 ---
 

@@ -4,13 +4,18 @@
 
 Vortex 是一门借鉴 Python 的脚本语言，提供三种互通使用方式：**树遍历解释器**、**LLVM 原生编译器 `vortexcc`**（将 `.vt` 源码直接编译为独立机器码可执行文件）、以及整合两者的 **Qt 编辑器**。所有语言特性在「解释器」与「编译器」**两端均已实现**，并通过 golden 回归测试保证两种后端语义完全一致。
 
-Vortex 自带完整脚本能力：动态标量、容器、支持闭包的函数、引用语义、异常处理、标准模块（`math`、`time`、`random`、`thread`、`log`、`game2d`、`render3d`）以及软件渲染的 2D/3D 图形。
+Vortex 自带完整脚本能力：动态标量、容器、支持闭包的函数、带单继承的类、运算符重载、类型推导（`auto`）与解构、精确十进制（`extfloat`）、引用语义、异常处理（`raise` / 类型化 `catch`）、外部 C 函数调用（`extdef`）、标准模块（`math`、`time`、`random`、`thread`、`log`、`game2d`、`render3d`）以及软件渲染的 2D/3D 图形。
 
 ---
 
 ## 目录
 
 - [语法参考](#语法参考)（完整语法，参考 Python 组织）
+  - [类与继承](#类与继承)
+  - [运算符重载](#运算符重载)
+  - [类型推导（auto）与解构](#类型推导auto与解构)
+  - [精确十进制（extfloat）](#精确十进制extfloat)
+  - [外部 C 函数（extdef）](#外部-c-函数extdef)
 - [标准库模块](#标准库模块)
 - [安装](#安装)
 - [快速开始](#快速开始)
@@ -163,6 +168,138 @@ print(bump(2));          # 102 —— 按引用实时捕获
 
 - **解释器** ✓　**编译器** ✓
 
+### 类与继承
+
+`class` 声明带字段与方法的类型；`class Child(Parent)` 表示**单继承**。`init(self, ...)` 是构造方法，每个方法都要显式写 `self`。方法沿父链查找（子类优先），因此子类可**重写**父类方法；字段按「根 → 子」顺序初始化。
+
+```vt
+class Point {
+    int x;
+    int y;
+    def init(self, x, y) { self.x = x; self.y = y; }
+    def sum(self) { return self.x + self.y; }
+}
+Point p = Point(3, 4);
+print(p.sum());          # 7
+p.x = 10;                # 字段可修改
+print(p.sum());          # 14
+
+class Point3(Point) {                     # 单继承
+    int z;
+    def init(self, x, y, z) { self.x = x; self.y = y; self.z = z; }
+    def sum(self) { return self.x + self.y + self.z; }   # 重写
+}
+Point3 q = Point3(1, 2, 3);
+print(q.sum());          # 6
+print(q.x);              # 1 —— 继承字段
+```
+
+子类即使不写自己的 `init`，也会继承父类的字段与方法（使用父类 `init`）。
+
+- **解释器** ✓　**编译器** ✓
+
+### 运算符重载
+
+顶层 `operator` 声明可为特定操作数类型重载二元或一元运算符（按操作数类型静态分派）。
+
+```vt
+class node {
+    int a; int b; int c;
+    def init(self, a, b, c) { self.a = a; self.b = b; self.c = c; }
+    def merge(self, other: node) { return node(self.a + other.a, self.b + other.b, self.c + other.c); }
+}
+
+node operator node x + node y     { return x.merge(y); }             # 二元，同类型
+node operator node x + int  k     { return x.merge(node(k, k, k)); }  # 二元，混合类型
+node operator - node x            { return node(-x.a, -x.b, -x.c); }  # 一元前缀
+node operator > node x            { return x.merge(x); }              # 一元前缀
+
+node p = node(1, 2, 3);
+node r = p + node(10, 20, 30);
+node s = -r;
+node u = p + 5;
+```
+
+形式：二元为 `<返回类型> operator <左类型> <左名> <运算符> <右类型> <右名> { ... }`，一元为 `<返回类型> operator <运算符> <类型> <名> { ... }`。声明**只能写在顶层**——不能写在 `class` 体内。`>` 与 `<` 都可以这样作为一元前缀运算符使用。
+
+- **解释器** ✓　**编译器** ✓
+
+### 类型推导（`auto`）与解构
+
+`auto` 按初值推导变量类型。`auto [a, b, ...] = 表达式;` 按位置解构一个值。
+
+```vt
+auto i = 3;
+auto s = "asd";
+auto l = [1, 2, 3];
+auto t = (1, 2, 3);           # 元组字面量
+auto d = {1: 1, 2: 2};        # 字典字面量
+auto n = node(7, 8, 9);
+
+auto [t0, t1, t2] = t;              # 元组
+auto [p, q] = (10, 20);             # pair / 二元组
+auto [m, k] = [2, 3];               # 列表元素
+auto [x, y, z] = node(4, 5, 6);     # 类实例字段（根 → 子）
+```
+
+规则：`auto` 必须有初值；解构只允许与 `auto` 搭配；解构出的元素统一按 `int` 处理；名字数量必须匹配（实例则需等于沿父链的字段总数）。可解构来源：元组、pair、列表、类实例（只展开字段，不含方法）。
+
+函数与方法也支持 **`auto` 返回类型**：
+
+```vt
+int add(int a, int b) { return a + b; }   # 显式返回类型
+auto twice(int a) { return a * 2; }       # 返回类型自动推导
+```
+
+元组用括号字面量书写 `(a, b, c)`；`type()` 对元组返回 `auto_generated_class(...)`（见[内建函数](#内建函数)）。
+
+- **解释器** ✓　**编译器** ✓
+
+### 精确十进制（`extfloat`）
+
+`extfloat` 是精确的十进制类型（类似 Python 的 `decimal`），字面量带 `ext` 后缀。其运算、比较与转换在两端均精确且完全一致。
+
+```vt
+extfloat a = 0.1ext;
+extfloat b = 0.2ext;
+print(a + b);          # 0.3
+print(0.1 + 0.2ext);   # 0.3
+print(1ext / 3ext);    # 0.3333333333333333333333333（25 位有效数字）
+print(7ext // 3ext);   # 2
+print(7ext % 3ext);    # 1
+print(0.1ext ** 3ext); # 0.001
+print(a == 0.1ext);    # true
+print(type(a));        # extfloat
+
+extfloat d = extfloat("1.25");
+print(int(2.9ext));    # 2   （向零截断）
+print(float(0.5ext));  # 0.5
+print(str(a));         # 0.1
+```
+
+`extfloat` 字面量写作 `0.1ext`（或 `1ext`）。与 `int`/`float` 混合运算时另一操作数会被精确提升（如 `a + 1`、`1 + a`、`0.1 + 0.2ext`）。除法保留 25 位有效数字；`//`（向下取整除）与 `%` 的符号约定与整数运算符一致。
+
+- **解释器** ✓　**编译器** ✓
+
+### 外部 C 函数（`extdef`）
+
+`extdef` 声明位于外部 C 库 / DLL 中的函数并直接调用。支持的 C 类型：`cint`、`cuint`、`clong`、`culong`、`cdouble`、`cstr`（字符串）、`cptr`（不透明指针）。
+
+```vt
+extdef cstr zlibVersion() from "../bin/libzlib.dll";
+extdef cuint crc32(cuint crc, cstr buf, cuint len) from "../bin/libzlib.dll";
+
+print(zlibVersion());        # 1.3.1
+print(crc32(0, "hello", 5)); # 907060870
+```
+
+- **解释器**在运行时加载库（`LoadLibrary` + `GetProcAddress`）并转换实参/返回值。解释器不支持 `cdouble` **形参**（`cdouble` *返回值*可以）。
+- **`vortexcc`** 声明符号并自动链接：对每个 `from` 指定的 DLL，用 `gendef` + `dlltool` 生成 MinGW 导入库并加入链接命令，无需手工链接。
+- **`vtpm pack`** 会把 `extdef ... from` 引用的 DLL 一并打进 `.vtp`（并对作为输入的 `.exe`/`.dll` 递归扫描 PE 导入表），使包自包含。
+- 运行时该 `.dll` 必须可被解析（位于可执行文件同目录或在 `PATH` 上）。
+
+- **解释器** ✓　**编译器** ✓
+
 ### 容器与下标访问
 
 ```vt
@@ -175,7 +312,7 @@ print(d["k"]);
 
 set s = set([1, 2, 3]);
 pair p = pair(1, "one");
-tuple t = tuple(...);
+tuple t = (1, 2, 3);              # 元组字面量
 ```
 
 另有 `stack`、`queue`、`undset`。`a.b` 进行成员访问。
@@ -207,7 +344,7 @@ int y = x;
 
 - **解释器** ✓　**编译器** ✓
 
-### 异常（`try` / `catch` / `finally`）
+### 异常（`try` / `catch` / `finally`、`raise`）
 
 ```vt
 try {
@@ -219,7 +356,24 @@ try {
 }
 ```
 
-`throw` 不是面向用户的关键字；库操作（如 `int("bad")`）内部抛异常，用 `try/catch` 捕获。
+程序也可用 `raise` 主动抛出异常，且 `catch` 可**按类型过滤**：
+
+```vt
+try {
+    raise Error("boom");          # 抛出内建错误对象
+} catch (Error e) {               # 类型化 catch：匹配 Error 及其派生类型
+    print("caught:" + e);         # caught:boom
+}
+
+try { raise TypeError("typed"); } catch (e) { print(e); }
+
+try { raise "plain"; } catch (e) { print(e); }   # 裸值也能被无类型 catch 捕获
+```
+
+- `raise <值>` 抛出异常；值可以是内建错误对象，也可以是普通值。
+- 内建错误类型：`Error`（基类）、`TypeError`、`ValueError`、`SintaxError`、`IndexError`、`ZeroDivisionError`。`e` 打印/拼接时呈现为消息。
+- `catch (<类型> e)` 匹配该类型及其派生类型；**不匹配**的异常会继续向外层 `try` 传播。`catch (e)`（不带类型）捕获一切。
+- 内建运行时错误同样带类型：`int("bad")` 抛 `ValueError`，因此 `catch (ValueError e)` 可匹配。
 
 - **解释器** ✓　**编译器** ✓
 
@@ -239,6 +393,8 @@ from random import seed;
 
 - `print(...)` —— 输出一个或多个值，以空格分隔。
 - 类型转换：`int()`、`long()`、`float()`、`double()`、`str()`、`bool()`、`uint()`、`ulong()`、`char()`。
+- `extfloat(x)` —— 由字符串或数值构造精确十进制。
+- `type(v)` —— 返回值的类型名（`int` / `double` / `bool` / `char` / `str` / `list` / `dict` / `extfloat`，实例返回类名，元组返回 `auto_generated_class(<元素类型>)`，如 `type((1, 2, true, 'c'))` → `auto_generated_class(int,int,bool,char)`）。
 - `range(start, stop, step)` —— 数值区间迭代。
 
 ### 并发
@@ -249,9 +405,11 @@ from random import seed;
 
 ### 与 Python 的差异
 
-- Vortex **类型内嵌**：声明带显式类型（`int x = 1;`），不同于 Python 隐式类型。
+- Vortex **类型内嵌**：声明带显式类型（`int x = 1;`），不同于 Python 隐式类型；`auto` 则提供类型推导（`auto x = 表达式;`）。
 - 代码块使用 `{ }`，语句以 `;` 结束，不用缩进。
 - 逻辑运算符为 `&&`/`||`/`!`（Python 的 `and`/`or`/`not` 也等价接受）。
+- 类用 `class Child(Parent)` 表示单继承，并显式书写 `self`；运算符重载用顶层 `operator` 声明。
+- 精确十进制用 `ext` 后缀字面量（`0.1ext`），而非 Python 的 `decimal.Decimal`。
 - `#` 注释、`for`/`while`/`if`/`def`/`lambda` 与 Python 一一对应。
 
 ---
@@ -364,7 +522,9 @@ vtpm list mymath.vtp                # 列条目
 import mymath;                      # 之后仍可这样导入（删掉 .vt 也能解析）
 ```
 
-解释器与编译器 `vortexcc` 均支持 `.vt`/`.vtp` 模块导入。详见 [USAGE_zh.md](USAGE_zh.md#23-vtpm--打包工具vt--vtplzma27z 压缩)。
+当被打包的 `.vt` 声明了 `extdef ... from "..."` 时，`vtpm` 会把引用的 DLL 一并打进包（并对作为输入的 `.exe`/`.dll` 递归扫描 PE 导入表），使包自包含。详见 [USAGE_zh.md](USAGE_zh.md#23-vtpm--打包工具vt--vtplzma2压缩)。
+
+解释器与编译器 `vortexcc` 均支持 `.vt`/`.vtp` 模块导入。
 
 ---
 

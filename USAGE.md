@@ -2,6 +2,8 @@
 
 > 简体中文版见：[中文使用指南](USAGE_zh.md)
 
+**Version:** 1.0
+
 This document is the complete operational reference for Vortex. README.md covers the language reference; here you get every CLI command, the standard-library module signatures, error handling, and the regression-test workflow.
 
 ***
@@ -98,6 +100,19 @@ vtpm extract <pkg.vtp> [-o dir]
 
 A `.vtp` is a private binary container (`VTPD` header + entry table + LZMA2 payloads), read/written via `liblzma`.
 
+**Automatic dependency bundling.** `pack` also collects and embeds the files a program depends on:
+
+- For each `.vt` input it scans `extdef ... from "<lib>"` clauses and adds the referenced library (resolved relative to the `.vt`, then cwd).
+- For each `.exe`/`.dll` input it reads the PE import table with `objdump -p` and recursively adds any imported DLL found next to the input (system DLLs that cannot be found are skipped).
+- Entries are deduplicated by file name and keep their original names.
+
+```sh
+# bundles mymath.vt plus libzlib.dll (referenced via extdef from)
+vtpm pack mymath.vt -o mymath.vtp
+```
+
+> The bundled DLL must still be loadable at runtime when the packed program runs (place it next to the executable or on `PATH`).
+
 ### 2.4 User source modules (`import <name>.vt` / `.vtp`)
 
 Besides built-in/extension modules, `import` can load a user source module:
@@ -145,6 +160,169 @@ int v = 5;
 try { int z = int("bad"); }
 catch(e) { print("caught: " + e); }
 ```
+
+### 3.1 Classes & inheritance
+
+```vt
+class Point {
+    int x;
+    int y;
+    def init(self, x, y) { self.x = x; self.y = y; }   # constructor
+    def sum(self) { return self.x + self.y; }          # method
+}
+
+Point p = Point(3, 4);      # construct -> calls init
+print(p.sum());             # 7
+p.x = 10;                   # fields are readable / writable
+
+class Point3(Point) {                              # single inheritance
+    int z;
+    def init(self, x, y, z) { self.x = x; self.y = y; self.z = z; }
+    def sum(self) { return self.x + self.y + self.z; }   # override
+}
+class Point4(Point3) { }     # no own init -> inherits Point3's
+Point4 s = Point4(1, 1, 1);
+print(s.sum());             # 3
+```
+
+- A `class` body declares fields (`<type> <name>;`) and methods (`def name(self, ...) { ... }`).
+- `class Child(Parent)` adds **single inheritance** (at most one parent).
+- `init(self, ...)` is the constructor invoked by `Child(...)`. A subclass that omits `init` uses the nearest ancestor's.
+- Methods resolve along the parent chain, child first, so `sum()` may be overridden.
+- Fields initialize root → child; access them with `obj.field`.
+- `type(instance)` returns the class name.
+
+### 3.2 Operator overloading
+
+```vt
+class node {
+    int a; int b; int c;
+    def init(self, a, b, c) { self.a = a; self.b = b; self.c = c; }
+    def merge(self, other: node) { return node(self.a + other.a, self.b + other.b, self.c + other.c); }
+}
+
+node operator node x + node y { return x.merge(y); }              # binary, same types
+node operator node x + int  k { return x.merge(node(k, k, k)); }   # binary, mixed types
+node operator - node x        { return node(-x.a, -x.b, -x.c); }   # unary prefix
+node operator > node x        { return x.merge(x); }               # unary prefix
+
+node p = node(1, 2, 3);
+node r = p + node(10, 20, 30);   # -> 11
+node s = -r;                     # unary
+node u = p + 5;                  # mixed operands
+```
+
+- Binary form: `<ret> operator <ltype> <lname> <op> <rtype> <rname> { ... }` — declares the operator for the pair `(ltype, rtype)`.
+- Unary form: `<ret> operator <op> <type> <name> { ... }` — prefix (`-`, `>`, `<`, … all usable).
+- Dispatch is **static** on operand types; the left operand is tried first, then the right.
+- Declarations must be at **top level** — an `operator` inside a `class` body is an error.
+
+### 3.3 Type inference (`auto`) & destructuring
+
+```vt
+auto i = 3;                 # int
+auto s = "asd";             # str
+auto l = [1, 2, 3];         # list
+auto t = (1, 2, 3);         # tuple literal
+auto d = {1: 1, 2: 2};      # dict literal
+auto n = node(7, 8, 9);     # instance
+
+auto [t0, t1, t2] = t;             # tuple elements, by position
+auto [p, q] = (10, 20);            # pair / 2-tuple
+auto [m, k] = [2, 3];              # list elements
+auto [x, y, z] = node(4, 5, 6);    # instance fields (root → child)
+
+int add(int a, int b) { return a + b; }   # explicit return type
+auto twice(int a) { return a * 2; }       # return type inferred
+```
+
+- `auto` **requires** an initializer; the type is taken from the value.
+- Destructuring is only valid with `auto` (`auto [a, b] = expr;`).
+- Unpacked elements are bound as `int`, regardless of their original type.
+- The number of names must match: tuples/lists/pairs by length, instances by the total field count along the parent chain.
+- Supported sources: tuple, pair, list, class instance. Other sources are an error.
+- Functions and methods may also use an `auto` return type.
+
+### 3.4 Exceptions: `raise` and typed `catch`
+
+```vt
+try {
+    raise Error("boom");           # built-in error object
+} catch (Error e) {                # typed catch (matches Error and subclasses)
+    print("caught:" + e);          # caught:boom
+} finally {
+    print("finally");
+}
+
+try { raise "plain"; } catch (e) { print(e); }   # untyped catch = catch-all
+
+try {
+    int x = int("bad");            # raises a typed ValueError at runtime
+} catch (ValueError e) {
+    print("value-error:" + e);
+}
+```
+
+- `raise <value>` throws; `<value>` may be a built-in error object or any value.
+- Built-in error types: `Error` (base), `TypeError`, `ValueError`, `SintaxError`, `IndexError`, `ZeroDivisionError`.
+- `catch (<Type> e)` matches `<Type>` **and its subclasses**; a non-matching exception keeps propagating to the next enclosing `try`.
+- `catch (e)` (no type) catches everything. `finally` always runs.
+- An uncaught exception aborts the program with its message.
+
+### 3.5 Exact decimals (`extfloat`)
+
+```vt
+extfloat a = 0.1ext;
+extfloat b = 0.2ext;
+
+print(a + b);              # 0.3
+print(0.1 + 0.2ext);       # 0.3
+print(1ext / 3ext);        # 0.3333333333333333333333333  (25 significant digits)
+print(7ext // 3ext);       # 2
+print(7ext % 3ext);        # 1
+print(0.1ext ** 3ext);     # 0.001
+print(a == 0.1ext);        # true
+
+extfloat d = extfloat("1.25");
+print(type(a));            # extfloat
+print(int(2.9ext));        # 2   (toward zero)
+print(float(0.5ext));      # 0.5
+print(str(a));             # 0.1
+```
+
+- Literals use an `ext` suffix: `1ext`, `0.1ext`.
+- `+ - * / // % **`, unary `-`, and comparisons (`== < > …`) operate exactly on decimals.
+- Mixed arithmetic with `int`/`float` promotes the other operand exactly (`a + 1`, `1 + a`, `0.1 + 0.2ext`, `a + 0.5`).
+- Conversions: `int()` truncates toward zero, `float()` yields a binary double, `str()` yields canonical decimal text, `extfloat(str)` parses.
+- Results are exact to 25 significant digits and byte-identical across both backends.
+
+### 3.6 External C functions (`extdef`, Lib-O3)
+
+```vt
+extdef cstr zlibVersion() from "../bin/libzlib.dll";
+extdef cuint crc32(cuint crc, cstr buf, cuint len) from "../bin/libzlib.dll";
+
+print(zlibVersion());        # 1.3.1
+print(crc32(0, "hello", 5)); # 907060870
+```
+
+Syntax: `extdef <ctype> <name>(<ctype> <arg>, ...) [from "<library>"];`
+
+| C type   | Meaning             | Vortex value |
+| -------- | ------------------- | ------------ |
+| `cint`   | 32-bit signed int   | `int`        |
+| `cuint`  | 32-bit unsigned int | `int`        |
+| `clong`  | 64-bit signed int   | `int`        |
+| `culong` | 64-bit unsigned int | `int`        |
+| `cdouble`| C `double`          | `float`      |
+| `cstr`   | `char*`             | `str`        |
+| `cptr`   | opaque pointer      | `int`        |
+
+- **Interpreter**: loads `from` at runtime (`LoadLibrary` + `GetProcAddress`) and marshals arguments / return values. `cdouble` **parameters** are rejected with a clear error (a `cdouble` *return* value works). At most 4 parameters are supported.
+- **`vortexcc`**: emits the external declaration; for each `from` DLL it generates a MinGW import library (`gendef` + `dlltool`) and appends it to the link step — no manual linking.
+- **`vtpm pack`**: bundles the DLLs referenced by `from` (and recursively the PE imports of any `.exe`/`.dll` input).
+- At runtime the DLL must be resolvable (next to the executable or on `PATH`).
+- Errors: a missing library reports `cannot load library '<lib>'`; a missing symbol reports `symbol not found in '<lib>'`.
 
 ***
 
@@ -481,7 +659,9 @@ print(game2d.image_size(img));      # (80, 60)
 
 - **Compile errors** are reported on stderr and exit non-zero, e.g. a g++ link failure ends with `[Link] g++ failed`.
 
-- **Runtime exceptions** (e.g. `int("bad")`) are raised internally and must be caught with `try/catch(e)`; uncaught ones propagate and abort the program with the message.
+- **Runtime exceptions** may come from built-in operations (e.g. `int("bad")` raises a typed `ValueError`) or from `raise`. Catch them with `try/catch`, optionally filtering by type (`catch (ValueError e) { ... }`); uncaught exceptions propagate and abort the program with their message. Built-in error types: `Error`, `TypeError`, `ValueError`, `SintaxError`, `IndexError`, `ZeroDivisionError`.
+
+- **External C calls (`extdef`)**: a missing library reports `cannot load library '<lib>'` and a missing symbol reports `symbol not found in '<lib>'` (both are runtime errors, catchable like any other). The interpreter rejects `cdouble` parameters and more than 4 parameters. On the compiler side, if a `from` DLL cannot be found or an import library cannot be generated, the link step fails with `[Link] ...`.
 
 - **Positioned diagnostics**: runtime errors use the gcc/clang-style `file:line:col: error: message` format with the offending source line and a `^` caret, and append a `did you mean 'xxx'?` hint for undefined names. The compiler likewise emits `Compile error: [codegen] ...` with `file:line:col` for lexical/parse/codegen errors, and reports statically-knowable type errors (e.g. `str + number`) as compile errors instead of crashing.
 
@@ -511,12 +691,14 @@ powershell -ExecutionPolicy Bypass -File runtest.ps1 -t 20    # -t: per-step tim
 
 Every run/compile step that exceeds `-t` seconds is force-killed and reported as `FAIL (timeout)`, so a hanging test cannot stall the whole suite. A `.vt` with neither `.expected` nor whitelist membership is skipped by default (use `-a` to force it).
 
-Covered cases (all must pass): scalars & control flow, containers, references (`@`/`~`), exceptions, closures, modules (`math`/`time`/`random`/`log`/`file`/`zip`/`xml`/`html`/`sql`/`os`/`regex`/`json`/`base64`/`datetime`/`csv`/`hash`/`text`/`net`), threading/channels, and `game2d`/`render3d`. Tests shipped with a `*.expected` file (e.g. `test_x`, `test_atomic`, `test_log`, `test_mod_import`, `test_mathmod`) are checked by exact output match.
+Covered cases (all must pass): scalars & control flow, containers, references (`@`/`~`), exceptions (`raise`, typed `catch`), closures, classes & inheritance, operator overloading, `auto`/destructuring, `type()`, `extfloat`, external C calls (`extdef`), modules (`math`/`time`/`random`/`log`/`file`/`zip`/`xml`/`html`/`sql`/`os`/`regex`/`json`/`base64`/`datetime`/`csv`/`hash`/`text`/`net`), threading/channels, and `game2d`/`render3d`. Tests shipped with a `*.expected` file (e.g. `test_x`, `test_atomic`, `test_log`, `test_mod_import`, `test_mathmod`) are checked by exact output match.
 
-Expected end state:
+> The `extdef` test (`test_ffi`) links a DLL, so the suite copies `bin/libzlib.dll` next to the compiled executables before running them.
+
+Expected end state (50 whitelisted tests):
 
 ```
-[1/38] errtest ... ok
+[1/50] errtest ... ok
 ...
 ================================
 ALL PASS
