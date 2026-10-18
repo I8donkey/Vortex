@@ -1,0 +1,45 @@
+class node {
+    int a;
+    int b;
+    int c;
+    def init(self, a, b, c) { self.a = a; self.b = b; self.c = c; }
+}
+
+auto i = 3;
+print(i);
+auto s = "asd";
+print(s);
+auto l = [1, 2, 3];
+print(l[0]);
+auto t = (1, 2, 3);
+auto d = {1: 1, 2: 2, 3: 3};
+print(len(d));
+auto n = node(7, 8, 9);
+print(n.a);
+print("--");
+
+auto [t0, t1, t2] = t;
+print(t0); print(t1); print(t2);
+auto [x, y, z] = node(4, 5, 6);
+print(x); print(y); print(z);
+auto [p, q] = (10, 20);
+print(p); print(q);
+auto [m, k] = [2, 3];
+print(m); print(k);
+print("--");
+
+int add(int a, int b) { return a + b; }
+auto twice(int a) { return a * 2; }
+print(add(2, 3));
+print(twice(5));
+
+class pt {
+    int x;
+    def init(self, x) { self.x = x; }
+    int get(self) { return self.x; }
+    auto dbl(self) { return self.x * 2; }
+}
+pt o = pt(21);
+print(o.get());
+print(o.dbl());
+print("done");
