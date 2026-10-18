@@ -111,6 +111,15 @@ static std::string op_mnemonic(const std::string& op) {
     return "unk";
 }
 
+// 内建错误类型名（raise Error("...") / catch (Type e)）
+static bool is_builtin_error_type(const std::string& n) {
+    static const char* k[] = {"Error", "TypeError", "ValueError", "IndexError", "KeyError",
+                              "ZeroDivisionError", "NameError", "RuntimeError",
+                              "AssertionError", "SintaxError", "SyntaxError"};
+    for (const char* s : k) if (n == s) return true;
+    return false;
+}
+
 // ==================== 静态类型 ====================
 enum class VType { Int, Float, Bool, Str, List, StrList, StrListList, Dict, Set, Pair, Tuple, Object, Ref, Closure, Void };
 
@@ -189,6 +198,10 @@ private:
     LVal gen_obj_field_read(const LVal& obj, const std::string& member);
     // 把实参规整为目标形参类型
     llvm::Value* coerce_arg(LVal v, VType target);
+    // 把值规整为字符串值（raise 的消息 / 字符串拼接复用）
+    llvm::Value* to_vstr(LVal v);
+    // 常量 C 字符串 -> VStr*
+    llvm::Value* vstr_const(const std::string& s);
 
     // ---- operator 重载（顶层声明；静态分派）----
     // 重载表：key = op_key(op, lt, rt, unary) -> 声明（声明在 Program 内保活）
@@ -3669,6 +3682,29 @@ void Gen::gen_stmt(const Stmt* s) {
             // ---- catch 分支 ----
             B->SetInsertPoint(catchBB);
             if (tc->catch_body) {
+                // 写了类型：先按类型过滤；不匹配则带上原类型与消息继续向上抛
+                llvm::BasicBlock* bodyBB = mkBB("try.catch.body");
+                if (!tc->exception_type.empty() && tc->exception_type != "Error") {
+                    llvm::BasicBlock* mismatchBB = mkBB("try.catch.mismatch");
+                    llvm::Value* ty = B->CreateCall(
+                        llvm::cast<llvm::Function>(decl_vor("vor_ex_type", VType::Str, {})), {});
+                    llvm::Value* cmp = B->CreateCall(llvm::cast<llvm::Function>(
+                        decl_vor("vor_str_cmp", VType::Int, {VType::Str, VType::Str})),
+                        {ty, vstr_const(tc->exception_type)});
+                    B->CreateCondBr(B->CreateICmpEQ(cmp, B->getInt64(0)), bodyBB, mismatchBB);
+                    B->SetInsertPoint(mismatchBB);
+                    llvm::Value* ty2 = B->CreateCall(
+                        llvm::cast<llvm::Function>(decl_vor("vor_ex_type", VType::Str, {})), {});
+                    llvm::Value* mv2 = B->CreateCall(
+                        llvm::cast<llvm::Function>(decl_vor("vor_ex_caught", VType::Str, {})), {});
+                    B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_ex_pop", VType::Void, {})), {});
+                    B->CreateCall(llvm::cast<llvm::Function>(
+                        decl_vor("vor_throw_typed", VType::Void, {VType::Str, VType::Str})), {ty2, mv2});
+                    B->CreateUnreachable();
+                } else {
+                    B->CreateBr(bodyBB);
+                }
+                B->SetInsertPoint(bodyBB);
                 llvm::Value* msgv = B->CreateCall(
                     llvm::cast<llvm::Function>(decl_vor("vor_ex_caught", VType::Str, {})), {});
                 bool has_var = !tc->exception_var.empty();
@@ -3744,6 +3780,41 @@ void Gen::gen_stmt(const Stmt* s) {
             B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_throw_str", VType::Void, {VType::Str})), {msgStr});
             B->CreateUnreachable();
             B->SetInsertPoint(passBB);
+            break;
+        }
+        case StmtKind::Raise: {
+            auto* rs = static_cast<const RaiseStmt*>(s);
+            llvm::Function* throwFn = llvm::cast<llvm::Function>(
+                decl_vor("vor_throw_typed", VType::Void, {VType::Str, VType::Str}));
+            if (!rs->value) {
+                // raise;  重抛当前异常（类型 + 消息）
+                llvm::Value* ty = B->CreateCall(
+                    llvm::cast<llvm::Function>(decl_vor("vor_ex_type", VType::Str, {})), {});
+                llvm::Value* mv = B->CreateCall(
+                    llvm::cast<llvm::Function>(decl_vor("vor_ex_caught", VType::Str, {})), {});
+                B->CreateCall(throwFn, {ty, mv});
+                B->CreateUnreachable();
+                break;
+            }
+            // raise 表达式;  内建错误构造器 -> 取其类型名与首个实参作消息
+            std::string etype = "Error";
+            const Expr* msgExpr = rs->value.get();
+            if (msgExpr->kind == ExprKind::Call) {
+                auto* c = static_cast<const CallExpr*>(msgExpr);
+                if (c->callee->kind == ExprKind::Identifier) {
+                    const std::string& cn =
+                        static_cast<const IdentifierExpr*>(c->callee.get())->name;
+                    if (is_builtin_error_type(cn)) {
+                        etype = cn;
+                        msgExpr = c->args.empty() ? nullptr : c->args[0].get();
+                    }
+                }
+            }
+            llvm::Value* msgStr = msgExpr
+                ? to_vstr(gen_expr(msgExpr))
+                : vstr_const("");
+            B->CreateCall(throwFn, {vstr_const(etype), msgStr});
+            B->CreateUnreachable();
             break;
         }
         case StmtKind::Match: {
@@ -3928,6 +3999,29 @@ llvm::Value* Gen::coerce_arg(LVal v, VType target) {
     if (target == VType::Object && v.type == VType::Int)
         return B->CreateIntToPtr(v.val, B->getPtrTy(), "a.i2p");
     return v.val;   // int / 指针同宽
+}
+
+// 常量 C 字符串 -> VStr*（需要 VStr* 形参的运行时函数使用）
+llvm::Value* Gen::vstr_const(const std::string& s) {
+    return B->CreateCall(
+        llvm::cast<llvm::Function>(decl_vor("vor_str_from_cstr", VType::Str, {VType::Str})),
+        {B->CreateGlobalString(s, "vs")});
+}
+
+// 把值规整为 VStr*（供 raise 消息使用；str 直接返回，标量转字符串）
+llvm::Value* Gen::to_vstr(LVal v) {
+    auto cvt = [&](const char* fn, std::vector<VType> p, llvm::Value* a) {
+        return B->CreateCall(llvm::cast<llvm::Function>(decl_vor(fn, VType::Str, p)), {a});
+    };
+    if (v.type == VType::Str) return v.val;
+    if (v.type == VType::Int)   return cvt("vor_i64_to_str", {VType::Int}, v.val);
+    if (v.type == VType::Float) return cvt("vor_double_to_str", {VType::Float}, v.val);
+    if (v.type == VType::Bool) {
+        llvm::Value* t = B->CreateGlobalString("true", "bstr");
+        llvm::Value* f = B->CreateGlobalString("false", "bstr");
+        return cvt("vor_str_from_cstr", {VType::Str}, B->CreateSelect(v.val, t, f));
+    }
+    return cvt("vor_str_from_cstr", {VType::Str}, B->CreateGlobalString("", "estr"));
 }
 
 void Gen::gen_class(const ClassDeclStmt* cd) {

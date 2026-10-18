@@ -1,0 +1,56 @@
+# P5 raise / 异常语义（解释器 golden）
+
+# raise 错误对象 + 按类型捕获；e 为错误对象，按消息参与拼接/打印
+try {
+    raise Error("boom");
+} catch (Error e) {
+    print("caught:" + e);
+}
+
+# raise 字符串 + 不写类型全捕获（e 为消息字符串）
+try {
+    raise "plain";
+} catch (e) {
+    print("plain-caught:" + e);
+}
+
+# 类型不匹配 -> 继续向上抛，外层全捕获
+try {
+    try {
+        raise SintaxError("bad syntax");
+    } catch (ValueError e) {
+        print("inner-unreached");
+    }
+} catch (e) {
+    print("outer:" + e);
+}
+
+# 运行时错误类型化：int("bad") -> ValueError，可按类型捕获
+try {
+    int x = int("bad");
+    print("unreached");
+} catch (ValueError e) {
+    print("value-error:" + e);
+}
+
+# 类型不匹配的运行时错误继续向上
+try {
+    try {
+        int y = int("zzz");
+    } catch (IndexError e) {
+        print("inner2-unreached");
+    }
+} catch (e) {
+    print("outer2:" + e);
+}
+
+# 基类 Error 兜底捕获派生类型 + finally
+try {
+    raise TypeError("typed");
+} catch (Error e) {
+    print("base:" + e);
+} finally {
+    print("finally");
+}
+
+print("done");
