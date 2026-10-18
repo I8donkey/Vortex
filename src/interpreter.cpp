@@ -85,6 +85,30 @@ static ValueVec unpack_values(const ValuePtr& v) {
     }
 }
 
+// type() 的类型名：class 实例 → 类名；元组 → auto_generated_class(元素类型,...)
+static std::string value_type_desc(const ValuePtr& v) {
+    if (!v) return "None";
+    if (v->type == ValueType::Instance) {
+        auto cit = v->module_rep->find("__class__");
+        if (cit != v->module_rep->end() && cit->second->type == ValueType::Class) {
+            auto nit = cit->second->module_rep->find("__name__");
+            if (nit != cit->second->module_rep->end() && nit->second->type == ValueType::Str)
+                return nit->second->str_val;
+        }
+        return "instance";
+    }
+    if (v->type == ValueType::Tuple) {
+        std::string s = "auto_generated_class(";
+        for (size_t i = 0; i < v->tuple_rep->size(); ++i) {
+            if (i) s += ",";
+            s += value_type_desc((*v->tuple_rep)[i]);
+        }
+        s += ")";
+        return s;
+    }
+    return v->type_name();
+}
+
 // ============ Environment ============
 void Environment::define(const std::string& name, ValuePtr value, bool is_const) {
     vars_[name] = {std::move(value), is_const};
@@ -230,7 +254,7 @@ void Interpreter::init_builtins() {
 
     // type
     reg_builtin("type", 1, 1, [](const ValueVec& a, Environment&) {
-        return Value::make_str(a[0]->type_name());
+        return Value::make_str(value_type_desc(a[0]));
     });
 
     // range
