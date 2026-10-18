@@ -57,6 +57,8 @@
 #include <optional>
 #include <set>
 #include <algorithm>
+#include <cstdlib>
+#include <filesystem>
 
 namespace vortex {
 namespace cg {
@@ -221,6 +223,18 @@ private:
                                                const std::string& rt, bool unary) const;
     // 调用重载：构造实参并按声明返回类型收尾
     LVal call_operator_fn(const OperatorDeclStmt* od, const LVal& l, const LVal& r);
+
+    // ---- 外部 C 函数（Lib-O3）----
+    // extdef 表：名字 -> 声明（声明在 Program 内保活）
+    std::unordered_map<std::string, const ExtDefStmt*> extdefs_;
+    // 预处理：扫描顶层 extdef 声明，构建 extdefs_
+    void collect_extdefs();
+    // C 类型名 -> LLVM 类型（cint/cuint→i32、clong/culong→i64、cdouble→f64、cstr/cptr→ptr）
+    llvm::Type* c_abi_type(const std::string& n) const;
+    // 发射 extdef 的 LLVM 函数声明（外部链接）
+    void gen_extdef(const ExtDefStmt* ed);
+    // 外部函数调用：实参/返回值按 C ABI 转换
+    LVal gen_ext_call(const ExtDefStmt* ed, const CallExpr* c);
 
     // ---- auto 解构绑定 ----
     // auto [a, b, c] = 表达式;  元素按位置绑定为 int（tuple/pair/list/实例字段）
@@ -1159,6 +1173,9 @@ LVal Gen::gen_call(const CallExpr* c) {
     if (c->callee->kind == ExprKind::Identifier) {
         const std::string& cn = static_cast<const IdentifierExpr*>(c->callee.get())->name;
         if (classes_.count(cn)) return gen_construct(cn, c);
+        // 外部 C 函数调用（Lib-O3）
+        auto eit = extdefs_.find(cn);
+        if (eit != extdefs_.end()) return gen_ext_call(eit->second, c);
     }
     // 实例方法调用：obj.method(...)（仅当接收者是已声明的实例变量，避免误伤模块调用）
     if (c->callee->kind == ExprKind::MemberAccess) {
@@ -3617,6 +3634,11 @@ void Gen::gen_stmt(const Stmt* s) {
             gen_operator_fn(static_cast<const OperatorDeclStmt*>(s));
             break;
         }
+        case StmtKind::ExtDef: {
+            // 声明外部 C 函数（无函数体；调用点见 gen_call）
+            gen_extdef(static_cast<const ExtDefStmt*>(s));
+            break;
+        }
         case StmtKind::ExprStmt: {
             gen_expr(static_cast<const ExprStmt*>(s)->expr.get());
             break;
@@ -4291,6 +4313,100 @@ void Gen::collect_operators() {
     }
 }
 
+// ---------- Lib-O3：外部 C 函数 ----------
+// 预处理：扫描顶层 extdef 声明
+void Gen::collect_extdefs() {
+    for (auto& st : prog_.stmts) {
+        if (st->kind != StmtKind::ExtDef) continue;
+        auto* ed = static_cast<const ExtDefStmt*>(st.get());
+        extdefs_[ed->name] = ed;
+    }
+}
+
+// C 类型名 -> LLVM 类型；未知类型返回 nullptr
+llvm::Type* Gen::c_abi_type(const std::string& n) const {
+    if (n == "cint" || n == "cuint") return B->getInt32Ty();
+    if (n == "clong" || n == "culong") return B->getInt64Ty();
+    if (n == "cdouble") return B->getDoubleTy();
+    if (n == "cstr" || n == "cptr") return B->getPtrTy();
+    return nullptr;
+}
+
+// 发射 extdef 函数声明（外部链接；符号名原样，C ABI）
+void Gen::gen_extdef(const ExtDefStmt* ed) {
+    if (mod_->getFunction(ed->name)) return;
+    llvm::Type* rt = c_abi_type(ed->ret_type);
+    if (!rt)
+        throw std::runtime_error("extdef '" + ed->name + "': unknown C type '" +
+                                 ed->ret_type + "'");
+    std::vector<llvm::Type*> pts;
+    for (auto& [pt, pn] : ed->params) {
+        llvm::Type* t = c_abi_type(pt);
+        if (!t)
+            throw std::runtime_error("extdef '" + ed->name + "': unknown C type '" + pt + "'");
+        pts.push_back(t);
+    }
+    llvm::FunctionType* ft = llvm::FunctionType::get(rt, pts, false);
+    llvm::Function::Create(ft, llvm::Function::ExternalLinkage, ed->name, mod_);
+}
+
+// 外部函数调用：把 Vortex 值转成 C ABI 实参，返回值再转回 Vortex 值
+LVal Gen::gen_ext_call(const ExtDefStmt* ed, const CallExpr* c) {
+    if (c->args.size() != ed->params.size())
+        throw std::runtime_error("extdef '" + ed->name + "' expects " +
+                                 std::to_string(ed->params.size()) + " args, got " +
+                                 std::to_string(c->args.size()));
+    llvm::Function* fn = mod_->getFunction(ed->name);
+    if (!fn) { gen_extdef(ed); fn = mod_->getFunction(ed->name); }
+
+    std::vector<llvm::Value*> cargs;
+    for (size_t i = 0; i < c->args.size(); ++i) {
+        const std::string& pt = ed->params[i].first;
+        LVal a = gen_expr(c->args[i].get());
+        llvm::Value* av = nullptr;
+        if (pt == "cint" || pt == "cuint") {
+            if (a.type == VType::Float)      av = B->CreateFPToSI(a.val, B->getInt32Ty(), "x.i32");
+            else if (a.type == VType::Bool)  av = B->CreateZExt(a.val, B->getInt32Ty(), "x.i32");
+            else if (a.type == VType::Str) { // str -> 数值（解析）
+                llvm::Value* iv = B->CreateCall(llvm::cast<llvm::Function>(
+                    decl_vor("vor_cast_i64", VType::Int, {VType::Str})), {a.val});
+                av = B->CreateTrunc(iv, B->getInt32Ty(), "x.i32");
+            } else av = B->CreateTrunc(a.val, B->getInt32Ty(), "x.i32");
+        } else if (pt == "clong" || pt == "culong") {
+            av = to_i64(a);
+        } else if (pt == "cdouble") {
+            if (a.type == VType::Float)     av = a.val;
+            else if (a.type == VType::Bool) av = B->CreateUIToFP(a.val, B->getDoubleTy(), "x.f64");
+            else if (a.type == VType::Str)
+                av = B->CreateCall(llvm::cast<llvm::Function>(
+                    decl_vor("vor_cast_f64", VType::Float, {VType::Str})), {a.val});
+            else av = B->CreateSIToFP(to_i64(a), B->getDoubleTy(), "x.f64");
+        } else if (pt == "cstr") {
+            llvm::Value* vs = (a.type == VType::Str) ? a.val : to_vstr(a);
+            av = B->CreateCall(llvm::cast<llvm::Function>(
+                decl_vor("vor_str_cstr", VType::Str, {VType::Str})), {vs}, "x.cstr");
+        } else { // cptr：不透明指针（整型按位转指针，指针类直接透传）
+            if (a.type == VType::Object || a.type == VType::Str || a.type == VType::List ||
+                a.type == VType::Dict || a.type == VType::Closure || a.type == VType::ExtFloat)
+                av = a.val;
+            else av = B->CreateIntToPtr(to_i64(a), B->getPtrTy(), "x.ptr");
+        }
+        cargs.push_back(av);
+    }
+
+    llvm::CallInst* call = B->CreateCall(fn, cargs, ed->name + ".call");
+    const std::string& rt = ed->ret_type;
+    if (rt == "cint")   return {VType::Int,   B->CreateSExt(call, B->getInt64Ty(), "x.sext")};
+    if (rt == "cuint")  return {VType::Int,   B->CreateZExt(call, B->getInt64Ty(), "x.zext")};
+    if (rt == "clong" || rt == "culong") return {VType::Int, call};
+    if (rt == "cdouble") return {VType::Float, call};
+    if (rt == "cstr")
+        return {VType::Str, B->CreateCall(llvm::cast<llvm::Function>(
+            decl_vor("vor_str_from_cstr", VType::Str, {VType::Str})), {call})};
+    // cptr
+    return {VType::Int, B->CreatePtrToInt(call, B->getInt64Ty(), "x.p2i")};
+}
+
 VType Gen::type_from_name(const std::string& n) const {
     if (n == "float" || n == "double") return VType::Float;
     if (n == "bool") return VType::Bool;
@@ -4570,6 +4686,7 @@ std::string Gen::run(llvm::Module& mod) {
     scopes_.emplace_back();
     collect_classes();   // 先扫描 class 声明，供 VarDecl / 构造 / 方法调用解析
     collect_operators(); // 再扫描顶层 operator 声明，供二元/一元运算静态分派
+    collect_extdefs();   // 再扫描顶层 extdef 声明，供外部 C 函数调用解析
 
     // 遍历顶层语句（P1：顺序生成，函数定义内置在 gen_stmt 中）
 
@@ -4606,6 +4723,56 @@ static bool lex_parse(const std::string& src, std::string& err, Program& prog) {
 }
 
 } // namespace cg
+
+// ==================== Lib-O3：DLL 导入库辅助 ====================
+// MinGW 工具目录（gendef/dlltool 所在）
+static std::string gcc_tools_dir() {
+    if (const char* gp = std::getenv("VORTEX_GCC_DIR")) return std::string(gp) + "/bin";
+    return "D:/gcc/bin";
+}
+
+// 解析 extdef 的 from 库路径：绝对路径原样；相对路径先按"源文件目录"再按 CWD
+static std::string resolve_lib_path(const std::string& lib, const std::string& source_path) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::path p(lib);
+    if (p.is_absolute()) return lib;
+    if (!source_path.empty()) {
+        fs::path cand = fs::path(source_path).parent_path() / p;
+        if (fs::exists(cand, ec)) return cand.lexically_normal().string();
+    }
+    if (fs::exists(p, ec)) return p.string();
+    return lib;
+}
+
+// 为 DLL 生成 MinGW 导入库(.a)：gendef -> dlltool。返回 .a 路径（空=失败）
+static std::string make_import_lib(const std::string& dllPath, std::string& err) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    if (!fs::exists(dllPath, ec)) { err = "library not found: " + dllPath; return {}; }
+    if (fs::path(dllPath).extension().string() != ".dll") {
+        // 非 DLL 的直接作为链接输入（.a/.o/.lib）
+        return dllPath;
+    }
+    const std::string base = fs::path(dllPath).stem().string();
+    fs::path tmp = fs::temp_directory_path(ec) /
+                   ("vortex_imp_" + std::to_string(std::hash<std::string>{}(dllPath)));
+    fs::create_directories(tmp, ec);
+    const std::string defN  = base + ".def";
+    const std::string aFile = (tmp / ("lib" + base + ".a")).string();
+    const std::string tools = gcc_tools_dir();
+    const std::string dllAbs = fs::absolute(dllPath, ec).string();
+
+    std::string gen = "cd /d \"" + tmp.string() + "\" && \"" + tools + "/gendef.exe\" \"" +
+                      dllAbs + "\" >NUL 2>&1";
+    if (std::system(gen.c_str()) != 0) { err = "gendef failed for " + dllPath; return {}; }
+
+    std::string mk = "cd /d \"" + tmp.string() + "\" && \"" + tools + "/dlltool.exe\" -d \"" +
+                     defN + "\" -l \"" + aFile + "\" -D \"" + base + ".dll\" >NUL 2>&1";
+    if (std::system(mk.c_str()) != 0) { err = "dlltool failed for " + dllPath; return {}; }
+    if (!fs::exists(aFile, ec)) { err = "import library not produced for " + dllPath; return {}; }
+    return aFile;
+}
 
 // 编译 .vt 源码 -> LLVM 模块 IR（text）；返回错误串
 std::string cg::compile_program(const Program& prog, std::string& ir_text, const BuildConfig& cfg) {
@@ -4697,6 +4864,32 @@ std::string build_vortex_exe(const std::string& src, const BuildConfig& cfg, con
     }
     out.close();
 
+    // 4b. 收集 extdef 依赖库（Lib-O3）：from "..." 指定的 DLL -> 生成 MinGW 导入库并加入链接
+    std::string extraArgs;
+    {
+        std::set<std::string> seenLibs;
+        auto add_lib = [&](const std::string& lib, std::string& e2) -> bool {
+            if (lib.empty() || !seenLibs.insert(lib).second) return true;
+            std::string ierr;
+            std::string a = make_import_lib(resolve_lib_path(lib, source_path), ierr);
+            if (a.empty()) { e2 = ierr; return false; }
+            extraArgs += " \"" + a + "\"";
+            return true;
+        };
+        for (auto& st : prog.stmts) {
+            if (st->kind != StmtKind::ExtDef) continue;
+            auto* ed = static_cast<const ExtDefStmt*>(st.get());
+            std::string le;
+            if (!add_lib(ed->lib, le)) return "[Link] " + le;
+        }
+        for (auto& f : cfg.link_files) {
+            std::string ierr;
+            std::string a = make_import_lib(resolve_lib_path(f, source_path), ierr);
+            if (a.empty()) return "[Link] " + ierr;
+            extraArgs += " \"" + a + "\"";
+        }
+    }
+
     // 5. 链接：g++ obj + runtime -> exe
     std::string rtLib;
 #ifdef VORTEX_RT_LIB
@@ -4716,7 +4909,7 @@ std::string build_vortex_exe(const std::string& src, const BuildConfig& cfg, con
     const char* gp = std::getenv("VORTEX_GCC_DIR");
     std::string gccDir = gp ? gp : VORTEX_DEFAULT_GCC_DIR;
     cmd = "\"" + std::string(VORTEX_LLD) + "\" \"" + objPath + "\" \"" + rtLib +
-          "\" -o \"" + cfg.output + "\" -static -L\"" + gccDir + "/lib\" \"" +
+          "\"" + extraArgs + " -o \"" + cfg.output + "\" -static -L\"" + gccDir + "/lib\" \"" +
           gccDir + "/lib/crt2.o" +
           "\" -lmingw32 -lgcc -lstdc++ -lmoldname -lmingwex -lmsvcrt" +
           " -ladvapi32 -lshell32 -luser32 -lkernel32 -limagehlp -lws2_32" +
@@ -4726,7 +4919,7 @@ std::string build_vortex_exe(const std::string& src, const BuildConfig& cfg, con
     if (rc != 0) return "[Link] lld failed (code " + std::to_string(rc) + ")";
 #else
     cmd = "g++ \"" + objPath + "\" \"" + rtLib +
-          "\" -o \"" + cfg.output + "\" -static -static-libgcc -static-libstdc++ -pthread -lz -lsqlite3 -lwinhttp -LD:/gcc/opt/lib";
+          "\"" + extraArgs + " -o \"" + cfg.output + "\" -static -static-libgcc -static-libstdc++ -pthread -lz -lsqlite3 -lwinhttp -LD:/gcc/opt/lib";
     if (cfg.debug) cmd += " -g";
     int rc = std::system(cmd.c_str());
     if (rc != 0) return "[Link] g++ failed (code " + std::to_string(rc) + ")";

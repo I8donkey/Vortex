@@ -214,6 +214,7 @@ enum class StmtKind {
     ClassDecl,
     OperatorDecl,
     Raise,
+    ExtDef,
 };
 
 struct Stmt {
@@ -359,6 +360,17 @@ struct FunctionDefStmt : Stmt {
 struct RaiseStmt : Stmt {
     ExprPtr value;
     RaiseStmt() : Stmt(StmtKind::Raise) {}
+};
+
+// 外部 C 函数声明（Lib-O3）：
+//   extdef <c类型> <名字>(<c类型> <形参名>, ...) [from "库文件"];
+//   c 类型：cint/cuint/clong/culong/cdouble/cstr/cptr
+struct ExtDefStmt : Stmt {
+    std::string ret_type;
+    std::string name;
+    std::vector<std::pair<std::string, std::string>> params;  // (类型, 形参名)
+    std::string lib;                                          // from "..." 指定的库（空=默认搜索）
+    ExtDefStmt() : Stmt(StmtKind::ExtDef) {}
 };
 
 // import

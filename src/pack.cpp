@@ -79,10 +79,12 @@ bool decompress(const std::vector<unsigned char>& in, size_t raw_len,
     out.resize(raw_len);
     size_t in_pos = 0, out_pos = 0;
     uint64_t memlimit = UINT64_MAX;
-    lzma_ret r = lzma_stream_buffer_decode(&memlimit, LZMA_TELL_NO_CHECK | LZMA_TELL_UNSUPPORTED_CHECK,
+    // flags=0：流以 LZMA_CHECK_NONE 压缩，不传 LZMA_TELL_NO_CHECK，
+    // 否则解码器会在开始前直接返回 LZMA_NO_CHECK 而不产出数据。
+    lzma_ret r = lzma_stream_buffer_decode(&memlimit, 0,
                                            nullptr, in.data(), &in_pos, in.size(),
                                            out.data(), &out_pos, out.size());
-    if (r != LZMA_OK && r != LZMA_NO_CHECK) {
+    if (r != LZMA_OK) {
         err = "lzma decompress failed (" + std::to_string((int)r) + ")";
         return false;
     }

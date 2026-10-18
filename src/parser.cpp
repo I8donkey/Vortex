@@ -103,6 +103,7 @@ StmtPtr Parser::parse_stmt() {
     if (check(TokenType::Kw_import) || check(TokenType::Kw_from)) return parse_import();
     if (check(TokenType::Kw_try)) return parse_try();
     if (check(TokenType::Kw_raise)) return parse_raise();
+    if (check(TokenType::Kw_extdef)) return parse_extdef();
     if (check(TokenType::Kw_break)) { advance(); expect(TokenType::Semicolon); return std::make_unique<BreakStmt>(); }
     if (check(TokenType::Kw_continue)) { advance(); expect(TokenType::Semicolon); return std::make_unique<ContinueStmt>(); }
     if (check(TokenType::Kw_return)) {
@@ -561,6 +562,34 @@ StmtPtr Parser::parse_raise() {
     auto stmt = std::make_unique<RaiseStmt>();
     expect(TokenType::Kw_raise);
     if (!check(TokenType::Semicolon)) stmt->value = parse_expr();
+    expect(TokenType::Semicolon);
+    return stmt;
+}
+
+// extdef <c类型> <名字>(<c类型> <形参名>, ...) [from "库文件"];
+//   c 类型：cint / cuint / clong / culong / cdouble / cstr / cptr
+StmtPtr Parser::parse_extdef() {
+    auto stmt = std::make_unique<ExtDefStmt>();
+    expect(TokenType::Kw_extdef);
+    auto ctype = [&]() -> std::string {
+        if (check(TokenType::Identifier)) return advance().text;
+        error("expected a C type name (cint/cuint/clong/culong/cdouble/cstr/cptr)");
+        return {};
+    };
+    stmt->ret_type = ctype();
+    stmt->name = expect(TokenType::Identifier, "external function name").text;
+    expect(TokenType::LParen);
+    if (!check(TokenType::RParen)) {
+        while (true) {
+            std::string pt = ctype();
+            std::string pn = expect(TokenType::Identifier, "parameter name").text;
+            stmt->params.push_back({pt, pn});
+            if (!match(TokenType::Comma)) break;
+        }
+    }
+    expect(TokenType::RParen);
+    if (match(TokenType::Kw_from))
+        stmt->lib = expect(TokenType::StringLit, "library path").str_val;
     expect(TokenType::Semicolon);
     return stmt;
 }

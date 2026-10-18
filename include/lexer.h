@@ -20,7 +20,7 @@ enum class TokenType {
     Kw_try, Kw_catch, Kw_finally, Kw_assert, Kw_match, Kw_case, Kw_default, Kw_class,
     Kw_operator,
     Kw_and, Kw_or, Kw_not,
-    Kw_raise,
+    Kw_raise, Kw_extdef,
 
     // 类型关键字（用于声明）
     Typ_int, Typ_uint, Typ_short, Typ_ushort, Typ_long, Typ_ulong,

@@ -53,6 +53,7 @@ private:
     StmtPtr parse_import();
     StmtPtr parse_try();
     StmtPtr parse_raise();
+    StmtPtr parse_extdef();
     StmtPtr parse_expr_as_stmt(ExprPtr first_expr = nullptr);
 
     // ==== 表达式（按优先级） ====

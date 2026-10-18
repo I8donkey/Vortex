@@ -165,6 +165,14 @@ private:
     const OperatorDeclStmt* find_operator(const std::string& op, const std::string& lt,
                                           const std::string& rt, bool unary) const;
     ValuePtr call_operator(const OperatorDeclStmt* od, const ValuePtr& l, const ValuePtr& r);
+    // ---- 外部 C 函数（Lib-O3）----
+    // extdef 表：名字 -> 声明（顶层声明；run 前预扫描以支持先调用后声明）
+    std::unordered_map<std::string, const ExtDefStmt*> extdefs_;
+    // 已加载库句柄缓存：库路径 -> HMODULE
+    std::unordered_map<std::string, void*> ext_handles_;
+    ControlSignal exec_extdef(const ExtDefStmt* s);
+    // 动态调用外部 C 函数（Windows：LoadLibrary + GetProcAddress）
+    ValuePtr call_extern(const ExtDefStmt* ed, const CallExpr* e);
 
     // 表达式求值分派
     ValuePtr eval_literal(const LiteralExpr* e);

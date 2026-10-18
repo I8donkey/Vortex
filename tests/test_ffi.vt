@@ -1,0 +1,7 @@
+# Lib-O3: call into an external C library (zlib) via extdef
+extdef cstr zlibVersion() from "../bin/libzlib.dll";
+extdef cuint crc32(cuint crc, cstr buf, cuint len) from "../bin/libzlib.dll";
+
+print(zlibVersion());
+print(crc32(0, "hello", 5));
+print("done");

@@ -10,6 +10,7 @@
 #include "ast.h"
 #include <string>
 #include <memory>
+#include <vector>
 
 namespace vortex {
 
@@ -20,6 +21,7 @@ struct BuildConfig {
     bool emit_asm = false;     // 是否同时生成 .s 汇编
     bool debug = false;        // 是否生成 DWARF 调试信息（支持断点/变量查看）
     std::string triple;        // 空 = 宿主默认
+    std::vector<std::string> link_files;  // 额外链接的目标文件/库（Lib-O3 的 extdef from 指定）
 };
 
 // LLVM 后端命名空间（内部实现细节彼此独立）

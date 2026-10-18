@@ -65,6 +65,10 @@ if (-not $testsDir) {
 $root = Split-Path $testsDir -Parent
 Set-Location $testsDir
 
+# Lib-O3: compiled tests that link a DLL (extdef) need the DLL next to the exe.
+$depDll = Join-Path $root "bin\libzlib.dll"
+if (Test-Path $depDll) { Copy-Item $depDll $testsDir -Force -ErrorAction SilentlyContinue }
+
 $cc     = Join-Path $root "bin\vortexcc.exe"
 $interp = Join-Path $root "bin\vortex.exe"
 
@@ -88,7 +92,7 @@ $whitelist = @(
   "test_datetime", "test_csv", "test_hash", "test_str", "test_net",
   "test_math", "test_random", "test_sys", "test_stringlist",
   "test_class", "test_class_inherit", "test_operator", "test_auto", "test_type", "test_raise",
-  "test_extfloat"
+  "test_extfloat", "test_ffi"
 )
 
 $ccExe  = Join-Path $testsDir "_cc_{0}.exe"

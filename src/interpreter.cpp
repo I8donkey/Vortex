@@ -22,6 +22,10 @@
 #include <thread>
 #include <numeric>
 #include <cctype>
+#include <cstdint>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 namespace vortex {
 
@@ -954,6 +958,12 @@ std::string Interpreter::format_error(const std::string& msg) const {
 ValuePtr Interpreter::run(const Program& program) {
     ValuePtr last = Value::make_none();
     try {
+        // 预扫描顶层 extdef 声明，支持"先调用后声明"（与编译器端一致）
+        for (auto& s : program.stmts) {
+            if (s->kind == StmtKind::ExtDef)
+                extdefs_[static_cast<const ExtDefStmt*>(s.get())->name] =
+                    static_cast<const ExtDefStmt*>(s.get());
+        }
         for (auto& s : program.stmts) {
             auto cs = execute(s.get());
             if (cs.type == CtrlFlow::Return) return cs.value ? cs.value : Value::make_none();
@@ -1003,6 +1013,7 @@ ControlSignal Interpreter::execute(const Stmt* stmt) {
         case StmtKind::Raise:      return exec_raise(static_cast<const RaiseStmt*>(stmt));
         case StmtKind::ClassDecl:  return exec_class(static_cast<const ClassDeclStmt*>(stmt));
         case StmtKind::OperatorDecl: return exec_operator_decl(static_cast<const OperatorDeclStmt*>(stmt));
+        case StmtKind::ExtDef:     return exec_extdef(static_cast<const ExtDefStmt*>(stmt));
         case StmtKind::Assert: {
             auto s = static_cast<const AssertStmt*>(stmt);
             ValuePtr c = evaluate(s->cond.get());
@@ -1264,6 +1275,83 @@ ControlSignal Interpreter::exec_class(const ClassDeclStmt* s) {
 ControlSignal Interpreter::exec_operator_decl(const OperatorDeclStmt* s) {
     op_overloads_[op_key(s->op, s->left_type, s->right_type, s->unary)] = s;
     return {};
+}
+
+// ---- 外部 C 函数（Lib-O3）----
+ControlSignal Interpreter::exec_extdef(const ExtDefStmt* s) {
+    extdefs_[s->name] = s;
+    return {};
+}
+
+// 动态调用外部 C 函数：按声明签名构造实参，返回值转回 Vortex 值
+ValuePtr Interpreter::call_extern(const ExtDefStmt* ed, const CallExpr* e) {
+#ifdef _WIN32
+    if (e->args.size() != ed->params.size())
+        throw RuntimeError("extdef '" + ed->name + "' expects " +
+            std::to_string(ed->params.size()) + " args, got " +
+            std::to_string(e->args.size()));
+    // 加载库（相对路径先按脚本目录再按 cwd）；空 lib 用宿主进程
+    auto load_lib = [&](const std::string& p) -> void* {
+        auto it = ext_handles_.find(p);
+        if (it != ext_handles_.end()) return it->second;
+        void* h = (void*)LoadLibraryA(p.c_str());
+        ext_handles_[p] = h;
+        return h;
+    };
+    void* handle = nullptr;
+    if (!ed->lib.empty()) {
+        if (!module_base_.empty()) handle = load_lib(module_base_ + "/" + ed->lib);
+        if (!handle) handle = load_lib(ed->lib);
+    } else {
+        handle = (void*)GetModuleHandleA(nullptr);
+    }
+    if (!handle)
+        throw RuntimeError("extdef '" + ed->name + "': cannot load library '" + ed->lib + "'");
+    FARPROC fp = GetProcAddress((HMODULE)handle, ed->name.c_str());
+    if (!fp)
+        throw RuntimeError("extdef '" + ed->name + "': symbol not found in '" + ed->lib + "'");
+
+    // 构造 GPR 实参（最多 4 个）；cdouble 形参不支持
+    long long a[4] = {0, 0, 0, 0};
+    std::vector<std::string> keep;   // 保活由非 str 转换来的 C 字符串
+    keep.reserve(e->args.size());
+    for (size_t i = 0; i < e->args.size(); ++i) {
+        const std::string& pt = ed->params[i].first;
+        ValuePtr v = evaluate(e->args[i].get());
+        if (i >= 4)
+            throw RuntimeError("extdef '" + ed->name + "': interpreter supports at most 4 parameters");
+        if (pt == "cint" || pt == "cuint") {
+            a[i] = value_to_int(v)->int_val;
+        } else if (pt == "clong" || pt == "culong") {
+            a[i] = value_to_long(v)->int_val;
+        } else if (pt == "cstr") {
+            if (v->type == ValueType::Str) a[i] = (long long)(uintptr_t)v->str_val.c_str();
+            else { keep.push_back(v->to_string()); a[i] = (long long)(uintptr_t)keep.back().c_str(); }
+        } else if (pt == "cptr") {
+            a[i] = value_to_long(v)->int_val;
+        } else if (pt == "cdouble") {
+            throw RuntimeError("extdef '" + ed->name + "': interpreter does not support 'cdouble' parameters");
+        } else {
+            throw RuntimeError("extdef '" + ed->name + "': unknown C type '" + pt + "'");
+        }
+    }
+
+    // x64 统一调用约定：多余寄存器实参被忽略；cdouble 返回值走 XMM
+    using GprFn = long long (*)(long long, long long, long long, long long);
+    using DblFn = double (*)(long long, long long, long long, long long);
+    const std::string& rt = ed->ret_type;
+    if (rt == "cdouble")
+        return Value::make_float(((DblFn)(void*)fp)(a[0], a[1], a[2], a[3]));
+    long long r = ((GprFn)(void*)fp)(a[0], a[1], a[2], a[3]);
+    if (rt == "cint")  return Value::make_int((long long)(int32_t)(r & 0xffffffffLL));
+    if (rt == "cuint") return Value::make_int((long long)(uint32_t)(r & 0xffffffffULL));
+    if (rt == "clong" || rt == "culong") return Value::make_int(r);
+    if (rt == "cstr") { const char* p = (const char*)(uintptr_t)r; return Value::make_str(p ? p : ""); }
+    // cptr：指针按整型返回
+    return Value::make_int(r);
+#else
+    throw RuntimeError("extdef '" + ed->name + "': external C functions are only supported on Windows");
+#endif
 }
 
 // 查重载：先精确匹配 (左类型, 右类型)，再沿左/右操作数的类父链回退
@@ -1748,6 +1836,12 @@ ValuePtr Interpreter::eval_cast(const CastExpr* e) {
 }
 
 ValuePtr Interpreter::eval_call(const CallExpr* e) {
+    // 外部 C 函数调用（Lib-O3）：按名字命中 extdef 即动态调用
+    if (e->callee->kind == ExprKind::Identifier) {
+        const std::string& nm = static_cast<const IdentifierExpr*>(e->callee.get())->name;
+        auto eit = extdefs_.find(nm);
+        if (eit != extdefs_.end()) return call_extern(eit->second, e);
+    }
     ValuePtr callee = evaluate(e->callee.get());
     ValueVec args;
     for (auto& a : e->args) args.push_back(evaluate(a.get()));
