@@ -1,0 +1,40 @@
+# P6 extfloat 精确十进制（解释器 golden）
+
+extfloat a = 0.1ext;
+extfloat b = 0.2ext;
+
+print(a + b);
+print(0.1 + 0.2ext);
+print(a - b);
+print(a * b);
+print(a / b);
+print(1ext / 3ext);
+print(2ext / 3ext);
+print(10ext / 4ext);
+print(1ext / 8ext);
+print(7ext // 3ext);
+print(-7ext // 3ext);
+print(7ext % 3ext);
+print(0.1ext ** 3ext);
+
+print(a == 0.1ext);
+print(a < b);
+print(b > 0.1ext);
+print(-a);
+
+print(type(a));
+auto c = 1.5ext;
+print(c);
+
+print(a + 1);
+print(1 + a);
+print(a + 0.5);
+
+print(int(2.9ext));
+print(int(-2.9ext));
+print(float(0.5ext));
+print(str(a));
+extfloat d = extfloat("1.25");
+print(d);
+print("v=" + a);
+print("done");
