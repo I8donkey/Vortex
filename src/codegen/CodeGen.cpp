@@ -208,6 +208,10 @@ private:
     // 调用重载：构造实参并按声明返回类型收尾
     LVal call_operator_fn(const OperatorDeclStmt* od, const LVal& l, const LVal& r);
 
+    // ---- auto 解构绑定 ----
+    // auto [a, b, c] = 表达式;  元素按位置绑定为 int（tuple/pair/list/实例字段）
+    void gen_destructure(const VarDeclStmt* vd);
+
     // ---- 调试信息（P3，DIBuilder 发射 DWARF） ----
     llvm::DIBuilder* DB = nullptr;
     llvm::DICompileUnit* CU = nullptr;
@@ -1432,6 +1436,14 @@ LVal Gen::gen_call(const CallExpr* c) {
         }
         if (v.type == VType::List || v.type == VType::StrList) {
             llvm::Value* fn = decl_vor("vor_list_len", VType::Int, {VType::List});
+            return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {v.val})};
+        }
+        if (v.type == VType::Dict) {
+            llvm::Value* fn = decl_vor("vor_dict_len", VType::Int, {VType::Dict});
+            return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {v.val})};
+        }
+        if (v.type == VType::Tuple) {
+            llvm::Value* fn = decl_vor("vor_tuple_len", VType::Int, {VType::Tuple});
             return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {v.val})};
         }
     }
@@ -3404,6 +3416,10 @@ void Gen::gen_stmt(const Stmt* s) {
     switch (s->kind) {
         case StmtKind::VarDecl: {
             auto* vd = static_cast<const VarDeclStmt*>(s);
+            // 解构绑定：auto [a, b, c] = 表达式;
+            if (vd->destructuring) { gen_destructure(vd); break; }
+            const std::string tb = vd->type ? vd->type->base_name : std::string();
+            const bool is_auto = (tb == "auto");
             VType t = VType::Int;
             if (vd->type) {
                 if (vd->type->base_name == "float") t = VType::Float;
@@ -3419,9 +3435,10 @@ void Gen::gen_stmt(const Stmt* s) {
             }
             for (auto& [nm, init] : vd->names) {
                 LVal sv = init ? gen_expr(init.get()) : LVal{t, llvm::Constant::getNullValue(llvm_type(t)), nullptr};
-                // 动态绑定：容器/字符串/实例按初值实际类型（list 声明等）
+                // 动态绑定：容器/字符串/实例按初值实际类型（list 声明等）；auto 完全按初值类型
                 VType tEff = t;
-                if (init && (sv.type == VType::List || sv.type == VType::Str || sv.type == VType::Dict
+                if (is_auto) tEff = sv.type;
+                else if (init && (sv.type == VType::List || sv.type == VType::Str || sv.type == VType::Dict
                              || sv.type == VType::StrList || sv.type == VType::Set || sv.type == VType::Pair
                              || sv.type == VType::Tuple || sv.type == VType::Closure
                              || sv.type == VType::Object)) tEff = sv.type;
@@ -3443,7 +3460,7 @@ void Gen::gen_stmt(const Stmt* s) {
                 // 记录槽 + 类型；标识符访问时按需重新 load
                 std::string oc;
                 if (tEff == VType::Object)
-                    oc = (init && !sv.obj_class.empty()) ? sv.obj_class : vd->type->base_name;
+                    oc = !sv.obj_class.empty() ? sv.obj_class : (is_auto ? std::string() : tb);
                 scopes_.back()[nm] = LVal{tEff, B->CreateLoad(llvm_type(tEff), slot), slot, VType::Void, oc};
             }
             break;
@@ -3770,20 +3787,21 @@ void Gen::gen_stmt(const Stmt* s) {
             params.push_back(B->getPtrTy()); // closure 参数（函数体内忽略）
             for (auto& p : fd->params) {
                 VType t = VType::Int;
-                if (p->type) {
-                    if (p->type->base_name == "float") t = VType::Float;
-                    else if (p->type->base_name == "bool") t = VType::Bool;
-                    else if (p->type->base_name == "str") t = VType::Str;
-                }
+                if (p->type) t = type_from_name(p->type->base_name);   // class 名 -> Object
                 params.push_back(llvm_type(t));
                 ptypes.push_back(t);
             }
             llvm::FunctionType* FT = llvm::FunctionType::get(llvm_type(VType::Int), params, false);
-            // 推断返回类型：临时压入参数作用域，使 `return x` 能按参数声明类型解析
+            // 返回类型：声明了就用声明类型，否则（def / auto）按 return 语句推断
             scopes_.emplace_back();
-            for (size_t k = 0; k < fd->params.size() && k < ptypes.size(); ++k)
-                scopes_.back()[fd->params[k]->name] = {ptypes[k], nullptr};
-            VType rt = infer_fn_ret(fd);
+            for (size_t k = 0; k < fd->params.size() && k < ptypes.size(); ++k) {
+                LVal lv{ptypes[k], nullptr};
+                if (ptypes[k] == VType::Object && fd->params[k]->type)
+                    lv.obj_class = fd->params[k]->type->base_name;
+                scopes_.back()[fd->params[k]->name] = lv;
+            }
+            VType rt = (fd->ret_type.empty() || fd->ret_type == "auto")
+                           ? infer_fn_ret(fd) : type_from_name(fd->ret_type);
             scopes_.pop_back();
             fn_ret_map_[fd->name] = rt;
             FT = llvm::FunctionType::get(llvm_type(rt), params, false);
@@ -3808,7 +3826,9 @@ void Gen::gen_stmt(const Stmt* s) {
                 arg->setName(p->name);
                 llvm::AllocaInst* a = make_alloca(ptypes[i], fn, p->name.c_str());
                 B->CreateStore(arg, a);
-                scopes_.back()[p->name] = {ptypes[i], B->CreateLoad(llvm_type(ptypes[i]), a)};
+                LVal lv{ptypes[i], B->CreateLoad(llvm_type(ptypes[i]), a)};
+                if (ptypes[i] == VType::Object && p->type) lv.obj_class = p->type->base_name;
+                scopes_.back()[p->name] = lv;
                 if (debug_on()) dbg_declare(p->name, ptypes[i], a);
                 ++i;
             }
@@ -3937,7 +3957,8 @@ void Gen::gen_method_fn(const std::string& cls, const FunctionDefStmt* fd) {
         if (ptypes[i] == VType::Object) lv.obj_class = ptnames[i];
         scopes_.back()[fd->params[i + 1]->name] = lv;
     }
-    VType rt = infer_fn_ret(fd);
+    VType rt = (fd->ret_type.empty() || fd->ret_type == "auto")
+                   ? infer_fn_ret(fd) : type_from_name(fd->ret_type);
     scopes_.pop_back();
     fn_ret_map_[mname] = rt;
 
@@ -4161,6 +4182,70 @@ LVal Gen::call_operator_fn(const OperatorDeclStmt* od, const LVal& l, const LVal
     LVal out{rt, B->CreateCall(fn, args, "opcall")};
     if (rt == VType::Object) out.obj_class = od->ret_type;
     return out;
+}
+
+// ==================== auto 解构绑定 ====================
+void Gen::gen_destructure(const VarDeclStmt* vd) {
+    LVal src = gen_expr(vd->unpack_init.get());
+    const size_t n = vd->names.size();
+    // 绑定一个名字（顶层提升为模块全局，局部用 alloca）；元素统一按 int 处理
+    auto bind = [&](size_t i, llvm::Value* v) {
+        const std::string& nm = vd->names[i].first;
+        if (top_level_) {
+            auto* gv = new llvm::GlobalVariable(*mod_, B->getInt64Ty(), false,
+                                                llvm::GlobalValue::InternalLinkage,
+                                                B->getInt64(0), "g_" + nm);
+            B->CreateStore(v, gv);
+            scopes_.back()[nm] = LVal{VType::Int, B->CreateLoad(B->getInt64Ty(), gv), gv};
+        } else {
+            llvm::AllocaInst* a = make_alloca(VType::Int, cur_bb()->getParent(), nm.c_str());
+            B->CreateStore(v, a);
+            if (debug_on()) dbg_declare(nm, VType::Int, a);
+            scopes_.back()[nm] = LVal{VType::Int, B->CreateLoad(B->getInt64Ty(), a), a};
+        }
+    };
+    if (src.type == VType::Object) {
+        // 实例：字段沿父链由根到子展开，不展开方法
+        std::vector<const ClassInfo*> chain;   // 子 → 父
+        for (const ClassInfo* ci = find_class(src.obj_class); ci;
+             ci = ci->parent.empty() ? nullptr : find_class(ci->parent))
+            chain.push_back(ci);
+        std::vector<std::string> fields;
+        for (auto it = chain.rbegin(); it != chain.rend(); ++it)
+            for (auto& f : (*it)->fields) fields.push_back(f.second);
+        if (fields.size() != n)
+            throw std::runtime_error("cannot unpack " + std::to_string(fields.size()) +
+                                     " field(s) of class '" + src.obj_class + "' into " +
+                                     std::to_string(n) + " name(s)");
+        for (size_t i = 0; i < n; ++i) {
+            llvm::Value* v = B->CreateCall(llvm::cast<llvm::Function>(
+                declare_runtime("vor_obj_get", B->getInt64Ty(), {B->getPtrTy(), B->getPtrTy()})),
+                {src.val, cstr(fields[i])}, "ufld");
+            bind(i, v);
+        }
+        return;
+    }
+    for (size_t i = 0; i < n; ++i) {
+        llvm::Value* v = nullptr;
+        if (src.type == VType::Tuple) {
+            v = B->CreateCall(llvm::cast<llvm::Function>(
+                decl_vor("vor_tuple_at", VType::Int, {VType::Tuple, VType::Int})),
+                {src.val, B->getInt64((long long)i)}, "utup");
+        } else if (src.type == VType::List || src.type == VType::StrList ||
+                   src.type == VType::StrListList) {
+            v = B->CreateCall(llvm::cast<llvm::Function>(
+                decl_vor("vor_list_get", VType::Int, {VType::List, VType::Int})),
+                {src.val, B->getInt64((long long)i)}, "ulst");
+        } else if (src.type == VType::Pair && i < 2) {
+            v = B->CreateCall(llvm::cast<llvm::Function>(
+                decl_vor(i == 0 ? "vor_pair_first" : "vor_pair_second",
+                         VType::Int, {VType::Pair})), {src.val}, "upair");
+        } else {
+            throw std::runtime_error("cannot unpack a value of this type into " +
+                                     std::to_string(n) + " name(s)");
+        }
+        bind(i, v);
+    }
 }
 
 // ==================== 顶层：模块生成 ====================
