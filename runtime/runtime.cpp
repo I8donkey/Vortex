@@ -4,6 +4,7 @@
 // ============================================================
 #include "runtime.h"
 #include "net_core.h"
+#include "extdecimal.h"
 #if defined(_MSC_VER)
 #define VORTEX_RT_NORETURN __declspec(noreturn)
 #else
@@ -253,6 +254,94 @@ VStr* vor_ex_caught(void) {
 }
 VStr* vor_ex_type(void) {
     return vor_str_from_cstr(rt_ex_top_ ? rt_ex_top_->etype : "Error");
+}
+
+// ========== 精确十进制（extfloat）==========
+// 运行时值即"规范十进制文本"的 VStr*；运算走 extdecimal 的精确十进制实现，
+// 与解释器共用同一套代码，保证两端结果逐字节一致。
+namespace dec = vortex::dec;
+
+static std::string ext_text(VStr* s) {
+    return s ? std::string(s->data, (size_t)s->len) : std::string("0");
+}
+
+// 十进制例程的异常 -> 带类型的抛出（除零 -> ZeroDivisionError，其余 -> ValueError）
+static VORTEX_RT_NORETURN void ext_fail(const std::exception& e) {
+    std::string m = e.what();
+    const char* t = (m.find("Division by zero") != std::string::npos)
+                        ? "ZeroDivisionError" : "ValueError";
+    vor_throw_typed(vor_str_from_cstr(t), vor_str_from_cstr(m.c_str()));
+    std::abort();   // 不可达
+}
+
+template <typename F>
+static VStr* ext_call(F f) {
+    try { return vor_str_from_cstr(f().c_str()); }
+    catch (const std::exception& e) { ext_fail(e); }
+    return nullptr;
+}
+
+VStr* vor_ext_from_cstr(const char* s) {
+    return ext_call([&] { return dec::format(dec::parse(s ? s : "0")); });
+}
+VStr* vor_ext_from_vstr(VStr* s) {
+    return ext_call([&] { return dec::format(dec::parse(ext_text(s))); });
+}
+VStr* vor_ext_from_i64(long long v) {
+    return ext_call([&] { return dec::format(dec::from_i64(v)); });
+}
+VStr* vor_ext_from_f64(double v) {
+    return ext_call([&] { return dec::format(dec::from_f64(v)); });
+}
+VStr* vor_ext_add(VStr* a, VStr* b) {
+    return ext_call([&] { return dec::format(dec::add(dec::parse(ext_text(a)), dec::parse(ext_text(b)))); });
+}
+VStr* vor_ext_sub(VStr* a, VStr* b) {
+    return ext_call([&] { return dec::format(dec::sub(dec::parse(ext_text(a)), dec::parse(ext_text(b)))); });
+}
+VStr* vor_ext_mul(VStr* a, VStr* b) {
+    return ext_call([&] { return dec::format(dec::mul(dec::parse(ext_text(a)), dec::parse(ext_text(b)))); });
+}
+VStr* vor_ext_div(VStr* a, VStr* b) {
+    return ext_call([&] { return dec::format(dec::div(dec::parse(ext_text(a)), dec::parse(ext_text(b)))); });
+}
+// 向下取整除法：q = (x - rem) / y 为精确商，异号且有余数时减一（与解释器一致）
+VStr* vor_ext_floordiv(VStr* a, VStr* b) {
+    return ext_call([&] {
+        dec::Decimal x = dec::parse(ext_text(a)), y = dec::parse(ext_text(b));
+        dec::Decimal r = dec::rem(x, y);
+        dec::Decimal q = dec::div(dec::sub(x, r), y);
+        if (dec::cmp(r, dec::Decimal{}) != 0 && x.neg != y.neg)
+            q = dec::sub(q, dec::from_i64(1));
+        return dec::format(q);
+    });
+}
+VStr* vor_ext_mod(VStr* a, VStr* b) {
+    return ext_call([&] { return dec::format(dec::rem(dec::parse(ext_text(a)), dec::parse(ext_text(b)))); });
+}
+VStr* vor_ext_pow(VStr* a, VStr* b) {
+    return ext_call([&] {
+        return dec::format(dec::pow_int(dec::parse(ext_text(a)),
+                                        dec::to_i64_trunc(dec::parse(ext_text(b)))));
+    });
+}
+VStr* vor_ext_neg(VStr* a) {
+    return ext_call([&] { return dec::format(dec::neg(dec::parse(ext_text(a)))); });
+}
+long long vor_ext_cmp(VStr* a, VStr* b) {
+    try { return dec::cmp(dec::parse(ext_text(a)), dec::parse(ext_text(b))); }
+    catch (const std::exception& e) { ext_fail(e); }
+    return 0;
+}
+long long vor_ext_to_i64(VStr* a) {
+    try { return dec::to_i64_trunc(dec::parse(ext_text(a))); }
+    catch (const std::exception& e) { ext_fail(e); }
+    return 0;
+}
+double vor_ext_to_f64(VStr* a) {
+    try { return dec::to_f64(dec::parse(ext_text(a))); }
+    catch (const std::exception& e) { ext_fail(e); }
+    return 0.0;
 }
 
 // ========== 列表 ==========

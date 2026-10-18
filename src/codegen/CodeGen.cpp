@@ -121,7 +121,7 @@ static bool is_builtin_error_type(const std::string& n) {
 }
 
 // ==================== 静态类型 ====================
-enum class VType { Int, Float, Bool, Str, List, StrList, StrListList, Dict, Set, Pair, Tuple, Object, Ref, Closure, Void };
+enum class VType { Int, Float, Bool, Str, List, StrList, StrListList, Dict, Set, Pair, Tuple, Object, Ref, Closure, ExtFloat, Void };
 
 struct LVal {
     VType type;
@@ -259,6 +259,8 @@ private:
 
     // 二进制运算
     LVal gen_binop(const BinaryOpExpr* b);
+    // 精确十进制二元/比较运算（任一操作数为 extfloat）
+    LVal gen_ext_binop(const std::string& op, LVal l, LVal r);
 
     // 内置函数调用
     LVal gen_call(const CallExpr* c);
@@ -303,6 +305,7 @@ llvm::Type* Gen::llvm_type(VType t) const {
         case VType::Pair:  return B->getPtrTy();          // VPair*
         case VType::Tuple: return B->getPtrTy();          // VTuple*
         case VType::Object:return B->getPtrTy();          // VObj*（class 实例）
+        case VType::ExtFloat: return B->getPtrTy();       // VStr*（规范十进制文本）
         case VType::Closure: return B->getPtrTy();        // RT_Closure*
         case VType::Void:  return B->getVoidTy();
     }
@@ -415,6 +418,12 @@ LVal Gen::gen_expr(const Expr* e) {
             switch (l->lit_kind) {
                 case LiteralExpr::LitKind::Int:   return {VType::Int,   B->getInt64(l->int_val)};
                 case LiteralExpr::LitKind::Float: return {VType::Float, llvm::ConstantFP::get(B->getDoubleTy(), l->float_val)};
+                case LiteralExpr::LitKind::ExtFloat: {
+                    // 精确十进制字面量：按原始文本交给运行时解析（不经 double，避免精度损失）
+                    llvm::Value* fn = decl_vor("vor_ext_from_cstr", VType::ExtFloat, {VType::Str});
+                    return {VType::ExtFloat, B->CreateCall(llvm::cast<llvm::Function>(fn),
+                            {B->CreateGlobalString(l->str_val, "ext")})};
+                }
                 case LiteralExpr::LitKind::Bool:  return {VType::Bool,  B->getInt1(l->bool_val)};
                 case LiteralExpr::LitKind::String: {
                     llvm::Value* fn = decl_vor("vor_str_from_cstr", VType::Str, {VType::Str});
@@ -455,6 +464,38 @@ LVal Gen::gen_expr(const Expr* e) {
             auto* ce = static_cast<const CastExpr*>(e);
             std::string t = ce->target_type;
             LVal sv = gen_expr(ce->value.get());
+            // 精确十进制转换（与解释器口径一致）
+            if (sv.type == VType::ExtFloat) {
+                if (t == "extfloat") return sv;
+                if (t == "int" || t == "long" || t == "uint" || t == "ulong" ||
+                    t == "char" || t == "unichar")
+                    return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(
+                        decl_vor("vor_ext_to_i64", VType::Int, {VType::ExtFloat})), {sv.val}, "ext.i64")};
+                if (t == "float" || t == "double")
+                    return {VType::Float, B->CreateCall(llvm::cast<llvm::Function>(
+                        decl_vor("vor_ext_to_f64", VType::Float, {VType::ExtFloat})), {sv.val}, "ext.f64")};
+                if (t == "str" || t == "unistr") return {VType::Str, sv.val};
+                if (t == "bool") {
+                    llvm::Value* f = B->CreateCall(llvm::cast<llvm::Function>(
+                        decl_vor("vor_ext_to_f64", VType::Float, {VType::ExtFloat})), {sv.val}, "ext.b");
+                    return {VType::Bool, B->CreateFCmpUNE(f, llvm::ConstantFP::get(B->getDoubleTy(), 0.0), "ext.nz")};
+                }
+            }
+            if (t == "extfloat") {
+                // 从 int/float/bool/str 转精确十进制
+                if (sv.type == VType::Str) {
+                    llvm::Value* fn = decl_vor("vor_ext_from_vstr", VType::ExtFloat, {VType::Str});
+                    return {VType::ExtFloat, B->CreateCall(llvm::cast<llvm::Function>(fn), {sv.val})};
+                }
+                if (sv.type == VType::Float) {
+                    llvm::Value* fn = decl_vor("vor_ext_from_f64", VType::ExtFloat, {VType::Float});
+                    return {VType::ExtFloat, B->CreateCall(llvm::cast<llvm::Function>(fn), {sv.val})};
+                }
+                llvm::Value* iv = (sv.type == VType::Bool)
+                                      ? B->CreateZExt(sv.val, B->getInt64Ty(), "e.b2i") : to_i64(sv);
+                llvm::Value* fn = decl_vor("vor_ext_from_i64", VType::ExtFloat, {VType::Int});
+                return {VType::ExtFloat, B->CreateCall(llvm::cast<llvm::Function>(fn), {iv})};
+            }
             if (t == "int" || t == "long") {
                 if (sv.type == VType::Int) return sv;
                 if (sv.type == VType::Bool) return {VType::Int, B->CreateZExt(sv.val, B->getInt64Ty())};
@@ -518,6 +559,18 @@ LVal Gen::gen_expr(const Expr* e) {
             if (const OperatorDeclStmt* od =
                     find_operator_decl(u->op, lval_type_name(v), "", true))
                 return call_operator_fn(od, v, LVal{VType::Void, nullptr});
+            if (v.type == VType::ExtFloat) {
+                if (u->op == "+") return v;
+                if (u->op == "-")
+                    return {VType::ExtFloat, B->CreateCall(llvm::cast<llvm::Function>(
+                        decl_vor("vor_ext_neg", VType::ExtFloat, {VType::ExtFloat})), {v.val}, "ext.neg")};
+                if (u->op == "!") {
+                    llvm::Value* f = B->CreateCall(llvm::cast<llvm::Function>(
+                        decl_vor("vor_ext_to_f64", VType::Float, {VType::ExtFloat})), {v.val}, "ext.t");
+                    llvm::Value* nz = B->CreateFCmpUNE(f, llvm::ConstantFP::get(B->getDoubleTy(), 0.0), "ext.nz");
+                    return {VType::Bool, B->CreateNot(nz)};
+                }
+            }
             if (u->op == "!") return {VType::Bool, B->CreateNot(v.val)};
             if (u->op == "-") {
                 if (v.type == VType::Int)  return {VType::Int,   B->CreateNeg(v.val)};
@@ -891,6 +944,13 @@ LVal Gen::gen_binop(const BinaryOpExpr* b) {
     LVal l = gen_expr(b->left.get());
     LVal r = gen_expr(b->right.get());
     const std::string& op = b->op;
+
+    // 精确十进制：任一操作数为 extfloat（+ 的文本拼接场景除外）时走精确十进制运算
+    // 必须在浮点提升之前，避免把 extfloat 指针当作整数转成 double
+    if ((l.type == VType::ExtFloat || r.type == VType::ExtFloat) &&
+        !(op == "+" && (l.type == VType::Str || r.type == VType::Str)))
+        return gen_ext_binop(op, l, r);
+
     bool isFloat = (l.type == VType::Float || r.type == VType::Float);
     // 浮点提升：任一为 double，则整型操作数转 double，避免 fadd 操作数类型不一致
     llvm::Value* lf = l.val;
@@ -942,13 +1002,15 @@ LVal Gen::gen_binop(const BinaryOpExpr* b) {
     // 算术
     llvm::Value* res = nullptr;
     if (op == "+") {
-        if ((l.type == VType::Str) != (r.type == VType::Str)) {
+        // str / extfloat 都是"文本"指针：两侧同为文本才拼接，否则编译期报错
+        const bool ls = (l.type == VType::Str || l.type == VType::ExtFloat);
+        const bool rs = (r.type == VType::Str || r.type == VType::ExtFloat);
+        if (ls != rs) {
             // 一侧为 str、另一侧非 str：类型静态可知，直接编译期报错
             throw std::runtime_error("Type 'str' is not numeric");
         }
-        llvm::Value* pr[2] = {decl_vor("vor_str_concat", VType::Str, {VType::Str, VType::Str}),
-                              nullptr};
-        if (l.type == VType::Str && r.type == VType::Str) {
+        llvm::Value* pr[2] = {decl_vor("vor_str_concat", VType::Str, {VType::Str, VType::Str}), nullptr};
+        if (ls && rs) {
             res = B->CreateCall(llvm::cast<llvm::Function>(pr[0]), {l.val, r.val});
             return {VType::Str, res};
         }
@@ -1046,6 +1108,49 @@ LVal Gen::gen_binop(const BinaryOpExpr* b) {
 
     res = isFloat ? B->CreateFCmp(pred, lf, rf, "cmp") : B->CreateICmp(pred, l.val, r.val, "cmp");
     return {VType::Bool, res};
+}
+
+// ---------- 精确十进制运算（extfloat） ----------
+// 任一操作数为 extfloat 时：另一侧按 float/int 提升，运算全部交给运行时十进制例程
+LVal Gen::gen_ext_binop(const std::string& op, LVal l, LVal r) {
+    auto toext = [&](const LVal& v) -> llvm::Value* {
+        if (v.type == VType::ExtFloat) return v.val;
+        if (v.type == VType::Float)
+            return B->CreateCall(llvm::cast<llvm::Function>(
+                decl_vor("vor_ext_from_f64", VType::ExtFloat, {VType::Float})), {v.val}, "e.f");
+        llvm::Value* iv = (v.type == VType::Bool)
+                              ? B->CreateZExt(v.val, B->getInt64Ty(), "e.b2i") : v.val;
+        return B->CreateCall(llvm::cast<llvm::Function>(
+            decl_vor("vor_ext_from_i64", VType::ExtFloat, {VType::Int})), {iv}, "e.i");
+    };
+    // 比较 -> bool
+    if (op == "==" || op == "!=" || op == "<" || op == ">" || op == "<=" || op == ">=") {
+        llvm::Value* c = B->CreateCall(llvm::cast<llvm::Function>(
+            decl_vor("vor_ext_cmp", VType::Int, {VType::ExtFloat, VType::ExtFloat})),
+            {toext(l), toext(r)}, "extcmp");
+        llvm::Value* zero = B->getInt64(0);
+        llvm::Value* pred = nullptr;
+        if      (op == "==") pred = B->CreateICmpEQ(c, zero, "ext.eq");
+        else if (op == "!=") pred = B->CreateICmpNE(c, zero, "ext.ne");
+        else if (op == "<")  pred = B->CreateICmpSLT(c, zero, "ext.lt");
+        else if (op == ">")  pred = B->CreateICmpSGT(c, zero, "ext.gt");
+        else if (op == "<=") pred = B->CreateICmpSLE(c, zero, "ext.le");
+        else                 pred = B->CreateICmpSGE(c, zero, "ext.ge");
+        return {VType::Bool, pred};
+    }
+    const char* fn = nullptr;
+    if      (op == "+")  fn = "vor_ext_add";
+    else if (op == "-")  fn = "vor_ext_sub";
+    else if (op == "*")  fn = "vor_ext_mul";
+    else if (op == "/")  fn = "vor_ext_div";
+    else if (op == "//") fn = "vor_ext_floordiv";
+    else if (op == "%")  fn = "vor_ext_mod";
+    else if (op == "**") fn = "vor_ext_pow";
+    if (!fn) throw std::runtime_error("operator '" + op + "' is not supported for extfloat");
+    llvm::Value* res = B->CreateCall(llvm::cast<llvm::Function>(
+        decl_vor(fn, VType::ExtFloat, {VType::ExtFloat, VType::ExtFloat})),
+        {toext(l), toext(r)}, "extop");
+    return {VType::ExtFloat, res};
 }
 
 // ---------- 函数调用 ----------
@@ -3129,6 +3234,7 @@ VType Gen::infer_expr_type(const Expr* e) {
             auto* l = static_cast<const LiteralExpr*>(e);
             switch (l->lit_kind) {
                 case LiteralExpr::LitKind::Float: return VType::Float;
+                case LiteralExpr::LitKind::ExtFloat: return VType::ExtFloat;
                 case LiteralExpr::LitKind::String: case LiteralExpr::LitKind::UniString: return VType::Str;
                 case LiteralExpr::LitKind::Bool: return VType::Bool;
                 default: return VType::Int;
@@ -3266,6 +3372,9 @@ void Gen::emit_any(LVal v) {
                           {B->CreateZExt(v.val, B->getInt64Ty())});
             break;
         case VType::Str:
+            B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_print_str", VType::Void, {VType::Str})), {v.val});
+            break;
+        case VType::ExtFloat:   // 精确十进制本身就是文本指针
             B->CreateCall(llvm::cast<llvm::Function>(decl_vor("vor_print_str", VType::Void, {VType::Str})), {v.val});
             break;
         case VType::List:
@@ -3460,6 +3569,7 @@ void Gen::gen_stmt(const Stmt* s) {
                 else if (vd->type->base_name == "set") t = VType::Set;
                 else if (vd->type->base_name == "pair") t = VType::Pair;
                 else if (vd->type->base_name == "tuple") t = VType::Tuple;
+                else if (vd->type->base_name == "extfloat") t = VType::ExtFloat;
                 else if (classes_.count(vd->type->base_name)) t = VType::Object;   // 用户 class
                 else t = VType::Int;
             }
@@ -4185,6 +4295,7 @@ VType Gen::type_from_name(const std::string& n) const {
     if (n == "float" || n == "double") return VType::Float;
     if (n == "bool") return VType::Bool;
     if (n == "str" || n == "string" || n == "unistr") return VType::Str;
+    if (n == "extfloat") return VType::ExtFloat;
     if (classes_.count(n)) return VType::Object;
     return VType::Int;
 }
@@ -4196,6 +4307,7 @@ std::string Gen::lval_type_name(const LVal& v) const {
         case VType::Float: return "float";
         case VType::Bool:  return "bool";
         case VType::Str:   return "str";
+        case VType::ExtFloat: return "extfloat";
         case VType::List:  return "list";
         case VType::Dict:  return "dict";
         default:           return "";
@@ -4216,6 +4328,7 @@ std::string Gen::vtype_desc(VType t) {
         case VType::Pair:   return "pair";
         case VType::Tuple:  return "tuple";
         case VType::Object: return "instance";
+        case VType::ExtFloat: return "extfloat";
         case VType::Closure:return "function";
         case VType::Ref:    return "memadr";
         default:            return "None";
@@ -4231,6 +4344,7 @@ std::string Gen::type_desc_of_expr(const Expr* e) {
             case LiteralExpr::LitKind::Char:      return "char";
             case LiteralExpr::LitKind::Unichar:   return "unichar";
             case LiteralExpr::LitKind::Float:     return "double";
+            case LiteralExpr::LitKind::ExtFloat:  return "extfloat";
             case LiteralExpr::LitKind::String:
             case LiteralExpr::LitKind::UniString: return "str";
             case LiteralExpr::LitKind::Bool:      return "bool";

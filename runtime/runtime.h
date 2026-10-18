@@ -64,6 +64,24 @@ VStr*   vor_ex_type(void);   // 被捕获异常的类型名（无则 "Error"）
 int     vor_ex_setjmp(void* jb);
 void    vor_ex_longjmp(void* jb, int val);
 
+// ========== 精确十进制（extfloat）==========
+// 运行时以 VStr* 传递：内容是规范十进制文本（无指数记法）
+VStr*    vor_ext_from_cstr(const char* s);
+VStr*    vor_ext_from_vstr(VStr* s);   // 同 from_cstr，但源已是 VStr（str -> extfloat 转换）
+VStr*    vor_ext_from_i64(long long v);
+VStr*    vor_ext_from_f64(double v);
+VStr*    vor_ext_add(VStr* a, VStr* b);
+VStr*    vor_ext_sub(VStr* a, VStr* b);
+VStr*    vor_ext_mul(VStr* a, VStr* b);
+VStr*    vor_ext_div(VStr* a, VStr* b);
+VStr*    vor_ext_floordiv(VStr* a, VStr* b);
+VStr*    vor_ext_mod(VStr* a, VStr* b);
+VStr*    vor_ext_pow(VStr* a, VStr* b);
+VStr*    vor_ext_neg(VStr* a);
+long long vor_ext_cmp(VStr* a, VStr* b);
+long long vor_ext_to_i64(VStr* a);
+double   vor_ext_to_f64(VStr* a);
+
 // ========== 列表（引用计数，变长数组）==========
 // 元素为 64 位盒(标量直存 / 指针)，内部仅按字拷贝，不感知类型。
 typedef struct VList {
