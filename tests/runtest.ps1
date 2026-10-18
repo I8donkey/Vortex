@@ -87,7 +87,7 @@ $whitelist = @(
   "test_os", "test_regex", "test_json", "test_base64",
   "test_datetime", "test_csv", "test_hash", "test_str", "test_net",
   "test_math", "test_random", "test_sys", "test_stringlist",
-  "test_class", "test_class_inherit", "test_operator", "test_auto"
+  "test_class", "test_class_inherit", "test_operator", "test_auto", "test_type"
 )
 
 $ccExe  = Join-Path $testsDir "_cc_{0}.exe"

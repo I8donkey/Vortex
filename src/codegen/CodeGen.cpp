@@ -120,6 +120,7 @@ struct LVal {
     llvm::Value* slot = nullptr;    // 变量槽（alloca 或模块全局，用于读写）
     VType ref_pointee = VType::Void;  // type==Ref 时的被引用变量类型（Void 表未知/非引用）
     std::string obj_class;          // type==Object 时的静态类名（供字段/方法静态解析）
+    std::string type_desc;          // type() 用的静态类型描述（元组等；空 = 由类型推导）
 };
 
 // ==================== 代码生成器 ====================
@@ -211,6 +212,12 @@ private:
     // ---- auto 解构绑定 ----
     // auto [a, b, c] = 表达式;  元素按位置绑定为 int（tuple/pair/list/实例字段）
     void gen_destructure(const VarDeclStmt* vd);
+
+    // ---- type() 静态类型描述 ----
+    // 表达式 -> 类型名（元组为 auto_generated_class(元素类型,...)，与解释器口径一致）
+    std::string type_desc_of_expr(const Expr* e);
+    // 静态类型 -> 类型名字符串（对齐解释器 Value::type_name）
+    static std::string vtype_desc(VType t);
 
     // ---- 调试信息（P3，DIBuilder 发射 DWARF） ----
     llvm::DIBuilder* DB = nullptr;
@@ -1425,6 +1432,16 @@ LVal Gen::gen_call(const CallExpr* c) {
         LVal a0 = gen_expr(c->args[0].get());
         llvm::Value* fn = decl_vor("vor_fabs", VType::Float, {VType::Float});
         return {VType::Float, B->CreateCall(llvm::cast<llvm::Function>(fn), {to_fp(a0)})};
+    }
+
+    // type(x)：返回类型名字符串（编译期常量；元组为 auto_generated_class(...)）
+    if (fname == "type") {
+        if (c->args.empty()) throw std::runtime_error("type() expects one argument");
+        std::string desc = type_desc_of_expr(c->args[0].get());
+        gen_expr(c->args[0].get());   // 仍然求值实参，保留副作用/报错行为
+        llvm::Value* fn = decl_vor("vor_str_from_cstr", VType::Str, {VType::Str});
+        llvm::Value* g = B->CreateGlobalString(desc, "tyname");
+        return {VType::Str, B->CreateCall(llvm::cast<llvm::Function>(fn), {g})};
     }
 
     // len(String) / len(List) / len(Dict)：转发运行时长度
@@ -3461,7 +3478,10 @@ void Gen::gen_stmt(const Stmt* s) {
                 std::string oc;
                 if (tEff == VType::Object)
                     oc = !sv.obj_class.empty() ? sv.obj_class : (is_auto ? std::string() : tb);
-                scopes_.back()[nm] = LVal{tEff, B->CreateLoad(llvm_type(tEff), slot), slot, VType::Void, oc};
+                // 元组：记录元素类型描述，供 type() 使用
+                std::string tdesc;
+                if (tEff == VType::Tuple && init) tdesc = type_desc_of_expr(init.get());
+                scopes_.back()[nm] = LVal{tEff, B->CreateLoad(llvm_type(tEff), slot), slot, VType::Void, oc, tdesc};
             }
             break;
         }
@@ -4086,6 +4106,76 @@ std::string Gen::lval_type_name(const LVal& v) const {
         case VType::Dict:  return "dict";
         default:           return "";
     }
+}
+
+std::string Gen::vtype_desc(VType t) {
+    switch (t) {
+        case VType::Int:    return "int";
+        case VType::Float:  return "double";      // 对齐解释器 Value::type_name
+        case VType::Bool:   return "bool";
+        case VType::Str:    return "str";
+        case VType::List:
+        case VType::StrList:
+        case VType::StrListList: return "list";
+        case VType::Dict:   return "dict";
+        case VType::Set:    return "set";
+        case VType::Pair:   return "pair";
+        case VType::Tuple:  return "tuple";
+        case VType::Object: return "instance";
+        case VType::Closure:return "function";
+        case VType::Ref:    return "memadr";
+        default:            return "None";
+    }
+}
+
+// type() 的静态类型描述：字面量/元组/实例按源码精确给出，其余按静态类型
+std::string Gen::type_desc_of_expr(const Expr* e) {
+    if (!e) return "None";
+    if (e->kind == ExprKind::Literal) {
+        auto* l = static_cast<const LiteralExpr*>(e);
+        switch (l->lit_kind) {
+            case LiteralExpr::LitKind::Char:      return "char";
+            case LiteralExpr::LitKind::Unichar:   return "unichar";
+            case LiteralExpr::LitKind::Float:     return "double";
+            case LiteralExpr::LitKind::String:
+            case LiteralExpr::LitKind::UniString: return "str";
+            case LiteralExpr::LitKind::Bool:      return "bool";
+            case LiteralExpr::LitKind::None:      return "None";
+            default:                              return "int";
+        }
+    }
+    if (e->kind == ExprKind::ListInit || e->kind == ExprKind::ListComp) return "list";
+    if (e->kind == ExprKind::DictInit || e->kind == ExprKind::DictComp) return "dict";
+    if (e->kind == ExprKind::Call) {
+        auto* c = static_cast<const CallExpr*>(e);
+        if (c->callee->kind == ExprKind::Identifier) {
+            const std::string& cn = static_cast<const IdentifierExpr*>(c->callee.get())->name;
+            // 元组字面量：(a, b, c) 被解析为 make_tuple(...)
+            if (cn == "make_tuple") {
+                std::string s = "auto_generated_class(";
+                for (size_t i = 0; i < c->args.size(); ++i) {
+                    if (i) s += ",";
+                    s += type_desc_of_expr(c->args[i].get());
+                }
+                return s + ")";
+            }
+            if (cn == "__set_literal__" || cn == "set") return "set";
+            if (cn == "make_pair" || cn == "pair") return "pair";
+            if (classes_.count(cn)) return cn;   // 构造调用 -> 类名
+        }
+        return vtype_desc(infer_expr_type(e));
+    }
+    if (e->kind == ExprKind::Identifier) {
+        LVal v;
+        if (lookup_var(static_cast<const IdentifierExpr*>(e)->name, v)) {
+            if (!v.type_desc.empty()) return v.type_desc;   // 元组等已记录的描述
+            if (v.type == VType::Object)
+                return v.obj_class.empty() ? std::string("instance") : v.obj_class;
+            return vtype_desc(v.type);
+        }
+        return "None";
+    }
+    return vtype_desc(infer_expr_type(e));
 }
 
 std::string Gen::op_fn_name(const OperatorDeclStmt* od) const {

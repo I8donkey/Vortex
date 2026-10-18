@@ -1,0 +1,24 @@
+class node {
+    int a;
+    int b;
+    def init(self, a, b) { self.a = a; self.b = b; }
+}
+
+print(type(1));
+print(type(1.5));
+print(type(true));
+print(type('c'));
+print(type("s"));
+print(type([1, 2]));
+print(type({1: 1}));
+print(type((1, 2, true, 'c')));
+
+auto t = (1, 2, true, 'c');
+print(type(t));
+node n = node(1, 2);
+print(type(n));
+auto o = node(3, 4);
+print(type(o));
+auto [x, y] = (7, 8);
+print(type(x));
+print("done");
