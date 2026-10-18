@@ -48,6 +48,43 @@ static ValueVec gather_iterable(const ValuePtr& cont) {
     return elems;
 }
 
+// 解构展开：把右值按位置展开为元素序列（实例只展开字段，不展开方法）
+static ValueVec unpack_values(const ValuePtr& v) {
+    ValueVec elems;
+    if (!v) throw RuntimeError("Cannot unpack none");
+    switch (v->type) {
+        case ValueType::Tuple: for (auto& e : *v->tuple_rep) elems.push_back(e); return elems;
+        case ValueType::List:  for (auto& e : *v->list_rep) elems.push_back(e); return elems;
+        case ValueType::Pair:
+            elems.push_back(v->pair_rep->first);
+            elems.push_back(v->pair_rep->second);
+            return elems;
+        case ValueType::Instance: {
+            // 字段沿父链由根到子依次展开（与实例构造时的初始化顺序一致）
+            std::vector<ValuePtr> chain;                 // 子 → 父
+            auto cit = v->module_rep->find("__class__");
+            for (ValuePtr c = (cit != v->module_rep->end() ? cit->second : nullptr);
+                 c && c->type == ValueType::Class; ) {
+                chain.push_back(c);
+                auto bit = c->module_rep->find("__base__");
+                c = (bit != c->module_rep->end()) ? bit->second : nullptr;
+            }
+            for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+                auto fit = (*it)->module_rep->find("__fields__");
+                if (fit == (*it)->module_rep->end() ||
+                    fit->second->type != ValueType::List) continue;
+                for (auto& fv : *fit->second->list_rep) {
+                    auto vit = v->module_rep->find(fv->str_val);
+                    if (vit != v->module_rep->end()) elems.push_back(vit->second);
+                }
+            }
+            return elems;
+        }
+        default:
+            throw RuntimeError("Cannot unpack value of type " + v->type_name());
+    }
+}
+
 // ============ Environment ============
 void Environment::define(const std::string& name, ValuePtr value, bool is_const) {
     vars_[name] = {std::move(value), is_const};
@@ -984,6 +1021,17 @@ ControlSignal Interpreter::execute_block(const std::vector<StmtPtr>& stmts) {
 }
 
 ControlSignal Interpreter::exec_var_decl(const VarDeclStmt* s) {
+    // 解构绑定：auto [a, b, c] = 表达式;
+    if (s->destructuring) {
+        ValuePtr v = evaluate(s->unpack_init.get());
+        ValueVec elems = unpack_values(v);
+        if (elems.size() != s->names.size())
+            throw RuntimeError("Cannot unpack " + std::to_string(elems.size()) +
+                               " value(s) into " + std::to_string(s->names.size()) + " name(s)");
+        for (size_t i = 0; i < s->names.size(); ++i)
+            current_env_->define(s->names[i].first, elems[i], false);
+        return {};
+    }
     std::string tname = s->type ? s->type->base_name : "object";
     for (auto& [name, init] : s->names) {
         ValuePtr v;

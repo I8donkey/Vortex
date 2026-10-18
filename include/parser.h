@@ -46,6 +46,10 @@ private:
     StmtPtr parse_del();
     StmtPtr parse_operator_decl();
     StmtPtr parse_function_def();
+    // <返回类型> name(形参){体} / auto name(形参){体}（auto 则自动推导返回类型）
+    StmtPtr parse_function_def_typed(TypeSpecPtr ret);
+    // 函数定义公共部分：名字 + 形参 + 体
+    StmtPtr parse_function_def_body(std::unique_ptr<FunctionDefStmt> stmt);
     StmtPtr parse_import();
     StmtPtr parse_try();
     StmtPtr parse_expr_as_stmt(ExprPtr first_expr = nullptr);

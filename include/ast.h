@@ -224,10 +224,12 @@ protected:
     explicit Stmt(StmtKind k) : kind(k) {}
 };
 
-// 变量声明
+// 变量声明（含 auto 推导与解构绑定）
 struct VarDeclStmt : Stmt {
     TypeSpecPtr type;
     std::vector<std::pair<std::string, ExprPtr>> names; // name, optional init
+    bool destructuring = false;                         // auto [a, b, c] = expr;
+    ExprPtr unpack_init;                                // 解构右值（destructuring 时有效）
     VarDeclStmt() : Stmt(StmtKind::VarDecl) {}
 };
 
@@ -342,9 +344,10 @@ struct DelStmt : Stmt {
     DelStmt() : Stmt(StmtKind::Del) {}
 };
 
-// 函数定义
+// 函数定义：def name(...){...} / <返回类型> name(...){...} / auto name(...){...}
 struct FunctionDefStmt : Stmt {
     std::string name;
+    std::string ret_type;   // 声明的返回类型名；空或 "auto" = 自动推导
     std::vector<ParamDeclPtr> params;
     std::unique_ptr<BlockStmt> body;
     FunctionDefStmt() : Stmt(StmtKind::FunctionDef) {}

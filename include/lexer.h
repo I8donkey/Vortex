@@ -26,7 +26,7 @@ enum class TokenType {
     Typ_float, Typ_double, Typ_char, Typ_unichar, Typ_memadr, Typ_bool,
     Typ_str, Typ_unistr, Typ_bin,
     Typ_list, Typ_stack, Typ_queue, Typ_set, Typ_undset, Typ_dict,
-    Typ_pair, Typ_tuple, Typ_object, Typ_function,
+    Typ_pair, Typ_tuple, Typ_object, Typ_function, Typ_auto,
 
     // 标点
     LParen, RParen,        // ( )

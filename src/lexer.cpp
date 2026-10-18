@@ -37,6 +37,7 @@ static const std::unordered_map<std::string, TokenType> KEYWORDS = {
     {"undset", TokenType::Typ_undset}, {"dict", TokenType::Typ_dict},
     {"pair", TokenType::Typ_pair}, {"tuple", TokenType::Typ_tuple},
     {"object", TokenType::Typ_object}, {"function", TokenType::Typ_function},
+    {"auto", TokenType::Typ_auto},
 };
 
 std::string token_type_name_str(TokenType t) {
@@ -76,7 +77,7 @@ std::string token_type_name_str(TokenType t) {
 std::string token_type_name(TokenType t) { return token_type_name_str(t); }
 
 bool is_type_keyword(TokenType t) {
-    return t >= TokenType::Typ_int && t <= TokenType::Typ_function;
+    return t >= TokenType::Typ_int && t <= TokenType::Typ_auto;
 }
 
 // ========== Lexer 实现 ==========

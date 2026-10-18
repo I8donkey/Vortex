@@ -124,6 +124,12 @@ StmtPtr Parser::parse_stmt() {
         peek_t(1) == TokenType::Kw_operator) {
         return parse_operator_decl();
     }
+    // 带返回类型的函数定义：<类型> 名字 ( 形参 ) { 体 }（auto 亦可，自动推导返回类型）
+    if (is_type_keyword(peek_t()) && peek(1).type == TokenType::Identifier &&
+        peek_t(2) == TokenType::LParen) {
+        auto ret = parse_type_spec();
+        return parse_function_def_typed(std::move(ret));
+    }
     // 变量声明或表达式：检查下一个标识符后面是否是另一个标识符（声明形式: typename x;）
     // 或者是 type keyword 开头
     if (is_type_keyword(peek_t())) {
@@ -181,9 +187,28 @@ StmtPtr Parser::parse_var_decl(TypeSpecPtr type_hint) {
     TypeSpecPtr type;
     if (type_hint) type = std::move(type_hint);
     else type = parse_type_spec();
+    const std::string tname = type ? type->base_name : std::string();
 
     auto stmt = std::make_unique<VarDeclStmt>();
     stmt->type = std::move(type);
+
+    // 解构声明：auto [a, b, c] = 表达式;
+    if (check(TokenType::LBrack)) {
+        if (tname != "auto")
+            error("destructuring declaration requires 'auto' (e.g. auto [a, b] = expr;)");
+        advance();
+        while (true) {
+            Token n = expect(TokenType::Identifier, "variable name");
+            stmt->names.push_back({n.text, nullptr});
+            if (!match(TokenType::Comma)) break;
+        }
+        expect(TokenType::RBrack);
+        expect(TokenType::Assign);
+        stmt->destructuring = true;
+        stmt->unpack_init = parse_expr();
+        expect(TokenType::Semicolon);
+        return stmt;
+    }
 
     // 读取多个 (name [= init])
     while (true) {
@@ -200,6 +225,11 @@ StmtPtr Parser::parse_var_decl(TypeSpecPtr type_hint) {
         if (!match(TokenType::Comma)) break;
     }
     expect(TokenType::Semicolon);
+    // auto 必须有初值（类型由初值推导）
+    if (tname == "auto") {
+        for (auto& [nm, init] : stmt->names)
+            if (!init) error("'auto' variable '" + nm + "' requires an initializer");
+    }
     return stmt;
 }
 
@@ -338,6 +368,13 @@ StmtPtr Parser::parse_class() {
             auto fn = parse_function_def();
             auto* fd = static_cast<FunctionDefStmt*>(fn.release());
             stmt->methods.push_back(std::unique_ptr<FunctionDefStmt>(fd));
+        } else if (is_type_keyword(peek_t()) && peek(1).type == TokenType::Identifier &&
+                   peek_t(2) == TokenType::LParen) {
+            // <返回类型> name(形参) { 体 } / auto name(形参) { 体 }
+            auto ret = parse_type_spec();
+            auto fn = parse_function_def_typed(std::move(ret));
+            auto* fd = static_cast<FunctionDefStmt*>(fn.release());
+            stmt->methods.push_back(std::unique_ptr<FunctionDefStmt>(fd));
         } else {
             // 字段声明: [type] name ;
             ClassDeclStmt::Field f;
@@ -412,9 +449,21 @@ StmtPtr Parser::parse_del() {
     return stmt;
 }
 
+// def name(形参) { 体 }
 StmtPtr Parser::parse_function_def() {
-    auto stmt = std::make_unique<FunctionDefStmt>();
     expect(TokenType::Kw_def);
+    return parse_function_def_body(std::make_unique<FunctionDefStmt>());
+}
+
+// <返回类型> name(形参) { 体 } / auto name(形参) { 体 }（auto → 自动推导返回类型）
+StmtPtr Parser::parse_function_def_typed(TypeSpecPtr ret) {
+    auto stmt = std::make_unique<FunctionDefStmt>();
+    stmt->ret_type = ret ? ret->base_name : std::string();
+    return parse_function_def_body(std::move(stmt));
+}
+
+// 函数定义公共部分：名字 + 形参 + 体
+StmtPtr Parser::parse_function_def_body(std::unique_ptr<FunctionDefStmt> stmt) {
     Token n = expect(TokenType::Identifier, "function name");
     stmt->name = n.text;
     expect(TokenType::LParen);
@@ -789,9 +838,20 @@ ExprPtr Parser::parse_atom() {
     }
     if (check(TokenType::LParen)) {
         advance();
-        auto e = parse_expr();
+        auto first = parse_expr();
+        // 元组字面量 (a, b, c) → make_tuple(a, b, c)（两端均已支持该内建）
+        if (match(TokenType::Comma)) {
+            std::vector<ExprPtr> args;
+            args.push_back(std::move(first));
+            do {
+                args.push_back(parse_expr());
+            } while (match(TokenType::Comma));
+            expect(TokenType::RParen);
+            return std::make_unique<CallExpr>(
+                std::make_unique<IdentifierExpr>("make_tuple"), std::move(args));
+        }
         expect(TokenType::RParen);
-        return e;
+        return first;
     }
     if (check(TokenType::LBrack)) {
         advance();
