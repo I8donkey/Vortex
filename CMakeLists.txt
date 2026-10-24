@@ -270,6 +270,15 @@ if(MINGW)
     target_link_options(vtpm PRIVATE -static -static-libgcc -static-libstdc++)
 endif()
 
+# === vmake：轻量构建工具（解析 VmakeLists.txt 并生成 Ninja 构建文件） ===
+option(VORTEX_BUILD_VMAKE "Build the vmake build tool" ON)
+if(VORTEX_BUILD_VMAKE)
+    add_executable(vmake vmake/vmake.cpp)
+    if(MINGW)
+        target_link_options(vmake PRIVATE -static -static-libgcc -static-libstdc++)
+    endif()
+endif()
+
 # 若为 MinGW，静态链接标准库（避免依赖 libgcc/libstdc++ dll）
 if(MINGW)
     target_link_options(vortex PRIVATE -static -static-libgcc -static-libstdc++)

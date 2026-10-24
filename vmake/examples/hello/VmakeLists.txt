@@ -1,0 +1,8 @@
+# Minimal vmake project: one executable and an install rule.
+vmake_minimum_required(VERSION 0.1)
+
+project(hello)
+
+add_executable(hello hello.cpp)
+
+install(TARGETS hello RUNTIME DESTINATION bin)
