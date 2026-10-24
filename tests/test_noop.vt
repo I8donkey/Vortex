@@ -4,7 +4,7 @@ def noop() {
 }
 
 print("before run noop");
-t = thread.run(noop);
+object t = thread.run(noop);
 print("after run, before join");
 thread.join(t);
 print("after join, done");

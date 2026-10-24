@@ -5,7 +5,7 @@ def worker() {
 }
 
 print("before run");
-t = thread.run(worker);
+object t = thread.run(worker);
 print("after run, before join");
 thread.join(t);
 print("after join, done");

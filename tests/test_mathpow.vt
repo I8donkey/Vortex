@@ -1,0 +1,28 @@
+# math.ipow (integer fast exponentiation), math.gcd, math.lcm
+
+import math;
+
+print(math.ipow(2, 10));
+print(math.ipow(3, 0));
+print(math.ipow(1, 100));
+print(math.ipow(-2, 3));
+print(math.ipow(-2, 4));
+print(math.ipow(2, 62));
+print(math.ipow(10, 18));
+print(type(math.ipow(2, 3)));
+
+print(math.gcd(48, 18));
+print(math.gcd(-48, 18));
+print(math.gcd(0, 0));
+print(math.gcd(17, 5));
+print(math.lcm(4, 6));
+print(math.lcm(-4, 6));
+print(math.lcm(0, 5));
+
+try {
+    math.ipow(2, -1);
+} catch (ValueError e) {
+    print("value-error:" + e);
+}
+
+print("done");

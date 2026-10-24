@@ -13,6 +13,6 @@ def worker() {
 }
 
 print("launching thread...")
-t = thread.run(worker)
+object t = thread.run(worker)
 thread.join(t)
 print("thread joined, all done")

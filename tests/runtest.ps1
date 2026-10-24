@@ -30,10 +30,21 @@ param(
     [switch]$All,
     [Alias('t')]
     [int]$TimeoutSec = 20,
+    # Interpreter-only mode: skip vortexcc and compare nothing (CI on Linux/macOS).
+    [switch]$InterpOnly,
+    # Write a JUnit XML report to this path.
+    [string]$JUnit = "",
+    # Test names to skip (e.g. platform-specific ones).
+    [string[]]$Skip = @(),
     [switch]$Help
 )
 
 $ErrorActionPreference = "Stop"
+$isCI = ($env:CI -eq "true")
+
+# Accept both "-Skip a,b" and "-Skip a -Skip b" (comma-separated values come
+# through as one string when the script is launched with -File).
+$Skip = @($Skip | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 
 if ($Help) {
     Write-Host "runtest.ps1`n"
@@ -46,37 +57,54 @@ if ($Help) {
     Write-Host "  -t, -TimeoutSec <sec>       Kill a step after N seconds (default: 20)"
     Write-Host "  -v, -Verbose                Show actual build/run commands"
     Write-Host "  -a, -All                    Also golden-verify *.vt not in whitelist"
+    Write-Host "  -InterpOnly                 Only run the interpreter (no vortexcc)"
+    Write-Host "  -JUnit <path>               Write a JUnit XML report"
+    Write-Host "  -Skip <name[,name...]>      Skip the listed tests"
     Write-Host "Example:"
     Write-Host "  .\runtest.ps1"
     Write-Host "  .\runtest.ps1 -j 12 -v"
-    Write-Host "Press Enter to exit..."
-    Read-Host
+    Write-Host "  .\runtest.ps1 -InterpOnly -a -JUnit report.xml"
+    if (-not $isCI) { Write-Host "Press Enter to exit..."; Read-Host }
     exit 0
 }
 
 $testsDir = $PSScriptRoot
 if (-not $testsDir) {
     Write-Host "[ERROR] `$PSScriptRoot is empty. Cannot determine script directory." -ForegroundColor Red
-    Write-Host "Press Enter to exit..."
-    Read-Host
+    if (-not $isCI) { Write-Host "Press Enter to exit..."; Read-Host }
     exit 1
 }
 
 $root = Split-Path $testsDir -Parent
 Set-Location $testsDir
 
-# Lib-O3: compiled tests that link a DLL (extdef) need the DLL next to the exe.
-$depDll = Join-Path $root "bin\libzlib.dll"
-if (Test-Path $depDll) { Copy-Item $depDll $testsDir -Force -ErrorAction SilentlyContinue }
+# --- Platform-aware binary names ---
+$isWin = ($env:OS -eq "Windows_NT") -or ([System.Environment]::OSVersion.Platform -eq 'Win32NT')
+$exeSuffix = if ($isWin) { ".exe" } else { "" }
+$binDir = Join-Path $root "bin"
+$cc     = Join-Path $binDir ("vortexcc" + $exeSuffix)
+$interp = Join-Path $binDir ("vortex" + $exeSuffix)
 
-$cc     = Join-Path $root "bin\vortexcc.exe"
-$interp = Join-Path $root "bin\vortex.exe"
+# Lib-O3 (Windows only): compiled tests that link a DLL need the DLL next to the exe.
+if ($isWin) {
+    $depDll = Join-Path $binDir "libzlib.dll"
+    if (Test-Path $depDll) { Copy-Item $depDll $testsDir -Force -ErrorAction SilentlyContinue }
+} else {
+    # extdef links Windows DLLs; the interpreter rejects it elsewhere.
+    if ($Skip -notcontains "test_ffi") { $Skip = @($Skip) + "test_ffi" }
+}
 
-if (-not (Test-Path $cc) -or -not (Test-Path $interp)) {
+if ($InterpOnly) {
+    if (-not (Test-Path $interp)) {
+        Write-Host ("[ERROR] Missing interpreter: " + $interp) -ForegroundColor Red
+        Write-Host "        Build the project first." -ForegroundColor Red
+        if (-not $isCI) { Write-Host "Press Enter to exit..."; Read-Host }
+        exit 1
+    }
+} elseif (-not (Test-Path $cc) -or -not (Test-Path $interp)) {
     Write-Host ("[ERROR] Missing build outputs: " + $cc + " or " + $interp) -ForegroundColor Red
-    Write-Host "        Build the project first." -ForegroundColor Red
-    Write-Host "Press Enter to exit..."
-    Read-Host
+    Write-Host "        Build the project first (or use -InterpOnly)." -ForegroundColor Red
+    if (-not $isCI) { Write-Host "Press Enter to exit..."; Read-Host }
     exit 1
 }
 
@@ -92,7 +120,7 @@ $whitelist = @(
   "test_datetime", "test_csv", "test_hash", "test_str", "test_net",
   "test_math", "test_random", "test_sys", "test_stringlist",
   "test_class", "test_class_inherit", "test_operator", "test_auto", "test_type", "test_raise",
-  "test_extfloat", "test_ffi"
+  "test_extfloat", "test_ffi", "test_mathpow"
 )
 
 $ccExe  = Join-Path $testsDir "_cc_{0}.exe"
@@ -107,7 +135,10 @@ $discovered = @(
 
 $tests   = @()   # tests that will actually run
 $skipped = @()   # *.vt present but not verified (no .expected, not whitelisted, no -All)
+$skipSet = @{}
+foreach ($s in $Skip) { if ($s) { $skipSet[$s] = $true } }
 foreach ($n in $discovered) {
+    if ($skipSet.ContainsKey($n)) { continue }
     $hasExpected = Test-Path (Join-Path $testsDir "$n.expected")
     if ($hasExpected) { $tests += $n; continue }
     if ($whitelist -contains $n) { $tests += $n; continue }
@@ -117,7 +148,9 @@ $tests = @($tests | Sort-Object -Unique)
 
 Write-Host "Discovered $($discovered.Count) .vt files."
 Write-Host "Testing $($tests.Count); skipped $($skipped.Count) (use -All to run skipped)."
+if ($Skip.Count -gt 0) { Write-Host ("Explicitly skipped: " + ($Skip -join ", ")) -ForegroundColor DarkGray }
 Write-Host "Timeout per step: $TimeoutSec s"
+Write-Host ("Mode: " + ($(if ($InterpOnly) { "interpreter-only" } else { "golden (interp vs compiler)" })))
 
 $jobs = @()
 foreach ($t in $tests) {
@@ -133,8 +166,9 @@ foreach ($t in $tests) {
 
     $jobObj = Start-Job -ScriptBlock {
         param($testName, $vtPath, $ccBin, $interpBin, $outCcExe, $outDbgExe,
-              $workDir, $timeoutSec)
+              $workDir, $timeoutSec, $interpOnly)
         $ErrorActionPreference = "Stop"
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
         try {
             Set-Location $workDir
 
@@ -206,6 +240,27 @@ foreach ($t in $tests) {
                     ExpectedContent = $expected
                     ActualContent   = $actual
                     InterpCmd  = $interpCmd
+                }
+            }
+
+            # ---------------- INTERPRETER-ONLY mode (CI on Linux/macOS) ----
+            # No compiler backend is available there, so only require a clean exit.
+            if ($interpOnly) {
+                if (-not (Test-Path $vtPath)) {
+                    return & $mkStatus $testName "missing" $null $null $null
+                }
+                $gi = Run2Job $interpBin "`"$vtPath`"" $workDir $timeoutSec
+                $gCode = $gi[0]; $gOut = $gi[1]; $gErr = $gi[2]
+                if ($gCode -lt 0) { return & $mkStatus $testName "timeout" $gCode $gOut $gErr }
+                $st = if ($gCode -eq 0) { "ok" } else { "interp_fail" }
+                return [PSCustomObject]@{
+                    TestName = $testName; Status = $st; IsExpected = $false
+                    InterpCode = $gCode; InterpOut = $gOut; InterpErr = $gErr
+                    CcCode = $null; CcOut = $null; CcErr = $null
+                    DbgMismatch = $null; CcCompileLog = $null
+                    InterpCmd = $interpCmd; CcCompileCmd = $null; CcRunCmd = $null
+                    DbgCompileCmd = $null; DbgRunCmd = $null
+                    DurationMs = $sw.ElapsedMilliseconds
                 }
             }
 
@@ -304,7 +359,7 @@ foreach ($t in $tests) {
                 DbgCompileCmd = $null; DbgRunCmd = $null
             }
         }
-    } -ArgumentList $t,$vt,$cc,$interp,$cexe,$dexe,$testsDir,$TimeoutSec
+    } -ArgumentList $t,$vt,$cc,$interp,$cexe,$dexe,$testsDir,$TimeoutSec,$InterpOnly
 
     $jobs += $jobObj
 }
@@ -313,6 +368,7 @@ foreach ($t in $tests) {
 $total = $tests.Count
 $completed = 0
 $failCount = 0
+$results = @()
 $jobList = $jobs
 
 while ($jobList.Count -gt 0) {
@@ -332,6 +388,7 @@ while ($jobList.Count -gt 0) {
                 "cc_compile_fail"   { "FAIL (compile error)" }
                 "mismatch"          { "FAIL (golden mismatch)" }
                 "expected_mismatch" { "FAIL (output != expected)" }
+                "interp_fail"       { "FAIL (interpreter error)" }
                 "timeout"           { "FAIL (timeout: run time exceeded)" }
                 "job_error"         { "FAIL (internal job error)" }
                 default             { "FAIL (unknown)" }
@@ -380,9 +437,15 @@ while ($jobList.Count -gt 0) {
                         }
                     }
                     "job_error" { Write-Host "  Job error: $($res.CcCompileLog)" }
+                    "interp_fail" {
+                        Write-Host ("  Exit code: " + $res.InterpCode)
+                        if ($res.InterpOut) { Write-Host "  --- stdout ---"; Write-Host $res.InterpOut }
+                        if ($res.InterpErr) { Write-Host "  --- stderr ---"; Write-Host $res.InterpErr }
+                    }
                     default { Write-Host "  Unknown failure." }
                 }
             }
+            if ($null -ne $res) { $results += $res }
             $finished += $j
         }
     }
@@ -400,6 +463,50 @@ if ($failCount -eq 0) {
 if ($skipped.Count -gt 0) {
     Write-Host ("Skipped (add .expected or pass -All): " + ($skipped -join ", ")) -ForegroundColor DarkGray
 }
-Write-Host "Press Enter to exit..."
-Read-Host
+
+# ---- JUnit XML report ----
+if ($JUnit -ne "") {
+    function XmlEsc([string]$s) {
+        if ($null -eq $s) { return "" }
+        return $s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace('"', "&quot;")
+    }
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.AppendLine('<?xml version="1.0" encoding="UTF-8"?>')
+    [void]$sb.AppendLine(('<testsuites name="vortex" tests="{0}" failures="{1}" skipped="{2}">' -f $total, $failCount, $skipped.Count))
+    $suiteName = if ($InterpOnly) { "vortex-interpreter" } else { "vortex-golden" }
+    [void]$sb.AppendLine(('  <testsuite name="{0}" tests="{1}" failures="{2}" skipped="{3}">' -f $suiteName, $total, $failCount, $skipped.Count))
+    foreach ($r in $results) {
+        $nm = if ($r.TestName) { $r.TestName } else { "Unknown" }
+        $st = if ($r.Status) { $r.Status } else { "job_error" }
+        $dur = if ($null -ne $r.DurationMs) { [double]$r.DurationMs / 1000.0 } else { 0.0 }
+        [void]$sb.AppendLine(('    <testcase classname="{0}" name="{1}" time="{2:F3}">' -f $suiteName, (XmlEsc $nm), $dur))
+        if ($st -ne "ok") {
+            $msg = switch ($st) {
+                "missing"           { "missing test file" }
+                "cc_compile_fail"   { "compile error" }
+                "mismatch"          { "golden mismatch" }
+                "expected_mismatch" { "output != expected" }
+                "interp_fail"       { "interpreter error" }
+                "timeout"           { "timeout" }
+                default             { "internal job error" }
+            }
+            $detail = ""
+            if ($r.ExpectedContent) { $detail = "expected:`n" + $r.ExpectedContent + "`nactual:`n" + $r.ActualContent }
+            elseif ($r.CcCompileLog) { $detail = $r.CcCompileLog }
+            elseif ($r.InterpErr) { $detail = $r.InterpErr }
+            [void]$sb.AppendLine(('      <failure message="{0}">{1}</failure>' -f (XmlEsc $msg), (XmlEsc $detail)))
+        }
+        [void]$sb.AppendLine('    </testcase>')
+    }
+    foreach ($s in $skipped) {
+        [void]$sb.AppendLine(('    <testcase classname="{0}" name="{1}"><skipped/></testcase>' -f $suiteName, (XmlEsc $s)))
+    }
+    [void]$sb.AppendLine('  </testsuite>')
+    [void]$sb.AppendLine('</testsuites>')
+    $outPath = if ([System.IO.Path]::IsPathRooted($JUnit)) { $JUnit } else { Join-Path $testsDir $JUnit }
+    [System.IO.File]::WriteAllText($outPath, $sb.ToString(), (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host ("JUnit report: " + $outPath) -ForegroundColor DarkGray
+}
+
+if (-not $isCI) { Write-Host "Press Enter to exit..."; Read-Host }
 exit $failCount
