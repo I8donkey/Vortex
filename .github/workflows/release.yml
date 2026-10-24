@@ -9,7 +9,7 @@ on:
         default: v0.1.0
         type: string
       with_llvm:
-        description: 'Also build vortexcc (requires LLVM on the runner)'
+        description: 'Also build vtcc (requires LLVM on the runner)'
         required: false
         default: false
         type: boolean
@@ -165,30 +165,48 @@ jobs:
         shell: msys2 {0}
         run: cmake --build build --config Release --parallel
 
-      # ---------- 收集产物 ----------
+      # ---------- 收集产物（vortex 主体与 vmake 分成两个包） ----------
       - name: Stage binaries (Linux/macOS)
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          mkdir -p staged
-          cp build/bin/* staged/ 2>/dev/null || true
-          cp README.md README_zh.md USAGE.md USAGE_zh.md staged/ 2>/dev/null || true
-          ls -la staged/
+          mkdir -p staged/vortex staged/vmake
+          cp build/bin/vortex build/bin/vortex_editor staged/vortex/ 2>/dev/null || true
+          cp build/bin/vtcc build/bin/vtpm staged/vortex/ 2>/dev/null || true
+          cp build/bin/*.dll staged/vortex/ 2>/dev/null || true
+          cp build/bin/vmake staged/vmake/ 2>/dev/null || true
+          cp README.md README_zh.md USAGE.md USAGE_zh.md staged/vortex/ 2>/dev/null || true
+          cp README.md README_zh.md USAGE.md USAGE_zh.md staged/vmake/ 2>/dev/null || true
+          mkdir -p staged/vmake/examples
+          cp -r vmake/examples/* staged/vmake/examples/ 2>/dev/null || true
+          ls -la staged/vortex staged/vmake
 
       - name: Stage binaries (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
-          mkdir -p staged
-          cp build/bin/* staged/ 2>/dev/null || true
-          cp README.md README_zh.md USAGE.md USAGE_zh.md staged/ 2>/dev/null || true
-          ls -la staged/
+          mkdir -p staged/vortex staged/vmake
+          cp build/bin/vortex.exe build/bin/vtcc.exe build/bin/vtpm.exe staged/vortex/ 2>/dev/null || true
+          cp build/bin/vortex_editor.exe staged/vortex/ 2>/dev/null || true
+          cp build/bin/*.dll staged/vortex/ 2>/dev/null || true
+          cp build/bin/vmake.exe staged/vmake/ 2>/dev/null || true
+          cp README.md README_zh.md USAGE.md USAGE_zh.md staged/vortex/ 2>/dev/null || true
+          cp README.md README_zh.md USAGE.md USAGE_zh.md staged/vmake/ 2>/dev/null || true
+          mkdir -p staged/vmake/examples
+          cp -r vmake/examples/* staged/vmake/examples/ 2>/dev/null || true
+          ls -la staged/vortex staged/vmake
 
-      - name: Upload artifact
+      - name: Upload vortex artifact
         uses: actions/upload-artifact@v4
         with:
           name: vortex-${{ matrix.os }}
-          path: staged/
+          path: staged/vortex/
+
+      - name: Upload vmake artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vmake-${{ matrix.os }}
+          path: staged/vmake/
 
   release:
     name: Create GitHub Release

@@ -20,7 +20,7 @@ on:
         default: true
         type: boolean
       with_llvm:
-        description: 'Windows: build vortexcc (installs LLVM) and run full golden tests'
+        description: 'Windows: build vtcc (installs LLVM) and run full golden tests'
         required: false
         default: false
         type: boolean
@@ -85,14 +85,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential cmake \
+            build-essential cmake ninja-build \
             zlib1g-dev libsqlite3-dev liblzma-dev \
             libgl1-mesa-dev libx11-dev libxkbcommon-dev libglu1-mesa-dev
 
       - name: Install deps (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install xz
+          brew install xz ninja
           echo "CMAKE_PREFIX_PATH=$(brew --prefix xz)" >> "$GITHUB_ENV"
 
       - name: Install deps (Windows, MSYS2/MinGW)
@@ -122,7 +122,7 @@ jobs:
 
       # ---------------- Configure / build (skipped when using a release) ----------------
       # The LLVM backend is only built on Windows when requested: on Linux/macOS
-      # vortexcc's link step targets the Windows toolchain, so those platforms
+      # vtcc's link step targets the Windows toolchain, so those platforms
       # run the interpreter suite only (-InterpOnly).
       - name: Configure (Unix)
         if: ${{ runner.os != 'Windows' && !inputs.use_release }}
@@ -224,12 +224,34 @@ jobs:
         id: detect
         shell: pwsh
         run: |
-          if ((Test-Path bin/vortexcc.exe) -or (Test-Path bin/vortexcc)) {
+          if ((Test-Path bin/vtcc.exe) -or (Test-Path bin/vtcc)) {
             "has_cc=true" >> $env:GITHUB_OUTPUT
           } else {
             "has_cc=false" >> $env:GITHUB_OUTPUT
           }
-          Write-Host "compiler backend: $((Test-Path bin/vortexcc.exe) -or (Test-Path bin/vortexcc))"
+          Write-Host "compiler backend: $((Test-Path bin/vtcc.exe) -or (Test-Path bin/vtcc))"
+
+      # ---------------- vmake smoke test ----------------
+      - name: Smoke test vmake (Unix)
+        if: ${{ runner.os != 'Windows' && !inputs.use_release }}
+        shell: bash
+        run: |
+          chmod +x bin/vmake
+          bin/vmake --version
+          rm -rf /tmp/vmake-hello
+          bin/vmake -S vmake/examples/hello -B /tmp/vmake-hello -G Ninja
+          bin/vmake --build /tmp/vmake-hello
+          /tmp/vmake-hello/bin/hello
+
+      - name: Smoke test vmake (Windows)
+        if: ${{ runner.os == 'Windows' && !inputs.use_release }}
+        shell: msys2 {0}
+        run: |
+          ./bin/vmake.exe --version
+          rm -rf /tmp/vmake-hello
+          ./bin/vmake.exe -S vmake/examples/hello -B /tmp/vmake-hello -G Ninja
+          ./bin/vmake.exe --build /tmp/vmake-hello
+          /tmp/vmake-hello/bin/hello.exe
 
       # ---------------- Run tests ----------------
       # Smoke test: proves the staged binary itself works before the suite runs,
@@ -255,7 +277,7 @@ jobs:
           pwsh -NoProfile -ExecutionPolicy Bypass -File tests/runtest.ps1 `
             -j 4 -t 60 -Retries 2 -InterpOnly -a -JUnit "report-${{ matrix.os }}.xml"
 
-      # Full golden only for locally built binaries: a released vortexcc embeds
+      # Full golden only for locally built binaries: a released vtcc embeds
       # an absolute runtime-library path from its build machine, so compiling
       # test cases with it would fail to link here. Release mode runs the
       # interpreter suite instead.
