@@ -1,0 +1,309 @@
+name: Tests
+
+# Manual runs can pick which platforms to test; pushes and PRs run the default set.
+on:
+  workflow_dispatch:
+    inputs:
+      test_linux:
+        description: 'Run tests on Linux'
+        required: false
+        default: true
+        type: boolean
+      test_windows:
+        description: 'Run tests on Windows'
+        required: false
+        default: true
+        type: boolean
+      test_macos:
+        description: 'Run tests on macOS'
+        required: false
+        default: true
+        type: boolean
+      with_llvm:
+        description: 'Windows: build vortexcc (installs LLVM) and run full golden tests'
+        required: false
+        default: false
+        type: boolean
+      use_release:
+        description: 'Skip compilation: download binaries from the latest GitHub Release'
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        description: 'Release tag to download (empty = newest release)'
+        required: false
+        default: ''
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'include/**'
+      - 'runtime/**'
+      - 'tests/**'
+      - 'vtpm/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/tests.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'include/**'
+      - 'runtime/**'
+      - 'tests/**'
+      - 'vtpm/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/tests.yml'
+
+# dorny/test-reporter needs to publish a check run.
+permissions:
+  contents: read
+  checks: write
+
+env:
+  CI: true
+
+jobs:
+  # Build the platform matrix from the dispatch inputs (push/PR runs all three).
+  prepare:
+    name: Prepare test matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.build-matrix.outputs.matrix }}
+    steps:
+      - name: Build matrix JSON
+        id: build-matrix
+        shell: bash
+        run: |
+          LINUX="${{ github.event_name != 'workflow_dispatch' || inputs.test_linux }}"
+          WINDOWS="${{ github.event_name != 'workflow_dispatch' || inputs.test_windows }}"
+          MACOS="${{ github.event_name != 'workflow_dispatch' || inputs.test_macos }}"
+          ALL="[
+            {\"os\":\"ubuntu-latest\",\"enabled\":\"$LINUX\"},
+            {\"os\":\"windows-latest\",\"enabled\":\"$WINDOWS\"},
+            {\"os\":\"macos-latest\",\"enabled\":\"$MACOS\"}
+          ]"
+          MATRIX=$(echo "$ALL" | python3 -c 'import json,sys;d=json.load(sys.stdin);print(json.dumps({"include":[{k:v for k,v in e.items() if k!="enabled"} for e in d if e["enabled"]=="true"]}))')
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "selected matrix: $MATRIX"
+
+  test:
+    name: Test on ${{ matrix.os }}
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ---------------- Platform dependencies ----------------
+      - name: Install deps (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake \
+            zlib1g-dev libsqlite3-dev liblzma-dev \
+            libgl1-mesa-dev libx11-dev libxkbcommon-dev libglu1-mesa-dev
+
+      - name: Install deps (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install xz
+          echo "CMAKE_PREFIX_PATH=$(brew --prefix xz)" >> "$GITHUB_ENV"
+
+      - name: Install deps (Windows, MSYS2/MinGW)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-xz
+            mingw-w64-x86_64-sqlite3
+            mingw-w64-x86_64-zlib
+            mingw-w64-x86_64-tools
+
+      - name: Install LLVM (Windows, optional)
+        if: ${{ runner.os == 'Windows' && inputs.with_llvm && !inputs.use_release }}
+        shell: msys2 {0}
+        run: pacman -S --noconfirm --needed mingw-w64-x86_64-llvm
+
+      - name: Set MSYS2 prefix (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: echo "CMAKE_PREFIX_PATH=/mingw64" >> "$GITHUB_ENV"
+
+      # ---------------- Configure / build (skipped when using a release) ----------------
+      # The LLVM backend is only built on Windows when requested: on Linux/macOS
+      # vortexcc's link step targets the Windows toolchain, so those platforms
+      # run the interpreter suite only (-InterpOnly).
+      - name: Configure (Unix)
+        if: ${{ runner.os != 'Windows' && !inputs.use_release }}
+        shell: bash
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVORTEX_USE_CPM=OFF \
+            -DVORTEX_WITH_LLVM=OFF \
+            -DVORTEX_BUILD_EDITOR=OFF \
+            -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH"
+
+      - name: Configure (Windows)
+        if: ${{ runner.os == 'Windows' && !inputs.use_release }}
+        shell: msys2 {0}
+        run: |
+          cmake -S . -B build \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVORTEX_USE_CPM=OFF \
+            -DVORTEX_WITH_LLVM=${{ inputs.with_llvm }} \
+            -DVORTEX_BUILD_EDITOR=OFF \
+            -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH"
+
+      - name: Build (Unix)
+        if: ${{ runner.os != 'Windows' && !inputs.use_release }}
+        shell: bash
+        run: cmake --build build --config Release --parallel
+
+      - name: Build (Windows)
+        if: ${{ runner.os == 'Windows' && !inputs.use_release }}
+        shell: msys2 {0}
+        run: cmake --build build --config Release --parallel
+
+      # runtest.ps1 expects the binaries in <repo>/bin.
+      - name: Stage binaries (Unix)
+        if: ${{ runner.os != 'Windows' && !inputs.use_release }}
+        shell: bash
+        run: |
+          mkdir -p bin
+          cp -f build/bin/* bin/
+
+      - name: Stage binaries (Windows)
+        if: ${{ runner.os == 'Windows' && !inputs.use_release }}
+        shell: msys2 {0}
+        run: |
+          mkdir -p bin
+          cp -f build/bin/* bin/
+
+      # ---------------- Prebuilt binaries from the newest release ----------------
+      - name: Download release (Unix)
+        if: ${{ runner.os != 'Windows' && inputs.use_release }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.release_tag }}"
+          if [ -z "$TAG" ]; then
+            TAG=$(gh api "repos/${{ github.repository }}/releases" --jq '.[0].tag_name // empty')
+          fi
+          if [ -z "$TAG" ]; then
+            echo "::error::No GitHub Release found; publish one or set release_tag."
+            exit 1
+          fi
+          echo "Using release: $TAG"
+          mkdir -p dist/x bin
+          gh release download "$TAG" --repo "${{ github.repository }}" \
+            --pattern "vortex-${{ matrix.os }}.zip" --dir dist --clobber
+          unzip -o "dist/vortex-${{ matrix.os }}.zip" -d dist/x
+          find dist/x -type f -exec cp -f {} bin/ \;
+          ls -la bin/
+
+      - name: Download release (Windows)
+        if: ${{ runner.os == 'Windows' && inputs.use_release }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ inputs.release_tag }}"
+          if (-not $tag) {
+            $tag = gh api "repos/${{ github.repository }}/releases" --jq ".[0].tag_name // empty"
+          }
+          if (-not $tag) {
+            Write-Error "No GitHub Release found; publish one or set release_tag."
+            exit 1
+          }
+          Write-Host "Using release: $tag"
+          New-Item -ItemType Directory -Force dist, bin | Out-Null
+          gh release download $tag --repo "${{ github.repository }}" --pattern "vortex-${{ matrix.os }}.zip" --dir dist --clobber
+          Expand-Archive -Path "dist/vortex-${{ matrix.os }}.zip" -DestinationPath "dist/x" -Force
+          Get-ChildItem dist/x -Recurse -File | Copy-Item -Destination bin -Force
+          Get-ChildItem bin
+
+      - name: Detect compiler backend
+        id: detect
+        shell: pwsh
+        run: |
+          if ((Test-Path bin/vortexcc.exe) -or (Test-Path bin/vortexcc)) {
+            "has_cc=true" >> $env:GITHUB_OUTPUT
+          } else {
+            "has_cc=false" >> $env:GITHUB_OUTPUT
+          }
+          Write-Host "compiler backend: $((Test-Path bin/vortexcc.exe) -or (Test-Path bin/vortexcc))"
+
+      # ---------------- Run tests ----------------
+      - name: Run tests (Linux/macOS, interpreter-only)
+        if: runner.os != 'Windows'
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -ExecutionPolicy Bypass -File tests/runtest.ps1 `
+            -j 4 -t 120 -InterpOnly -a -JUnit "report-${{ matrix.os }}.xml"
+
+      # Full golden only for locally built binaries: a released vortexcc embeds
+      # an absolute runtime-library path from its build machine, so compiling
+      # test cases with it would fail to link here. Release mode runs the
+      # interpreter suite instead.
+      - name: Run tests (Windows, full golden)
+        if: ${{ runner.os == 'Windows' && !inputs.use_release && inputs.with_llvm }}
+        shell: pwsh
+        run: |
+          $env:PATH = "C:\msys64\mingw64\bin;$env:PATH"
+          $env:VORTEX_GCC_DIR = "C:/msys64/mingw64"
+          pwsh -NoProfile -ExecutionPolicy Bypass -File tests/runtest.ps1 `
+            -j 4 -t 120 -a -JUnit "report-${{ matrix.os }}.xml"
+
+      - name: Run tests (Windows, interpreter-only)
+        if: ${{ runner.os == 'Windows' && (inputs.use_release || !inputs.with_llvm) }}
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -ExecutionPolicy Bypass -File tests/runtest.ps1 `
+            -j 4 -t 120 -InterpOnly -a -JUnit "report-${{ matrix.os }}.xml"
+
+      # ---------------- Reports ----------------
+      - name: Publish test report
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: Vortex Tests (${{ matrix.os }})
+          path: tests/report-*.xml
+          reporter: java-junit
+          fail-on-error: false
+
+      - name: Upload test report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-report-${{ matrix.os }}
+          path: tests/report-*.xml
+          if-no-files-found: warn
+
+      - name: Write job summary
+        if: always()
+        shell: bash
+        run: |
+          REPORT=$(ls tests/report-*.xml 2>/dev/null | head -1 || true)
+          {
+            echo "### Vortex tests — ${{ runner.os }}"
+            echo
+            if [ -n "$REPORT" ]; then
+              grep -o 'tests="[0-9]*" failures="[0-9]*" skipped="[0-9]*"' "$REPORT" | head -1
+            else
+              echo "No report was produced."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
