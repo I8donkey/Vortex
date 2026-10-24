@@ -333,7 +333,7 @@ void Gen::dbg_begin(llvm::Module& mod) {
     cur_sp_ = nullptr;
     // 伪源文件名：扩展名不影响 DWARF 使用（gdb 可据此定位）
     DIF = DB->createFile("vortex.vt", ".");
-    CU = DB->createCompileUnit(llvm::dwarf::DW_LANG_C99, DIF, "vortexcc", false,
+    CU = DB->createCompileUnit(llvm::dwarf::DW_LANG_C99, DIF, "vtcc", false,
                                "", 0);
 }
 

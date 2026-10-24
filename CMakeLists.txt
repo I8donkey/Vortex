@@ -285,7 +285,7 @@ if(TARGET zlib AND WIN32)
 endif()
 
 # ============ 原生编译器运行时（引用计数，C ABI） ============
-# vortexcc 链路生成的可执行文件会链接此库。
+# vtcc 链路生成的可执行文件会链接此库。
 add_library(vortex_runtime STATIC runtime/runtime.cpp
     runtime/extdecimal.cpp
     runtime/g2d_rt.cpp runtime/r3d_rt.cpp runtime/r3d_g2d.h)
@@ -320,7 +320,7 @@ if(VORTEX_BUILD_EDITOR)
     if(Qt${QT_VERSION_MAJOR}Widgets_FOUND)
         message(STATUS "Vortex Editor: Found Qt${QT_VERSION_MAJOR} Widgets, building editor...")
 
-        # gui 脚本模块独立成库，仅编辑器链接：让 vortex.exe/vortexcc 不再依赖 Qt
+        # gui 脚本模块独立成库，仅编辑器链接：让 vortex.exe/vtcc 不再依赖 Qt
         add_library(vortex_gui STATIC src/gui_module.cpp)
         target_include_directories(vortex_gui PUBLIC ${CMAKE_SOURCE_DIR}/include)
         target_compile_features(vortex_gui PUBLIC cxx_std_17)
@@ -368,8 +368,8 @@ if(VORTEX_BUILD_EDITOR)
 endif()
 
 # ==================== 原生编译器后端（LLVM） ====================
-# vortexcc：把 .vt 编译为原生 exe。需 LLVM 库可用。
-option(VORTEX_WITH_LLVM "Build the LLVM-based native compiler backend (vortexcc)" OFF)
+# vtcc：把 .vt 编译为原生 exe。需 LLVM 库可用。
+option(VORTEX_WITH_LLVM "Build the LLVM-based native compiler backend (vtcc)" OFF)
 
 if(VORTEX_WITH_LLVM)
     if(NOT DEFINED LLVM_DIR)
@@ -389,20 +389,20 @@ if(VORTEX_WITH_LLVM)
             set(VORTEX_LLVM_SRC_INCLUDE ${LLVM_INCLUDE_DIRS})
             set(VORTEX_LLVM_BUILD_INCLUDE ${LLVM_INCLUDE_DIRS})
         endif()
-        add_executable(vortexcc
+        add_executable(vtcc
             src/cc/main.cpp
             src/codegen/CodeGen.cpp
             src/codegen/ModuleLoader.cpp
         )
-        target_include_directories(vortexcc PRIVATE
+        target_include_directories(vtcc PRIVATE
             ${CMAKE_SOURCE_DIR}/src
             ${VORTEX_LLVM_SRC_INCLUDE}
             ${VORTEX_LLVM_BUILD_INCLUDE}
         )
-        # vortexcc 编译产物链接 vortex_runtime 库时使用其绝对路径
-        target_compile_definitions(vortexcc PRIVATE VORTEX_RT_LIB="$<TARGET_FILE:vortex_runtime>")
+        # vtcc 编译产物链接 vortex_runtime 库时使用其绝对路径
+        target_compile_definitions(vtcc PRIVATE VORTEX_RT_LIB="$<TARGET_FILE:vortex_runtime>")
 
-        # ======= LLD：让 vortexcc 生成的 exe 不用外部 g++，改用 LLVM 的 lld 链接 =======
+        # ======= LLD：让 vtcc 生成的 exe 不用外部 g++，改用 LLVM 的 lld 链接 =======
         option(VORTEX_USE_LLD "Use CPM to build LLD, so generated exes link via lld instead of external g++" ON)
         if(VORTEX_USE_LLD AND _CPM_OK AND NOT TARGET lld)
             # 复用本项目已编译的 LLVM 构建（LLVM_DIR），standalone 构建 lld；
@@ -423,8 +423,8 @@ if(VORTEX_WITH_LLVM)
                             "LLVM_ENABLE_ZLIB OFF")
         endif()
         if(TARGET lld)
-            # 向 vortexcc 注入 lld 可执行文件路径；CodeGen 据此切换链接命令（不再调 g++）
-            target_compile_definitions(vortexcc PRIVATE VORTEX_LLD="$<TARGET_FILE:lld>")
+            # 向 vtcc 注入 lld 可执行文件路径；CodeGen 据此切换链接命令（不再调 g++）
+            target_compile_definitions(vtcc PRIVATE VORTEX_LLD="$<TARGET_FILE:lld>")
             message(STATUS "Vortex LLD: will link generated exes with LLD (no external g++)")
         else()
             message(STATUS "Vortex LLD: LLD unavailable (offline or not built), falling back to g++ for linking generated exes")
@@ -443,25 +443,25 @@ if(VORTEX_WITH_LLVM)
             list(PREPEND VORTEX_LLVM_LINK_LIBS "-Wl,--start-group")
             list(APPEND  VORTEX_LLVM_LINK_LIBS "-Wl,--end-group")
         endif()
-        target_link_libraries(vortexcc PRIVATE
+        target_link_libraries(vtcc PRIVATE
             vortex_core
             vortex_runtime
             ${VORTEX_LLVM_LINK_LIBS}
         )
         if(WIN32)
-            target_link_libraries(vortexcc PRIVATE
+            target_link_libraries(vtcc PRIVATE
                 -lntdll -lpsapi -lshlwapi -lversion -lshell32 -lole32 -luuid -lws2_32)
         endif()
         if(MINGW)
-            target_link_options(vortexcc PRIVATE -static -static-libgcc -static-libstdc++)
+            target_link_options(vtcc PRIVATE -static -static-libgcc -static-libstdc++)
         endif()
         if(TARGET zlib AND WIN32)
-            add_custom_command(TARGET vortexcc POST_BUILD
+            add_custom_command(TARGET vtcc POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                         "$<TARGET_FILE:zlib>" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
-                COMMENT "Bundling zlib.dll for vortexcc")
+                COMMENT "Bundling zlib.dll for vtcc")
         endif()
     else()
-        message(STATUS "Vortex LLVM: LLVM NOT found. Set LLVM_DIR to the llvm cmake dir to enable vortexcc.")
+        message(STATUS "Vortex LLVM: LLVM NOT found. Set LLVM_DIR to the llvm cmake dir to enable vtcc.")
     endif()
 endif()

@@ -1,6 +1,7 @@
 build/
 build_ninja/
 build_mingw/
+build_vmake/
 newcodering.md
 
 # 构建输出目录
@@ -28,11 +29,11 @@ cmake_install.cmake
 .vortex-deps/
 build_ninja/
 
-# vortexcc 编译产物
+# vtcc 编译产物
 *.o
 *.exe.ll
 *.exe
-/vortexcc_autogen
+/vtcc_autogen
 
 # 测试时按需复制到 tests/ 的依赖 DLL（Lib-O3）
 tests/*.dll

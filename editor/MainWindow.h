@@ -55,7 +55,7 @@ private slots:
     void undo();
     void redo();
     void runCurrent();        // 用解释器运行
-    void compileCurrent();    // 仅编译（vortexcc 生成 exe）
+    void compileCurrent();    // 仅编译（vtcc 生成 exe）
     void compileRunCurrent(); // 编译并运行生成的 exe
     void debugCurrent();      // --debug 编译后用 gdb 调试运行
     void currentTabChanged(int index);
@@ -94,7 +94,7 @@ private:
 
     void appendOutput(const QString &text, bool isError = false);
     void clearOutput();
-    // 用 vortexcc 把源文件编译成 exe；成功返回 true。outPath/diag 接收结果。
+    // 用 vtcc 把源文件编译成 exe；成功返回 true。outPath/diag 接收结果。
     bool buildToExe(const QString &srcPath, QString &outPath, QString &diag, bool debug = false);
     // 编译/运行/调试前确保当前文档已保存；未保存则弹另存为，取消返回 false。
     bool ensureSaved();

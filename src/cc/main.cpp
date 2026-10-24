@@ -1,8 +1,8 @@
 // ============================================================
-// vortexcc main.cpp — vortex 原生编译器 CLI 入口
+// vtcc main.cpp — vortex 原生编译器 CLI 入口
 //
-//   vortexcc build <file.vt> [-o out.exe] [-O0|-O1|-O2|-O3]
-//   vortexcc --help
+//   vtcc build <file.vt> [-o out.exe] [-O0|-O1|-O2|-O3]
+//   vtcc --help
 // ============================================================
 #include "codegen/CodeGen.h"
 #include <cstdio>

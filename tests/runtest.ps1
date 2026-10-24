@@ -30,7 +30,7 @@ param(
     [switch]$All,
     [Alias('t')]
     [int]$TimeoutSec = 20,
-    # Interpreter-only mode: skip vortexcc and compare nothing (CI on Linux/macOS).
+    # Interpreter-only mode: skip vtcc and compare nothing (CI on Linux/macOS).
     [switch]$InterpOnly,
     # Write a JUnit XML report to this path.
     [string]$JUnit = "",
@@ -59,7 +59,7 @@ if ($Help) {
     Write-Host "  -t, -TimeoutSec <sec>       Kill a step after N seconds (default: 20)"
     Write-Host "  -v, -Verbose                Show actual build/run commands"
     Write-Host "  -a, -All                    Also golden-verify *.vt not in whitelist"
-    Write-Host "  -InterpOnly                 Only run the interpreter (no vortexcc)"
+    Write-Host "  -InterpOnly                 Only run the interpreter (no vtcc)"
     Write-Host "  -JUnit <path>               Write a JUnit XML report"
     Write-Host "  -Skip <name[,name...]>      Skip the listed tests"
     Write-Host "  -Retries <n>                Retry a failed interpreter run n times (default: 1)"
@@ -85,7 +85,7 @@ Set-Location $testsDir
 $isWin = ($env:OS -eq "Windows_NT") -or ([System.Environment]::OSVersion.Platform -eq 'Win32NT')
 $exeSuffix = if ($isWin) { ".exe" } else { "" }
 $binDir = Join-Path $root "bin"
-$cc     = Join-Path $binDir ("vortexcc" + $exeSuffix)
+$cc     = Join-Path $binDir ("vtcc" + $exeSuffix)
 $interp = Join-Path $binDir ("vortex" + $exeSuffix)
 
 # Lib-O3 (Windows only): compiled tests that link a DLL need the DLL next to the exe.

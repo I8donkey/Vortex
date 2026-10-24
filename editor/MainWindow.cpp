@@ -1023,9 +1023,9 @@ void MainWindow::compileCurrent() {
             QTextStream ts(&f); ts << ed->toPlainText(); f.flush(); f.close();
         }
 
-        // 找到 vortexcc.exe（同目录或 PATH）
-        QString cc = QCoreApplication::applicationDirPath() + "/vortexcc.exe";
-        if (!QFileInfo::exists(cc)) cc = QStringLiteral("vortexcc");
+        // 找到 vtcc.exe（同目录或 PATH）
+        QString cc = QCoreApplication::applicationDirPath() + "/vtcc.exe";
+        if (!QFileInfo::exists(cc)) cc = QStringLiteral("vtcc");
 
         // 输出 exe 路径：与源同目录同名 .exe
         QString outPath = inPath;
@@ -1053,9 +1053,9 @@ void MainWindow::compileCurrent() {
 // ---------- 生成 exe 的公共逻辑 ----------
 
 bool MainWindow::buildToExe(const QString &srcPath, QString &outPath, QString &diag, bool debug) {
-    // 找到 vortexcc.exe（应用同目录或 PATH）
-    QString cc = QCoreApplication::applicationDirPath() + "/vortexcc.exe";
-    if (!QFileInfo::exists(cc)) cc = QStringLiteral("vortexcc");
+    // 找到 vtcc.exe（应用同目录或 PATH）
+    QString cc = QCoreApplication::applicationDirPath() + "/vtcc.exe";
+    if (!QFileInfo::exists(cc)) cc = QStringLiteral("vtcc");
 
     // 输出 exe 路径：与源同目录同名 .exe
     outPath = srcPath;
@@ -1068,7 +1068,7 @@ bool MainWindow::buildToExe(const QString &srcPath, QString &outPath, QString &d
     QProcess proc;
     proc.start(cc, args);
     if (!proc.waitForStarted()) {
-        diag = (language_ == 1 ? tr("无法启动 vortexcc: %1") : QStringLiteral("Cannot start vortexcc: %1"))
+        diag = (language_ == 1 ? tr("无法启动 vtcc: %1") : QStringLiteral("Cannot start vtcc: %1"))
                    .arg(cc);
         return false;
     }
