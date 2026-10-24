@@ -2,7 +2,7 @@
 
 > English version: [English](README.md)
 
-Vortex 是一门借鉴 Python 的脚本语言，提供三种互通使用方式：**树遍历解释器**、**LLVM 原生编译器 `vortexcc`**（将 `.vt` 源码直接编译为独立机器码可执行文件）、以及整合两者的 **Qt 编辑器**。所有语言特性在「解释器」与「编译器」**两端均已实现**，并通过 golden 回归测试保证两种后端语义完全一致。
+Vortex 是一门借鉴 Python 的脚本语言，提供三种互通使用方式：**树遍历解释器**、**LLVM 原生编译器 `vtcc`**（将 `.vt` 源码直接编译为独立机器码可执行文件）、以及整合两者的 **Qt 编辑器**。所有语言特性在「解释器」与「编译器」**两端均已实现**，并通过 golden 回归测试保证两种后端语义完全一致。
 
 Vortex 自带完整脚本能力：动态标量、容器、支持闭包的函数、带单继承的类、运算符重载、类型推导（`auto`）与解构、精确十进制（`extfloat`）、引用语义、异常处理（`raise` / 类型化 `catch`）、外部 C 函数调用（`extdef`）、标准模块（`math`、`time`、`random`、`thread`、`log`、`game2d`、`render3d`）以及软件渲染的 2D/3D 图形。
 
@@ -19,14 +19,15 @@ Vortex 自带完整脚本能力：动态标量、容器、支持闭包的函数�
 - [标准库模块](#标准库模块)
 - [安装](#安装)
 - [快速开始](#快速开始)
-- [原生编译器 vortexcc](#原生编译器-vortexcc)
+- [原生编译器 vtcc](#原生编译器-vtcc)
+- [构建工具 vmake](#构建工具vmake)
 - [完整使用指南](#完整使用指南)
 
 ---
 
 ## 语法参考
 
-> 打勾的行表示支持。**解释器** = interpreter，**编译器** = `vortexcc`（LLVM 后端）。下列全部语法元素在两种后端中均已实现，并通过 golden 回归测试验证。
+> 打勾的行表示支持。**解释器** = interpreter，**编译器** = `vtcc`（LLVM 后端）。下列全部语法元素在两种后端中均已实现，并通过 golden 回归测试验证。
 
 ### 注释
 
@@ -294,7 +295,7 @@ print(crc32(0, "hello", 5)); # 907060870
 ```
 
 - **解释器**在运行时加载库（`LoadLibrary` + `GetProcAddress`）并转换实参/返回值。解释器不支持 `cdouble` **形参**（`cdouble` *返回值*可以）。
-- **`vortexcc`** 声明符号并自动链接：对每个 `from` 指定的 DLL，用 `gendef` + `dlltool` 生成 MinGW 导入库并加入链接命令，无需手工链接。
+- **`vtcc`** 声明符号并自动链接：对每个 `from` 指定的 DLL，用 `gendef` + `dlltool` 生成 MinGW 导入库并加入链接命令，无需手工链接。
 - **`vtpm pack`** 会把 `extdef ... from` 引用的 DLL 一并打进 `.vtp`（并对作为输入的 `.exe`/`.dll` 递归扫描 PE 导入表），使包自包含。
 - 运行时该 `.dll` 必须可被解析（位于可执行文件同目录或在 `PATH` 上）。
 
@@ -450,7 +451,7 @@ from random import seed;
 
 - C++17 工具链（本项目使用 MinGW）。
 - 原生编译器后端所需的 LLVM 库（>= 14），通过 `LLVM_DIR` 发现。
-- **可选**：LLD（经 CPM 自动拉取，用于让 `vortexcc` 免外部 g++ 链接）；LLDB（编辑器调试功能，从 PATH 或 `VORTEX_DEBUGGER` 获取）。
+- **可选**：LLD（经 CPM 自动拉取，用于让 `vtcc` 免外部 g++ 链接）；LLDB（编辑器调试功能，从 PATH 或 `VORTEX_DEBUGGER` 获取）。
 - **可选**：Qt5/Qt6 Widgets（构建 `vortex_editor` 与 `gui` 模块，需设 `CMAKE_PREFIX_PATH`）。
 
 ### 从源码构建
@@ -460,12 +461,12 @@ from random import seed;
 cmake -S . -B build_ninja -G Ninja -DVORTEX_WITH_LLVM=ON
 
 # 构建解释器、编译器与编辑器
-ninja -C build_ninja vortex vortexcc vortex_editor
+ninja -C build_ninja vortex vtcc vortex_editor
 ```
 
 ### 获取二进制
 
-构建成功后，`vortexcc.exe`、`vortex.exe`、`vortex_editor.exe` 与 `libvortex_runtime.a` 会发布到 `bin/` 目录。
+构建成功后，`vtcc.exe`、`vortex.exe`、`vortex_editor.exe` 与 `libvortex_runtime.a` 会发布到 `bin/` 目录。
 
 ---
 
@@ -482,18 +483,18 @@ print("hello vortex, sqrt(16) =", math.sqrt(16));
 vortex hello.vt
 
 # 编译为独立可执行文件并运行
-vortexcc build hello.vt -o hello.exe
+vtcc build hello.vt -o hello.exe
 ./hello.exe
 ```
 
 ---
 
-## 原生编译器 vortexcc
+## 原生编译器 vtcc
 
-`vortexcc` 将 `.vt` 源码直接编译为原生可执行文件——运行时不再需要 `.vt` 源文件。
+`vtcc` 将 `.vt` 源码直接编译为原生可执行文件——运行时不再需要 `.vt` 源文件。
 
 ```
-vortexcc build <file.vt> [-o out.exe] [-O0|-O1|-O2|-O3] [--asm] [--debug]
+vtcc build <file.vt> [-o out.exe] [-O0|-O1|-O2|-O3] [--asm] [--debug]
 ```
 
 - `-o out.exe` —— 输出路径（默认 `<file>.exe`）。
@@ -524,7 +525,41 @@ import mymath;                      # 之后仍可这样导入（删掉 .vt 也�
 
 当被打包的 `.vt` 声明了 `extdef ... from "..."` 时，`vtpm` 会把引用的 DLL 一并打进包（并对作为输入的 `.exe`/`.dll` 递归扫描 PE 导入表），使包自包含。详见 [USAGE_zh.md](USAGE_zh.md#23-vtpm--打包工具vt--vtplzma2压缩)。
 
-解释器与编译器 `vortexcc` 均支持 `.vt`/`.vtp` 模块导入。
+解释器与编译器 `vtcc` 均支持 `.vt`/`.vtp` 模块导入。
+
+---
+
+## 构建工具（`vmake`）
+
+`vmake` 是一个轻量的 CMake 风格构建工具：读取 `VmakeLists.txt`，把选项存进 `VmakeCache.txt`，并生成 **Ninja** 构建文件。
+
+```sh
+vmake -S . -B build -G Ninja -DVMAKE_BUILD_TYPE=Release
+vmake --build build            # 调用 ninja 构建
+vmake --install build          # 执行生成的安装规则
+vmake -L                       # 列出缓存变量
+vmake --fresh -S . -B build    # 清空缓存后重新生成
+```
+
+脚本命令子集（会逐步补齐，不是所有 CMake 命令都已实现）：
+
+```cmake
+vmake_minimum_required(VERSION 0.1)
+project(hello)
+
+add_library(greet STATIC greet.cpp)
+target_include_directories(greet PUBLIC include)
+
+add_executable(hello hello.cpp)
+target_link_libraries(hello PRIVATE greet)
+target_compile_definitions(hello PRIVATE GREETING="hi")
+
+install(TARGETS hello DESTINATION bin)
+```
+
+已支持：`project`、`set`/`unset`/`list`、`add_executable`/`add_library`、`target_sources`、`target_include_directories`、`target_link_libraries`、`target_compile_definitions`/`_options`、`set_target_properties`、`if`/`elseif`/`else`、`foreach`、`include`、`add_subdirectory`、`message`、`file(GLOB …)`、`configure_file`、`install`。
+
+暂未实现：`find_package`、`add_custom_command`/`add_custom_target`、`try_compile`（会提示不支持并跳过）；生成器目前只有 `Ninja`。完整选项见 [USAGE_zh.md](USAGE_zh.md#25-vmake--构建工具)。
 
 ---
 

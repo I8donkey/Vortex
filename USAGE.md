@@ -13,7 +13,7 @@ This document is the complete operational reference for Vortex. README.md covers
 | Binary                | Role                                            |
 | --------------------- | ----------------------------------------------- |
 | `vortex`              | Tree-walking **interpreter**                    |
-| `vortexcc`            | **LLVM native compiler** (`.vt` → exe)          |
+| `vtcc`            | **LLVM native compiler** (`.vt` → exe)          |
 | `vortex_editor`       | Qt editor integrating run + compile             |
 | `vtpm`                | `.vt` → `.vtp` packager (LZMA2)                 |
 | `libvortex_runtime.a` | Static runtime linked into compiled executables |
@@ -32,11 +32,11 @@ vortex <file.vt> [args...]
 
 Runs a `.vt` script through the interpreter. Supports the entire language.
 
-### 2.2 `vortexcc` — native compiler
+### 2.2 `vtcc` — native compiler
 
 ```
-vortexcc build <file.vt> [-o out.exe] [-O0|-O1|-O2|-O3] [--asm] [--debug]
-vortexcc --help
+vtcc build <file.vt> [-o out.exe] [-O0|-O1|-O2|-O3] [--asm] [--debug]
+vtcc --help
 ```
 
 **Parameters**
@@ -66,14 +66,14 @@ vortexcc --help
 **Example**
 
 ```sh
-vortexcc build hello.vt -o hello.exe
+vtcc build hello.vt -o hello.exe
 ./hello.exe            # runs the compiled program directly
 ```
 
 **Debug session** (`--debug`)
 
 ```sh
-vortexcc build prog.vt -o prog.exe --debug
+vtcc build prog.vt -o prog.exe --debug
 # prog.exe now carries DWARF info: function breakpoints,
 # backtraces, and approximate line numbers (LLVM 23 format).
 ```
@@ -81,7 +81,7 @@ vortexcc build prog.vt -o prog.exe --debug
 **Optimization example**
 
 ```sh
-vortexcc build prog.vt -O3 --asm
+vtcc build prog.vt -O3 --asm
 ```
 
 ***
@@ -130,7 +130,41 @@ print(mymath.add(2, 3));
 - Resolution: built-in/extension modules first, then `<name>.vt` or `<name>.vtp` in the **script's directory / cwd**.
 - The `.vtp` entry is named `<name>.vt` (the default of `vtpm pack mymath.vt`).
 - Top-level `def`s/constants/globals become module members; the interpreter runs and caches each module once.
-- `vortexcc` supports the same: it inlines the module source into the compilation unit and statically links module functions as `module.func`. User functions support `int`/`float`/`str`/`bool` parameters and returns. Note: compiled `int / int` is integer division (unlike the interpreter's true division).
+- `vtcc` supports the same: it inlines the module source into the compilation unit and statically links module functions as `module.func`. User functions support `int`/`float`/`str`/`bool` parameters and returns. Note: compiled `int / int` is integer division (unlike the interpreter's true division).
+
+### 2.5 `vmake` — build tool
+
+A minimal CMake-style configure/build tool. It reads `VmakeLists.txt`, stores options in `VmakeCache.txt`, and generates **Ninja** files.
+
+| Option | Meaning |
+|---|---|
+| `-S <dir>` | source directory (default `.`) |
+| `-B <dir>` | build directory (default `.`) |
+| `-D <var>[:<type>]=<value>` | create/update a cache entry |
+| `-U <glob>` | remove matching cache entries |
+| `-G <name>` | generator; only `Ninja` is implemented |
+| `-C <file>` | pre-load a script before the project file |
+| `--fresh` | delete `VmakeCache.txt`/`build.ninja` and reconfigure |
+| `-L[A][H]`, `-LR <regex>` | list cached variables |
+| `--install-prefix <dir>` | install prefix stored in the cache |
+| `--project-file <name>` | alternate project file name |
+| `-N` | parse and print targets, write nothing |
+| `-P <file>` | run a script |
+| `--build <dir> [--target <t>] [-j <n>]` | run `ninja` |
+| `--install <dir>` | run `ninja install` |
+| `-E <cmd> ...` | `echo`, `copy`, `copy_if_different`, `make_directory`, `remove`, `remove_directory`, `cat`, `touch`, `compare_files` |
+
+```sh
+vmake -S . -B build -G Ninja -DVMAKE_BUILD_TYPE=Debug
+vmake --build build -j 8
+vmake --install build
+```
+
+Script commands: `vmake_minimum_required`, `project`, `set`/`unset`/`list`, `add_executable`, `add_library`, `target_sources`, `target_include_directories`, `target_link_libraries`, `target_compile_definitions`, `target_compile_options`, `target_link_options`, `set_target_properties`, `if`/`elseif`/`else`, `foreach`, `include`, `add_subdirectory`, `message`, `file(GLOB/MAKE_DIRECTORY/WRITE)`, `get_filename_component`, `configure_file`, `install`.
+
+Not implemented yet: `find_package`, `add_custom_command`, `add_custom_target`, `try_compile` (reported and skipped). Variables: `VMAKE_CXX_COMPILER`, `VMAKE_C_COMPILER`, `VMAKE_CXX_FLAGS`, `VMAKE_C_FLAGS`, `VMAKE_CXX_STANDARD`, `VMAKE_BUILD_TYPE`, `VMAKE_INSTALL_PREFIX`, plus `<CONFIG>`-suffixed variants.
+
+Sample project: `vmake/examples/hello`.
 
 ***
 
@@ -319,7 +353,7 @@ Syntax: `extdef <ctype> <name>(<ctype> <arg>, ...) [from "<library>"];`
 | `cptr`   | opaque pointer      | `int`        |
 
 - **Interpreter**: loads `from` at runtime (`LoadLibrary` + `GetProcAddress`) and marshals arguments / return values. `cdouble` **parameters** are rejected with a clear error (a `cdouble` *return* value works). At most 4 parameters are supported.
-- **`vortexcc`**: emits the external declaration; for each `from` DLL it generates a MinGW import library (`gendef` + `dlltool`) and appends it to the link step — no manual linking.
+- **`vtcc`**: emits the external declaration; for each `from` DLL it generates a MinGW import library (`gendef` + `dlltool`) and appends it to the link step — no manual linking.
 - **`vtpm pack`**: bundles the DLLs referenced by `from` (and recursively the PE imports of any `.exe`/`.dll` input).
 - At runtime the DLL must be resolvable (next to the executable or on `PATH`).
 - Errors: a missing library reports `cannot load library '<lib>'`; a missing symbol reports `symbol not found in '<lib>'`.
@@ -684,7 +718,7 @@ print(game2d.image_size(img));      # (80, 60)
 `tests/runtest.ps1` auto-discovers `tests/*.vt` and verifies in two ways:
 
 - **Correctness tests (recommended)**: when `tests/<name>.expected` exists, it asserts the interpreter exits 0 and its stdout exactly equals the expected content (CRLF / trailing-newline insensitive). Adding a new test is just dropping a `Foo.vt` + `Foo.expected` pair into `tests/`.
-- **Golden tests**: without `.expected`, the suite compiles each test with `vortexcc` (also re-verifies `--debug` builds) and compares stdout/stderr against the interpreter for semantic parity.
+- **Golden tests**: without `.expected`, the suite compiles each test with `vtcc` (also re-verifies `--debug` builds) and compares stdout/stderr against the interpreter for semantic parity.
 
 Common options:
 

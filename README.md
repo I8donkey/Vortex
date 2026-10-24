@@ -2,7 +2,7 @@
 
 > 简体中文版见：[中文文档](README_zh.md)
 
-Vortex is a Python-inspired scripting language with three interoperable modes: a **tree-walking interpreter**, an **LLVM native compiler** (`vortexcc`) that turns `.vt` sources into standalone machine-code executables, and a **Qt editor** that integrates both. Every language feature is implemented for *both* the interpreter and the compiler, and the two backends are kept semantically identical through golden regression tests.
+Vortex is a Python-inspired scripting language with three interoperable modes: a **tree-walking interpreter**, an **LLVM native compiler** (`vtcc`) that turns `.vt` sources into standalone machine-code executables, and a **Qt editor** that integrates both. Every language feature is implemented for *both* the interpreter and the compiler, and the two backends are kept semantically identical through golden regression tests.
 
 Vortex ships batteries for scripting: dynamic-typed scalars, containers, functions with closures, classes with single inheritance, operator overloading, type inference (`auto`) and destructuring, exact base-10 decimals (`extfloat`), reference semantics, exception handling (`raise` / typed `catch`), external C function calls (`extdef`), modules (`math`, `time`, `random`, `thread`, `log`, `game2d`, `render3d`), and software-rendered 2D/3D graphics.
 
@@ -19,14 +19,15 @@ Vortex ships batteries for scripting: dynamic-typed scalars, containers, functio
 - [Standard Library Modules](#standard-library-modules)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
-- [Native Compiler (`vortexcc`)](#native-compiler-vortexcc)
+- [Native Compiler (`vtcc`)](#native-compiler-vtcc)
+- [Build tool (`vmake`)](#build-tool-vmake)
 - [Full Usage Guide](#full-usage-guide)
 
 ---
 
 ## Language Reference
 
-> Rows marked with a check are supported. **Interp** = interpreter, **Comp** = `vortexcc` (LLVM backend). All elements below are implemented in both backends and verified by the golden regression suite.
+> Rows marked with a check are supported. **Interp** = interpreter, **Comp** = `vtcc` (LLVM backend). All elements below are implemented in both backends and verified by the golden regression suite.
 
 ### Comments
 
@@ -294,7 +295,7 @@ print(crc32(0, "hello", 5)); # 907060870
 ```
 
 - The **interpreter** loads the library at runtime (`LoadLibrary` + `GetProcAddress`) and marshals arguments/return values. `cdouble` **parameters** are not supported by the interpreter (a `cdouble` *return* value is fine).
-- **`vortexcc`** declares the symbol and links automatically: for each `from` DLL it generates a MinGW import library (`gendef` + `dlltool`) and appends it to the link step — no manual linking required.
+- **`vtcc`** declares the symbol and links automatically: for each `from` DLL it generates a MinGW import library (`gendef` + `dlltool`) and appends it to the link step — no manual linking required.
 - **`vtpm pack`** bundles the DLLs referenced by `extdef ... from` into the `.vtp` (and recursively scans the PE import tables of any `.exe`/`.dll` input), so the package is self-contained.
 - The `.dll` must be resolvable at runtime (next to the executable or on `PATH`).
 
@@ -450,7 +451,7 @@ Prerequisites:
 
 - A C++17 toolchain (MinGW used here).
 - LLVM libraries (>= 14) for the native compiler backend, discoverable via `LLVM_DIR`.
-- **Optional**: LLD (auto-fetched via CPM, lets `vortexcc` link without an external g++); LLDB (editor debug; resolved from PATH or `VORTEX_DEBUGGER`).
+- **Optional**: LLD (auto-fetched via CPM, lets `vtcc` link without an external g++); LLDB (editor debug; resolved from PATH or `VORTEX_DEBUGGER`).
 - **Optional**: Qt5/Qt6 Widgets (to build `vortex_editor` and the `gui` module; set `CMAKE_PREFIX_PATH`).
 
 ### Build from source
@@ -460,12 +461,12 @@ Prerequisites:
 cmake -S . -B build_ninja -G Ninja -DVORTEX_WITH_LLVM=ON
 
 # build the interpreter, compiler and editor
-ninja -C build_ninja vortex vortexcc vortex_editor
+ninja -C build_ninja vortex vtcc vortex_editor
 ```
 
 ### Get binaries
 
-`vortexcc.exe`, `vortex.exe`, `vortex_editor.exe` and `libvortex_runtime.a` are published to the `bin/` directory after a successful build.
+`vtcc.exe`, `vortex.exe`, `vortex_editor.exe` and `libvortex_runtime.a` are published to the `bin/` directory after a successful build.
 
 ---
 
@@ -482,18 +483,18 @@ print("hello vortex, sqrt(16) =", math.sqrt(16));
 vortex hello.vt
 
 # compile to a standalone exe and run it
-vortexcc build hello.vt -o hello.exe
+vtcc build hello.vt -o hello.exe
 ./hello.exe
 ```
 
 ---
 
-## Native Compiler (`vortexcc`)
+## Native Compiler (`vtcc`)
 
-`vortexcc` compiles `.vt` source directly to a native executable — no `.vt` source needed at runtime.
+`vtcc` compiles `.vt` source directly to a native executable — no `.vt` source needed at runtime.
 
 ```
-vortexcc build <file.vt> [-o out.exe] [-O0|-O1|-O2|-O3] [--asm] [--debug]
+vtcc build <file.vt> [-o out.exe] [-O0|-O1|-O2|-O3] [--asm] [--debug]
 ```
 
 - `-o out.exe` — output path (default `<file>.exe`).
@@ -524,7 +525,41 @@ import mymath;                      # still resolves when the .vt is gone
 
 When a packed `.vt` declares `extdef ... from "..."`, `vtpm` also bundles the referenced DLLs (and recursively the PE imports of any `.exe`/`.dll` input) so the package is self-contained. See [USAGE.md](USAGE.md#23-vtpm--packager-vt--vtp-lzma2-compression).
 
-Both the interpreter and `vortexcc` support `.vt`/`.vtp` module imports.
+Both the interpreter and `vtcc` support `.vt`/`.vtp` module imports.
+
+---
+
+## Build tool (`vmake`)
+
+`vmake` is a small CMake-style configure/build tool: it reads `VmakeLists.txt`, keeps options in `VmakeCache.txt`, and generates **Ninja** build files.
+
+```sh
+vmake -S . -B build -G Ninja -DVMAKE_BUILD_TYPE=Release
+vmake --build build            # runs ninja
+vmake --install build          # runs the generated install rules
+vmake -L                       # list cached variables
+vmake --fresh -S . -B build    # regenerate from scratch
+```
+
+Script subset (extended as needed; not every CMake command exists yet):
+
+```cmake
+vmake_minimum_required(VERSION 0.1)
+project(hello)
+
+add_library(greet STATIC greet.cpp)
+target_include_directories(greet PUBLIC include)
+
+add_executable(hello hello.cpp)
+target_link_libraries(hello PRIVATE greet)
+target_compile_definitions(hello PRIVATE GREETING="hi")
+
+install(TARGETS hello DESTINATION bin)
+```
+
+Supported: `project`, `set`/`unset`/`list`, `add_executable`/`add_library`, `target_sources`, `target_include_directories`, `target_link_libraries`, `target_compile_definitions`/`_options`, `set_target_properties`, `if`/`elseif`/`else`, `foreach`, `include`, `add_subdirectory`, `message`, `file(GLOB …)`, `configure_file`, `install`.
+
+Deferred: `find_package`, `add_custom_command`/`add_custom_target` and `try_compile` are reported as unsupported and skipped; only the `Ninja` generator is implemented. See [USAGE.md](USAGE.md#25-vmake--build-tool) for the full option list.
 
 ---
 

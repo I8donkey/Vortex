@@ -13,7 +13,7 @@
 | 程序                    | 作用                          |
 | --------------------- | --------------------------- |
 | `vortex`              | 树遍历**解释器**                  |
-| `vortexcc`            | **LLVM 原生编译器**（`.vt` → exe） |
+| `vtcc`            | **LLVM 原生编译器**（`.vt` → exe） |
 | `vortex_editor`       | 集成运行 + 编译的 Qt 编辑器           |
 | `vtpm`                | `.vt` → `.vtp` 打包工具（LZMA2）      |
 | `libvortex_runtime.a` | 编译产物链接的静态运行时库               |
@@ -32,11 +32,11 @@ vortex <file.vt> [args...]
 
 运行 `.vt` 脚本（解释器执行），支持完整语言。
 
-### 2.2 `vortexcc` —— 原生编译器
+### 2.2 `vtcc` —— 原生编译器
 
 ```
-vortexcc build <file.vt> [-o out.exe] [-O0|-O1|-O2|-O3] [--asm] [--debug]
-vortexcc --help
+vtcc build <file.vt> [-o out.exe] [-O0|-O1|-O2|-O3] [--asm] [--debug]
+vtcc --help
 ```
 
 **参数**
@@ -66,21 +66,21 @@ vortexcc --help
 **示例**
 
 ```sh
-vortexcc build hello.vt -o hello.exe
+vtcc build hello.vt -o hello.exe
 ./hello.exe            # 直接运行编译产物
 ```
 
 **调试会话（`--debug`）**
 
 ```sh
-vortexcc build prog.vt -o prog.exe --debug
+vtcc build prog.vt -o prog.exe --debug
 # prog.exe 携带 DWARF 信息：函数断点、调用栈、近似行号（LLVM 23 格式）。
 ```
 
 **优化示例**
 
 ```sh
-vortexcc build prog.vt -O3 --asm
+vtcc build prog.vt -O3 --asm
 ```
 
 ***
@@ -129,7 +129,41 @@ print(mymath.add(2, 3));
 - 解析顺序：先内置/扩展模块，再按**脚本所在目录 / 当前目录**查找 `<name>.vt` 或 `<name>.vtp`。
 - `.vtp` 里的条目名为 `<name>.vt`（即 `vtpm pack mymath.vt` 默认产物）。
 - 模块顶层 `def`/常量/全局 成为模块成员；解释器每次 `import` 执行一次并缓存。
-- 编译器（`vortexcc`）同样支持：把模块源码内联进编译单元，模块函数以 `模块名.函数名` 静态链接。用户函数参数/返回支持 `int`/`float`/`str`/`bool`。注意编译端 `int / int` 为整除（与解释器真除语义不同）。
+- 编译器（`vtcc`）同样支持：把模块源码内联进编译单元，模块函数以 `模块名.函数名` 静态链接。用户函数参数/返回支持 `int`/`float`/`str`/`bool`。注意编译端 `int / int` 为整除（与解释器真除语义不同）。
+
+### 2.5 `vmake` — 构建工具
+
+轻量的 CMake 风格配置/构建工具：读取 `VmakeLists.txt`，把选项存进 `VmakeCache.txt`，生成 **Ninja** 构建文件。
+
+| 选项 | 含义 |
+|---|---|
+| `-S <dir>` | 源码目录（默认 `.`） |
+| `-B <dir>` | 构建目录（默认 `.`） |
+| `-D <var>[:<type>]=<value>` | 创建/更新缓存条目 |
+| `-U <glob>` | 删除匹配的缓存条目 |
+| `-G <name>` | 生成器，目前仅实现 `Ninja` |
+| `-C <file>` | 在项目文件之前预加载脚本 |
+| `--fresh` | 删除 `VmakeCache.txt`/`build.ninja` 后重新配置 |
+| `-L[A][H]`、`-LR <regex>` | 列出缓存变量 |
+| `--install-prefix <dir>` | 安装前缀（写入缓存） |
+| `--project-file <name>` | 指定另一个项目文件名 |
+| `-N` | 只解析并打印目标，不写文件 |
+| `-P <file>` | 执行脚本 |
+| `--build <dir> [--target <t>] [-j <n>]` | 调用 `ninja` |
+| `--install <dir>` | 调用 `ninja install` |
+| `-E <cmd> ...` | `echo`、`copy`、`copy_if_different`、`make_directory`、`remove`、`remove_directory`、`cat`、`touch`、`compare_files` |
+
+```sh
+vmake -S . -B build -G Ninja -DVMAKE_BUILD_TYPE=Debug
+vmake --build build -j 8
+vmake --install build
+```
+
+支持的脚本命令：`vmake_minimum_required`、`project`、`set`/`unset`/`list`、`add_executable`、`add_library`、`target_sources`、`target_include_directories`、`target_link_libraries`、`target_compile_definitions`、`target_compile_options`、`target_link_options`、`set_target_properties`、`if`/`elseif`/`else`、`foreach`、`include`、`add_subdirectory`、`message`、`file(GLOB/MAKE_DIRECTORY/WRITE)`、`get_filename_component`、`configure_file`、`install`。
+
+暂未实现：`find_package`、`add_custom_command`、`add_custom_target`、`try_compile`（会提示并跳过）。相关变量：`VMAKE_CXX_COMPILER`、`VMAKE_C_COMPILER`、`VMAKE_CXX_FLAGS`、`VMAKE_C_FLAGS`、`VMAKE_CXX_STANDARD`、`VMAKE_BUILD_TYPE`、`VMAKE_INSTALL_PREFIX`，以及带 `<CONFIG>` 后缀的变体。
+
+示例工程：`vmake/examples/hello`。
 
 ***
 
@@ -318,7 +352,7 @@ print(crc32(0, "hello", 5)); # 907060870
 | `cptr`   | 不透明指针        | `int`     |
 
 - **解释器**：运行时加载 `from` 指定的库（`LoadLibrary` + `GetProcAddress`）并转换实参/返回值。`cdouble` **形参**会给出明确报错（`cdouble` *返回值*可用）；最多支持 4 个形参。
-- **`vortexcc`**：发射外部声明；对每个 `from` 的 DLL 用 `gendef` + `dlltool` 生成 MinGW 导入库并加入链接命令 —— 无需手工链接。
+- **`vtcc`**：发射外部声明；对每个 `from` 的 DLL 用 `gendef` + `dlltool` 生成 MinGW 导入库并加入链接命令 —— 无需手工链接。
 - **`vtpm pack`**：把 `from` 引用的 DLL 一起打进包（并对作为输入的 `.exe`/`.dll` 递归扫描 PE 导入表）。
 - 运行时该 DLL 必须可被解析（位于可执行文件同目录或在 `PATH` 上）。
 - 错误：库缺失报 `cannot load library '<库>'`；符号缺失报 `symbol not found in '<库>'`。
@@ -725,7 +759,7 @@ str body = net.http_get("https://httpbin.org/get");
 `tests/runtest.ps1` 自动发现 `tests/*.vt`，两种校验方式：
 
 - **正确性测试（推荐）**：存在 `tests/<name>.expected` 时，断言解释器退出码为 0 且 stdout 精确等于期望内容（CRLF/末尾换行不敏感）。新增测试只需放入一对 `Foo.vt` + `Foo.expected` 即被自动纳入回归。
-- **golden 测试**：无 `.expected` 时用 `vortexcc` 编译并运行（含 `--debug` 复核），将 stdout/stderr 与解释器对比，保证两端语义一致。
+- **golden 测试**：无 `.expected` 时用 `vtcc` 编译并运行（含 `--debug` 复核），将 stdout/stderr 与解释器对比，保证两端语义一致。
 
 常用参数：
 
