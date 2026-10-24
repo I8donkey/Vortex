@@ -1,4 +1,3 @@
 [INFO] atomic init, get = 0
 [INFO] after 2x100 increments, counter = 200
-[INFO] hardware cores = 28
 [INFO] atomic test done

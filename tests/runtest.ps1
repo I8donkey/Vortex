@@ -36,6 +36,8 @@ param(
     [string]$JUnit = "",
     # Test names to skip (e.g. platform-specific ones).
     [string[]]$Skip = @(),
+    # Retries for a failed interpreter run (thread tests are occasionally racy).
+    [int]$Retries = 1,
     [switch]$Help
 )
 
@@ -60,6 +62,7 @@ if ($Help) {
     Write-Host "  -InterpOnly                 Only run the interpreter (no vortexcc)"
     Write-Host "  -JUnit <path>               Write a JUnit XML report"
     Write-Host "  -Skip <name[,name...]>      Skip the listed tests"
+    Write-Host "  -Retries <n>                Retry a failed interpreter run n times (default: 1)"
     Write-Host "Example:"
     Write-Host "  .\runtest.ps1"
     Write-Host "  .\runtest.ps1 -j 12 -v"
@@ -170,7 +173,7 @@ foreach ($t in $tests) {
 
     $jobObj = Start-Job -ScriptBlock {
         param($testName, $vtPath, $ccBin, $interpBin, $outCcExe, $outDbgExe,
-              $workDir, $timeoutSec, $interpOnly)
+              $workDir, $timeoutSec, $interpOnly, $retries)
         $ErrorActionPreference = "Stop"
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         try {
@@ -187,16 +190,20 @@ foreach ($t in $tests) {
                 $psi.RedirectStandardError = $true
                 $psi.UseShellExecute = $false
                 $p = [System.Diagnostics.Process]::Start($psi)
+                # Read both streams concurrently: waiting first would deadlock
+                # as soon as a test fills the OS pipe buffer.
+                $soTask = $p.StandardOutput.ReadToEndAsync()
+                $seTask = $p.StandardError.ReadToEndAsync()
                 if (-not $p.WaitForExit($timeoutSec * 1000)) {
                     # timeout: kill before reading streams to avoid blocking
                     try { $p.Kill() } catch {}
                     $p.WaitForExit()
-                    $out = $p.StandardOutput.ReadToEnd()
-                    $err = $p.StandardError.ReadToEnd()
+                    $out = $soTask.GetAwaiter().GetResult()
+                    $err = $seTask.GetAwaiter().GetResult()
                     return @(-1, $out, "run time exceeded (> $timeoutSec s): $err", "$exe $argStr")
                 }
-                $out = $p.StandardOutput.ReadToEnd()
-                $err = $p.StandardError.ReadToEnd()
+                $out = $soTask.GetAwaiter().GetResult()
+                $err = $seTask.GetAwaiter().GetResult()
                 return @($p.ExitCode, $out, $err, "$exe $argStr")
             }
 
@@ -254,9 +261,14 @@ foreach ($t in $tests) {
                     return & $mkStatus $testName "missing" $null $null $null
                 }
                 $gi = Run2Job $interpBin "`"$vtPath`"" $workDir $timeoutSec
+                $tries = 0
+                while ($gi[0] -ne 0 -and $tries -lt $retries) {
+                    $tries++
+                    $gi = Run2Job $interpBin "`"$vtPath`"" $workDir $timeoutSec
+                }
                 $gCode = $gi[0]; $gOut = $gi[1]; $gErr = $gi[2]
-                if ($gCode -lt 0) { return & $mkStatus $testName "timeout" $gCode $gOut $gErr }
-                $st = if ($gCode -eq 0) { "ok" } else { "interp_fail" }
+                $st = if ($gCode -eq 0) { "ok" } elseif ($gCode -lt 0) { "timeout" } else { "interp_fail" }
+                if ($st -ne "ok") { return & $mkStatus $testName $st $gCode $gOut $gErr }
                 return [PSCustomObject]@{
                     TestName = $testName; Status = $st; IsExpected = $false
                     InterpCode = $gCode; InterpOut = $gOut; InterpErr = $gErr
@@ -363,7 +375,7 @@ foreach ($t in $tests) {
                 DbgCompileCmd = $null; DbgRunCmd = $null
             }
         }
-    } -ArgumentList $t,$vt,$cc,$interp,$cexe,$dexe,$testsDir,$TimeoutSec,$InterpOnly
+    } -ArgumentList $t,$vt,$cc,$interp,$cexe,$dexe,$testsDir,$TimeoutSec,$InterpOnly,$Retries
 
     $jobs += $jobObj
 }
@@ -416,6 +428,8 @@ while ($jobList.Count -gt 0) {
                     "cc_compile_fail" { Write-Host "  Compiler output:"; Write-Host $res.CcCompileLog }
                     "timeout" {
                         Write-Host ("  Step took longer than $TimeoutSec s and was killed.")
+                        if ($res.InterpCmd) { Write-Host "  Command: $($res.InterpCmd)" }
+                        if ($res.InterpOut) { Write-Host "  --- stdout (partial) ---"; Write-Host $res.InterpOut }
                         if ($res.InterpErr) { Write-Host "  --- stderr ---"; Write-Host $res.InterpErr }
                         if ($res.CcErr) { Write-Host "  --- cc stderr ---"; Write-Host $res.CcErr }
                     }

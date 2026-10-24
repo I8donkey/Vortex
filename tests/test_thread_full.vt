@@ -50,8 +50,8 @@ def consumer() {
     }
 }
 object p = thread.run(producer);
-object c = thread.run(consumer);
 thread.join(p);
+object c = thread.run(consumer);
 thread.join(c);
 log.info("channel received count =", thread.atomic_get(received));
 

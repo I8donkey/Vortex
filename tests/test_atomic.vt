@@ -17,5 +17,4 @@ object b = thread.run(inc);
 thread.join(a);
 thread.join(b);
 log.info("after 2x100 increments, counter =", thread.atomic_get(counter));
-log.info("hardware cores =", thread.hardware());
 log.info("atomic test done");

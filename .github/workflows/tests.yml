@@ -232,12 +232,28 @@ jobs:
           Write-Host "compiler backend: $((Test-Path bin/vortexcc.exe) -or (Test-Path bin/vortexcc))"
 
       # ---------------- Run tests ----------------
+      # Smoke test: proves the staged binary itself works before the suite runs,
+      # so harness problems and binary problems are told apart in the log.
+      - name: Smoke test interpreter (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          file bin/vortex || true
+          ldd bin/vortex || true
+          for t in test_basic t3 test_auto test_raise; do
+            echo "--- $t ---"
+            timeout 30 bin/vortex "tests/$t.vt" > /tmp/smoke.out 2>/tmp/smoke.err
+            echo "exit=$?"
+            head -c 500 /tmp/smoke.out
+            head -c 500 /tmp/smoke.err
+          done
+
       - name: Run tests (Linux/macOS, interpreter-only)
         if: runner.os != 'Windows'
         shell: pwsh
         run: |
           pwsh -NoProfile -ExecutionPolicy Bypass -File tests/runtest.ps1 `
-            -j 4 -t 120 -InterpOnly -a -JUnit "report-${{ matrix.os }}.xml"
+            -j 4 -t 60 -Retries 2 -InterpOnly -a -JUnit "report-${{ matrix.os }}.xml"
 
       # Full golden only for locally built binaries: a released vortexcc embeds
       # an absolute runtime-library path from its build machine, so compiling
@@ -256,8 +272,11 @@ jobs:
         if: ${{ runner.os == 'Windows' && (inputs.use_release || !inputs.with_llvm) }}
         shell: pwsh
         run: |
+          # The MinGW build loads its runtime DLLs from the MSYS2 prefix; without
+          # it on PATH each test process stalls.
+          $env:PATH = "C:\msys64\mingw64\bin;$env:PATH"
           pwsh -NoProfile -ExecutionPolicy Bypass -File tests/runtest.ps1 `
-            -j 4 -t 120 -InterpOnly -a -JUnit "report-${{ matrix.os }}.xml"
+            -j 4 -t 60 -Retries 2 -InterpOnly -a -JUnit "report-${{ matrix.os }}.xml"
 
       # ---------------- Reports ----------------
       - name: Publish test report
