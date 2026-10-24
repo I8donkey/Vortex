@@ -164,6 +164,7 @@ jobs:
         run: |
           mkdir -p bin
           cp -f build/bin/* bin/
+          chmod +x bin/*
 
       - name: Stage binaries (Windows)
         if: ${{ runner.os == 'Windows' && !inputs.use_release }}
@@ -194,6 +195,8 @@ jobs:
             --pattern "vortex-${{ matrix.os }}.zip" --dir dist --clobber
           unzip -o "dist/vortex-${{ matrix.os }}.zip" -d dist/x
           find dist/x -type f -exec cp -f {} bin/ \;
+          # Artifact zips made on Windows carry no Unix mode bits, so restore +x.
+          chmod +x bin/* 2>/dev/null || true
           ls -la bin/
 
       - name: Download release (Windows)

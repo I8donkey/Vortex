@@ -92,6 +92,10 @@ if ($isWin) {
 } else {
     # extdef links Windows DLLs; the interpreter rejects it elsewhere.
     if ($Skip -notcontains "test_ffi") { $Skip = @($Skip) + "test_ffi" }
+    # Binaries extracted from a Windows-made archive lose the exec bit.
+    foreach ($p in @($cc, $interp)) {
+        if (Test-Path $p) { try { & chmod +x $p 2>$null } catch { } }
+    }
 }
 
 if ($InterpOnly) {
@@ -471,10 +475,12 @@ if ($JUnit -ne "") {
         return $s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace('"', "&quot;")
     }
     $sb = New-Object System.Text.StringBuilder
+    $wholeSec = 0.0
+    foreach ($r in $results) { if ($null -ne $r.DurationMs) { $wholeSec += [double]$r.DurationMs / 1000.0 } }
     [void]$sb.AppendLine('<?xml version="1.0" encoding="UTF-8"?>')
-    [void]$sb.AppendLine(('<testsuites name="vortex" tests="{0}" failures="{1}" skipped="{2}">' -f $total, $failCount, $skipped.Count))
+    [void]$sb.AppendLine(('<testsuites name="vortex" tests="{0}" failures="{1}" skipped="{2}" time="{3:F3}">' -f $total, $failCount, $skipped.Count, $wholeSec))
     $suiteName = if ($InterpOnly) { "vortex-interpreter" } else { "vortex-golden" }
-    [void]$sb.AppendLine(('  <testsuite name="{0}" tests="{1}" failures="{2}" skipped="{3}">' -f $suiteName, $total, $failCount, $skipped.Count))
+    [void]$sb.AppendLine(('  <testsuite name="{0}" tests="{1}" failures="{2}" skipped="{3}" time="{4:F3}">' -f $suiteName, $total, $failCount, $skipped.Count, $wholeSec))
     foreach ($r in $results) {
         $nm = if ($r.TestName) { $r.TestName } else { "Unknown" }
         $st = if ($r.Status) { $r.Status } else { "job_error" }
