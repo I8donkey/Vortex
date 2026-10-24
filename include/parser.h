@@ -28,6 +28,8 @@ private:
     bool check(TokenType t) const { return peek_t() == t; }
     bool match(TokenType t);
     Token expect(TokenType t, const std::string& what = {});
+    // Statement terminator: an explicit ';' or an implicit end at a line break.
+    void end_stmt();
     [[noreturn]] void error(const std::string& msg);
 
     // ==== 语句 ====

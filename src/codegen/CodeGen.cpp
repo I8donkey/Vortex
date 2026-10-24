@@ -1016,17 +1016,15 @@ LVal Gen::gen_binop(const BinaryOpExpr* b) {
     // 算术
     llvm::Value* res = nullptr;
     if (op == "+") {
-        // str / extfloat 都是"文本"指针：两侧同为文本才拼接，否则编译期报错
+        // Text concatenation: if either side is str/extfloat, stringify the other side too
+        // (e.g. "x" + 5 -> "x5"), matching the interpreter.
         const bool ls = (l.type == VType::Str || l.type == VType::ExtFloat);
         const bool rs = (r.type == VType::Str || r.type == VType::ExtFloat);
-        if (ls != rs) {
-            // 一侧为 str、另一侧非 str：类型静态可知，直接编译期报错
-            throw std::runtime_error("Type 'str' is not numeric");
-        }
-        llvm::Value* pr[2] = {decl_vor("vor_str_concat", VType::Str, {VType::Str, VType::Str}), nullptr};
-        if (ls && rs) {
-            res = B->CreateCall(llvm::cast<llvm::Function>(pr[0]), {l.val, r.val});
-            return {VType::Str, res};
+        if (ls || rs) {
+            llvm::Value* lv = ls ? l.val : to_vstr(l);
+            llvm::Value* rv = rs ? r.val : to_vstr(r);
+            llvm::Value* fn = decl_vor("vor_str_concat", VType::Str, {VType::Str, VType::Str});
+            return {VType::Str, B->CreateCall(llvm::cast<llvm::Function>(fn), {lv, rv})};
         }
         res = isFloat ? B->CreateFAdd(lf, rf, "add") : B->CreateAdd(l.val, r.val, "add");
         return {isFloat ? VType::Float : VType::Int, res};
@@ -1046,11 +1044,17 @@ LVal Gen::gen_binop(const BinaryOpExpr* b) {
             res = B->CreateSIToFP(fl, B->getDoubleTy());
             return {VType::Float, res};
         }
-        res = B->CreateSDiv(l.val, r.val, "idiv");
+        // Integer floor division (Python semantics), matching the interpreter.
+        llvm::Value* fn = decl_vor("vor_floordiv_i64", VType::Int, {VType::Int, VType::Int});
+        return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {l.val, r.val}, "idiv")};
     }
     if (op == "%") {
         if (isFloat) { res = B->CreateFRem(lf, rf, "frem"); }
-        else res = B->CreateSRem(l.val, r.val, "rem");
+        else {
+            // Integer modulo with the sign of the divisor (Python semantics).
+            llvm::Value* fn = decl_vor("vor_mod_i64", VType::Int, {VType::Int, VType::Int});
+            return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn), {l.val, r.val}, "rem")};
+        }
     }
     if (op == "**") {
         llvm::Value* fn = decl_vor("vor_pow", VType::Float, {VType::Float, VType::Float});
@@ -1500,6 +1504,11 @@ LVal Gen::gen_call(const CallExpr* c) {
     }
     if (fname == "math.gcd") {
         llvm::Value* fn = decl_vor("vor_gcd", VType::Int, {VType::Int, VType::Int});
+        return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn),
+            {to_i64(gen_expr(c->args[0].get())), to_i64(gen_expr(c->args[1].get()))})};
+    }
+    if (fname == "math.ipow") {
+        llvm::Value* fn = decl_vor("vor_ipow", VType::Int, {VType::Int, VType::Int});
         return {VType::Int, B->CreateCall(llvm::cast<llvm::Function>(fn),
             {to_i64(gen_expr(c->args[0].get())), to_i64(gen_expr(c->args[1].get()))})};
     }

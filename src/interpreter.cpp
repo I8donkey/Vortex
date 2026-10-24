@@ -29,8 +29,6 @@
 
 namespace vortex {
 
-namespace dec = ::vortex::dec;
-
 // ============ 随机数生成器（供 random 模块复用） ============
 static std::mt19937& get_rng() {
     static std::mt19937 rng((unsigned)std::time(nullptr));
@@ -684,12 +682,45 @@ void Interpreter::init_modules() {
                 while (r*r > n) --r;
                 return Value::make_int(r);
             });
-        add("gcd", 2,2, [&](const ValueVec& a){ return Value::make_int(std::gcd((long long)L(a[0]), (long long)L(a[1]))); });
+        // Integer fast exponentiation (square-and-multiply); overflow wraps as two's complement.
+        add("ipow", 2,2, [&](const ValueVec& a){
+                long long base = L(a[0]);
+                long long exp  = L(a[1]);
+                if (exp < 0) throw RuntimeError("math.ipow: negative exponent", "ValueError");
+                unsigned long long b = (unsigned long long)base;
+                unsigned long long r = 1ULL;
+                while (exp > 0) {
+                    if (exp & 1LL) r *= b;
+                    b *= b;
+                    exp >>= 1;
+                }
+                return Value::make_int((long long)r);
+            });
+        // Euclid's algorithm on absolute values; gcd(0, 0) == 0.
+        add("gcd", 2,2, [&](const ValueVec& a){
+                long long xv = L(a[0]), yv = L(a[1]);
+                unsigned long long x = xv < 0 ? 0ULL - (unsigned long long)xv : (unsigned long long)xv;
+                unsigned long long y = yv < 0 ? 0ULL - (unsigned long long)yv : (unsigned long long)yv;
+                while (y != 0) {
+                    unsigned long long t = x % y;
+                    x = y;
+                    y = t;
+                }
+                return Value::make_int((long long)x);
+            });
+        // lcm(a, b) = |a / gcd(a, b) * b|; lcm with 0 is 0.
         add("lcm", 2,2, [&](const ValueVec& a){
                 long long x = L(a[0]), y = L(a[1]);
-                if (x==0 || y==0) return Value::make_int(0);
-                long long g = std::gcd(x, y);
-                return Value::make_int((x/g)*y);
+                if (x == 0 || y == 0) return Value::make_int(0);
+                unsigned long long ax = x < 0 ? 0ULL - (unsigned long long)x : (unsigned long long)x;
+                unsigned long long ay = y < 0 ? 0ULL - (unsigned long long)y : (unsigned long long)y;
+                unsigned long long ga = ax, gb = ay;
+                while (gb != 0) {
+                    unsigned long long t = ga % gb;
+                    ga = gb;
+                    gb = t;
+                }
+                return Value::make_int((long long)((ax / ga) * ay));
             });
         add("isinf", 1,1, [&](const ValueVec& a){ return Value::make_int(std::isinf(D(a[0])) ? 1 : 0); });
         add("isnan", 1,1, [&](const ValueVec& a){ return Value::make_int(std::isnan(D(a[0])) ? 1 : 0); });
@@ -1311,13 +1342,20 @@ ValuePtr Interpreter::call_extern(const ExtDefStmt* ed, const CallExpr* e) {
     if (!fp)
         throw RuntimeError("extdef '" + ed->name + "': symbol not found in '" + ed->lib + "'");
 
+    // Evaluate all arguments first and keep them alive for the whole call:
+    // cstr arguments hold raw pointers into these strings, and reusing one
+    // temporary per iteration would free the previous one too early.
+    std::vector<ValuePtr> arg_values;
+    arg_values.reserve(e->args.size());
+    for (auto& arg : e->args) arg_values.push_back(evaluate(arg.get()));
+
     // 构造 GPR 实参（最多 4 个）；cdouble 形参不支持
     long long a[4] = {0, 0, 0, 0};
     std::vector<std::string> keep;   // 保活由非 str 转换来的 C 字符串
     keep.reserve(e->args.size());
     for (size_t i = 0; i < e->args.size(); ++i) {
         const std::string& pt = ed->params[i].first;
-        ValuePtr v = evaluate(e->args[i].get());
+        const ValuePtr& v = arg_values[i];
         if (i >= 4)
             throw RuntimeError("extdef '" + ed->name + "': interpreter supports at most 4 parameters");
         if (pt == "cint" || pt == "cuint") {
@@ -1605,6 +1643,12 @@ ValuePtr Interpreter::eval_literal(const LiteralExpr* e) {
 }
 
 ValuePtr Interpreter::eval_identifier(const IdentifierExpr* e) {
+    // Built-in modules are usable without an explicit `import` (matches the compiler,
+    // which resolves `math.*` / `thread.*` statically); user variables still win.
+    if (!current_env_->has(e->name)) {
+        auto it = std_modules_.find(e->name);
+        if (it != std_modules_.end()) return it->second;
+    }
     return current_env_->lookup(e->name);
 }
 

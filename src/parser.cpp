@@ -30,6 +30,19 @@ void Parser::error(const std::string& msg) {
     throw std::runtime_error(msg);
 }
 
+// Statement terminator: an explicit ';' or an implicit end at a line break.
+// This keeps semicolons optional for one-statement-per-line code while still
+// rejecting two statements separated only by whitespace on the same line.
+void Parser::end_stmt() {
+    if (check(TokenType::Semicolon)) { advance(); return; }
+    if (check(TokenType::EndOfFile) || check(TokenType::RBrace)) return;
+    if (pos_ > 0 && peek().line > toks_[pos_ - 1].line) return;
+    std::ostringstream oss;
+    oss << "[" << peek().line << ":" << peek().col << "] Expected ; but got '"
+        << peek().text << "' (" << token_type_name_str(peek_t()) << ")";
+    error(oss.str());
+}
+
 // operator 重载允许的运算符 token（禁止 ~ @ = 以及括号/花括号/#）
 static bool is_overloadable_op(TokenType t) {
     switch (t) {
@@ -104,13 +117,13 @@ StmtPtr Parser::parse_stmt() {
     if (check(TokenType::Kw_try)) return parse_try();
     if (check(TokenType::Kw_raise)) return parse_raise();
     if (check(TokenType::Kw_extdef)) return parse_extdef();
-    if (check(TokenType::Kw_break)) { advance(); expect(TokenType::Semicolon); return std::make_unique<BreakStmt>(); }
-    if (check(TokenType::Kw_continue)) { advance(); expect(TokenType::Semicolon); return std::make_unique<ContinueStmt>(); }
+    if (check(TokenType::Kw_break)) { advance(); end_stmt(); return std::make_unique<BreakStmt>(); }
+    if (check(TokenType::Kw_continue)) { advance(); end_stmt(); return std::make_unique<ContinueStmt>(); }
     if (check(TokenType::Kw_return)) {
         advance();
         ExprPtr v;
         if (!check(TokenType::Semicolon)) v = parse_expr();
-        expect(TokenType::Semicolon);
+        end_stmt();
         return std::make_unique<ReturnStmt>(std::move(v));
     }
     if (check(TokenType::Kw_del)) return parse_del();
@@ -177,7 +190,7 @@ StmtPtr Parser::parse_expr_as_stmt(ExprPtr first_expr) {
         auto v = parse_expr();
         e = std::make_unique<AssignOpExpr>(op, std::move(e), std::move(v));
     }
-    expect(TokenType::Semicolon);
+    end_stmt();
     // 如果根是 AssignOpExpr -> AssignStmt，否则 ExprStmt
     if (e && e->kind == ExprKind::AssignOp) {
         return std::make_unique<AssignStmt>(std::move(e));
@@ -208,7 +221,7 @@ StmtPtr Parser::parse_var_decl(TypeSpecPtr type_hint) {
         expect(TokenType::Assign);
         stmt->destructuring = true;
         stmt->unpack_init = parse_expr();
-        expect(TokenType::Semicolon);
+        end_stmt();
         return stmt;
     }
 
@@ -226,7 +239,7 @@ StmtPtr Parser::parse_var_decl(TypeSpecPtr type_hint) {
         stmt->names.push_back({name, std::move(init)});
         if (!match(TokenType::Comma)) break;
     }
-    expect(TokenType::Semicolon);
+    end_stmt();
     // auto 必须有初值（类型由初值推导）
     if (tname == "auto") {
         for (auto& [nm, init] : stmt->names)
@@ -248,7 +261,7 @@ StmtPtr Parser::parse_const_decl() {
     stmt->name = n.text;
     expect(TokenType::Assign);
     stmt->value = parse_expr();
-    expect(TokenType::Semicolon);
+    end_stmt();
     return stmt;
 }
 
@@ -271,16 +284,31 @@ StmtPtr Parser::parse_if() {
     stmt->cond = parse_expr();
     expect(TokenType::RParen);
     stmt->then_body = parse_block();
-    while (match(TokenType::Kw_elif)) {
-        IfStmt::Elif e;
-        expect(TokenType::LParen);
-        e.cond = parse_expr();
-        expect(TokenType::RParen);
-        e.body = parse_block();
-        stmt->elif_list.push_back(std::move(e));
-    }
-    if (match(TokenType::Kw_else)) {
-        stmt->else_body = parse_block();
+    // `elif (...)` and `else if (...)` are equivalent chained conditions.
+    for (;;) {
+        if (match(TokenType::Kw_elif)) {
+            IfStmt::Elif e;
+            expect(TokenType::LParen);
+            e.cond = parse_expr();
+            expect(TokenType::RParen);
+            e.body = parse_block();
+            stmt->elif_list.push_back(std::move(e));
+            continue;
+        }
+        if (match(TokenType::Kw_else)) {
+            if (check(TokenType::Kw_if)) {
+                advance();   // consume the 'if' of 'else if'
+                IfStmt::Elif e;
+                expect(TokenType::LParen);
+                e.cond = parse_expr();
+                expect(TokenType::RParen);
+                e.body = parse_block();
+                stmt->elif_list.push_back(std::move(e));
+                continue;
+            }
+            stmt->else_body = parse_block();
+        }
+        break;
     }
     return stmt;
 }
@@ -318,7 +346,7 @@ StmtPtr Parser::parse_assert() {
         stmt->message = parse_expr();
     }
     if (paren) expect(TokenType::RParen);
-    expect(TokenType::Semicolon);
+    end_stmt();
     return stmt;
 }
 
@@ -386,7 +414,7 @@ StmtPtr Parser::parse_class() {
                 f.type = "object";
             }
             f.name = expect(TokenType::Identifier, "field name").text;
-            expect(TokenType::Semicolon);
+            end_stmt();
             stmt->fields.push_back(std::move(f));
         }
     }
@@ -447,7 +475,7 @@ StmtPtr Parser::parse_del() {
             if (!match(TokenType::Comma)) break;
         }
     }
-    expect(TokenType::Semicolon);
+    end_stmt();
     return stmt;
 }
 
@@ -562,7 +590,7 @@ StmtPtr Parser::parse_raise() {
     auto stmt = std::make_unique<RaiseStmt>();
     expect(TokenType::Kw_raise);
     if (!check(TokenType::Semicolon)) stmt->value = parse_expr();
-    expect(TokenType::Semicolon);
+    end_stmt();
     return stmt;
 }
 
@@ -590,7 +618,7 @@ StmtPtr Parser::parse_extdef() {
     expect(TokenType::RParen);
     if (match(TokenType::Kw_from))
         stmt->lib = expect(TokenType::StringLit, "library path").str_val;
-    expect(TokenType::Semicolon);
+    end_stmt();
     return stmt;
 }
 

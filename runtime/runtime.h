@@ -252,6 +252,7 @@ double vor_fmax(double a, double b);
 double vor_remainder(double a, double b);
 long long vor_factorial(long long n);
 long long vor_isqrt(long long n);
+long long vor_ipow(long long base, long long exp);
 long long vor_gcd(long long a, long long b);
 long long vor_lcm(long long a, long long b);
 long long vor_isinf(double a);
@@ -263,6 +264,9 @@ long long vor_imin(long long a, long long b);
 long long vor_imax(long long a, long long b);
 long long vor_comb(long long n, long long k);
 long long vor_perm(long long n, long long k);
+// Integer division/modulo with Python (floor) semantics, matching the interpreter.
+long long vor_floordiv_i64(long long a, long long b);
+long long vor_mod_i64(long long a, long long b);
 double vor_radians(double a);
 double vor_degrees(double a);
 double vor_copysign(double a, double b);

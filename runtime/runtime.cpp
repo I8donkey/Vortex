@@ -516,12 +516,27 @@ long long vor_dict_int_key_at(const VDict* d, int j) {
         if (d->entries[i].kkind == VK_INT) { if (j-- == 0) return d->entries[i].kint; }
     return 0;
 }
+// Print a dict in a deterministic key order (int keys first, then string keys)
+// so compiled output matches the interpreter byte for byte.
 void vor_print_dict(VDict* d) {
     if (!d) { std::fputs("{}", stdout); return; }
+    std::vector<int> order((size_t)d->len);
+    for (int i = 0; i < d->len; ++i) order[(size_t)i] = i;
+    std::sort(order.begin(), order.end(), [d](int a, int b) {
+        const VDictEntry& x = d->entries[a];
+        const VDictEntry& y = d->entries[b];
+        if (x.kkind != y.kkind) return x.kkind < y.kkind;
+        if (x.kkind == VK_STR) {
+            const char* xs = x.kstr ? x.kstr->data : "";
+            const char* ys = y.kstr ? y.kstr->data : "";
+            return std::strcmp(xs, ys) < 0;
+        }
+        return x.kint < y.kint;
+    });
     std::fputc('{', stdout);
-    for (int i = 0; i < d->len; ++i) {
-        if (i) std::fputs(", ", stdout);
-        const VDictEntry* e = &d->entries[i];
+    for (size_t j = 0; j < order.size(); ++j) {
+        if (j) std::fputs(", ", stdout);
+        const VDictEntry* e = &d->entries[order[j]];
         if (e->kkind == VK_STR) { std::fputc('"', stdout); vor_print_str(e->kstr); std::fputc('"', stdout); }
         else std::fprintf(stdout, "%lld", e->kint);
         std::fputs(": ", stdout);
@@ -738,12 +753,65 @@ double vor_roundn(double a, long long nd) {
 double vor_fmod(double a, double b)  { return std::fmod(a, b); }
 double vor_fmin(double a, double b)  { return std::fmin(a, b); }
 double vor_fmax(double a, double b)  { return std::fmax(a, b); }
-long long vor_gcd(long long a, long long b) { return (long long)std::gcd(a, b); }
+// Integer fast exponentiation (square-and-multiply); overflow wraps as two's complement.
+long long vor_ipow(long long base, long long exp) {
+    if (exp < 0) {
+        VStr* m = vor_str_from_cstr("math.ipow: negative exponent");
+        vor_throw_typed(vor_str_from_cstr("ValueError"), m);
+        return 0;
+    }
+    unsigned long long b = (unsigned long long)base;
+    unsigned long long r = 1ULL;
+    while (exp > 0) {
+        if (exp & 1LL) r *= b;
+        b *= b;
+        exp >>= 1;
+    }
+    return (long long)r;
+}
+
+// Euclid's algorithm on absolute values; gcd(0, 0) == 0.
+long long vor_gcd(long long a, long long b) {
+    unsigned long long x = a < 0 ? 0ULL - (unsigned long long)a : (unsigned long long)a;
+    unsigned long long y = b < 0 ? 0ULL - (unsigned long long)b : (unsigned long long)b;
+    while (y != 0) {
+        unsigned long long t = x % y;
+        x = y;
+        y = t;
+    }
+    return (long long)x;
+}
+
+// lcm(a, b) = |a / gcd(a, b) * b|; lcm with 0 is 0.
 long long vor_lcm(long long a, long long b) {
     if (a == 0 || b == 0) return 0;
-    long long g = std::gcd(a, b);
-    return (a / g) * b;
+    long long g = vor_gcd(a, b);
+    unsigned long long ax = a < 0 ? 0ULL - (unsigned long long)a : (unsigned long long)a;
+    unsigned long long ay = b < 0 ? 0ULL - (unsigned long long)b : (unsigned long long)b;
+    return (long long)((ax / (unsigned long long)g) * ay);
 }
+// Integer floor division / modulo (Python semantics), matching the interpreter.
+long long vor_floordiv_i64(long long a, long long b) {
+    if (b == 0) {
+        vor_throw_typed(vor_str_from_cstr("ZeroDivisionError"),
+                        vor_str_from_cstr("Division by zero"));
+        return 0;
+    }
+    long long q = a / b;
+    if ((a ^ b) < 0 && a % b != 0) q -= 1;
+    return q;
+}
+long long vor_mod_i64(long long a, long long b) {
+    if (b == 0) {
+        vor_throw_typed(vor_str_from_cstr("ZeroDivisionError"),
+                        vor_str_from_cstr("Modulo by zero"));
+        return 0;
+    }
+    long long r = a % b;
+    if ((b > 0 && r < 0) || (b < 0 && r > 0)) r += b;
+    return r;
+}
+
 long long vor_isinf(double a) { return std::isinf(a) ? 1 : 0; }
 long long vor_isnan(double a) { return std::isnan(a) ? 1 : 0; }
 long long vor_isfinite(double a) { return std::isfinite(a) ? 1 : 0; }

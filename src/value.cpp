@@ -7,8 +7,6 @@
 
 namespace vortex {
 
-namespace dec = vortex::dec;
-
 // 把标量值转成精确十进制；不可转换（str/list/... ）返回 false
 static bool value_to_dec(const ValuePtr& v, dec::Decimal& out) {
     switch (v->type) {
@@ -172,8 +170,22 @@ std::string Value::to_string() const {
             oss << "}"; return oss.str();
         }
         case ValueType::Dict: {
+            // Print in a deterministic key order so both backends agree.
+            std::vector<std::pair<ValuePtr, ValuePtr>> items(dict_rep->begin(), dict_rep->end());
+            std::sort(items.begin(), items.end(), [](const auto& a, const auto& b) {
+                const ValuePtr& ka = a.first;
+                const ValuePtr& kb = b.first;
+                if (ka->type == kb->type) {
+                    if (ka->type == ValueType::Str || ka->type == ValueType::UniStr)
+                        return ka->str_val < kb->str_val;
+                    if (ka->type == ValueType::Int || ka->type == ValueType::Char ||
+                        ka->type == ValueType::Unichar)
+                        return ka->int_val < kb->int_val;
+                }
+                return ka->to_string() < kb->to_string();
+            });
             oss << "{"; bool first = true;
-            for (auto& [k, v] : *dict_rep) {
+            for (auto& [k, v] : items) {
                 if (!first) oss << ", ";
                 if (k->type == ValueType::Str) oss << "\"" << k->str_val << "\": ";
                 else oss << k->to_string() << ": ";
@@ -315,19 +327,17 @@ static ValuePtr apply_arith(const ValuePtr& a, const ValuePtr& b,
 // 解决上面引用 ULong/ULong 未枚举问题，简化：只要是 UInt 就算 unsigned
 
 ValuePtr value_add(const ValuePtr& a, const ValuePtr& b) {
-    // 字符串拼接：至少要有一侧是真正的字符串（extfloat + extfloat 走精确加法）
+    // 字符串拼接：任一侧是字符串/错误对象时，另一侧按字符串形式拼接（如 "x" + 5 -> "x5"）
     if (a->type == ValueType::Str || a->type == ValueType::UniStr ||
         b->type == ValueType::Str || b->type == ValueType::UniStr ||
         a->type == ValueType::Error || b->type == ValueType::Error) {
-        auto as_str = [](const ValuePtr& v) -> const std::string* {
-            if (v->type == ValueType::Str || v->type == ValueType::UniStr) return &v->str_val;
-            if (v->type == ValueType::Error && v->error_rep) return &v->error_rep->message;
-            if (v->type == ValueType::ExtFloat) return &v->str_val;   // 十进制文本参与拼接
-            return nullptr;
+        auto as_text = [](const ValuePtr& v) -> std::string {
+            if (v->type == ValueType::Str || v->type == ValueType::UniStr) return v->str_val;
+            if (v->type == ValueType::Error && v->error_rep) return v->error_rep->message;
+            if (v->type == ValueType::ExtFloat) return v->str_val;   // 十进制文本参与拼接
+            return v->to_string();
         };
-        const std::string* sa = as_str(a);
-        const std::string* sb = as_str(b);
-        if (sa && sb) return Value::make_str(*sa + *sb);
+        return Value::make_str(as_text(a) + as_text(b));
     }
     // 精确十进制：任一操作数为 extfloat 则提升另一侧后做精确加法
     if (a->type == ValueType::ExtFloat || b->type == ValueType::ExtFloat) {
