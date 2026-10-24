@@ -525,6 +525,8 @@ import mymath;                      # 之后仍可这样导入（删掉 .vt 也�
 
 当被打包的 `.vt` 声明了 `extdef ... from "..."` 时，`vtpm` 会把引用的 DLL 一并打进包（并对作为输入的 `.exe`/`.dll` 递归扫描 PE 导入表），使包自包含。详见 [USAGE_zh.md](USAGE_zh.md#23-vtpm--打包工具vt--vtplzma2压缩)。
 
+在 **vmake 工程** 里，`vtpm pack .`（或 `vtpm pack <工程目录>`）会把工程脚本以及脚本引用的所有文件打进包，条目保留相对工程根的路径；加 `--no-project` 可只打显式列出的文件。
+
 解释器与编译器 `vtcc` 均支持 `.vt`/`.vtp` 模块导入。
 
 ---

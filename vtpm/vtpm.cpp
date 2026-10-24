@@ -26,8 +26,13 @@ static void usage(const char* p) {
     std::printf("Vortex Package Tool (LZMA2 压缩)\n");
     std::printf("Usage:\n");
     std::printf("  %s pack [-o out.vtp] <file.vt> [file2.vt ...]\n", p);
+    std::printf("  %s pack [-o out.vtp] <vmake-project-dir>\n", p);
     std::printf("  %s list <pkg.vtp>\n", p);
     std::printf("  %s extract <pkg.vtp> [-o dir]\n", p);
+    std::printf("Options:\n");
+    std::printf("  --project [dir]   also pack every file referenced by the vmake project\n");
+    std::printf("                    (default: the current directory, when it has VmakeLists.txt)\n");
+    std::printf("  --no-project      pack the listed files only, ignoring an enclosing vmake project\n");
 }
 
 // ==================== 依赖收集（Lib-O3） ====================
@@ -130,6 +135,152 @@ static std::vector<std::string> scan_pe_imports(const std::string& file) {
 static std::vector<std::string> scan_pe_imports(const std::string&) { return {}; }
 #endif
 
+// ==================== vmake 工程扫描 ====================
+// When a directory contains VmakeLists.txt it is a vmake project: pack every
+// script (VmakeLists.txt / *.vmake) plus every file the scripts reference,
+// keeping paths relative to the project root. This is a text scan on purpose,
+// mirroring the extdef scanning above: vtpm stays independent of vmake.
+
+static bool is_abs_path(const std::string& p) {
+    if (p.size() >= 2 && p[1] == ':') return true;                 // Windows drive
+    return !p.empty() && (p[0] == '/' || p[0] == '\\');
+}
+
+static std::string join_path(const std::string& a, const std::string& b) {
+    if (a.empty() || a == ".") return b;
+    if (is_abs_path(b)) return b;
+    return a + "/" + b;
+}
+
+static bool is_regular_file(const std::string& p) {
+    std::error_code ec;
+    return std::filesystem::is_regular_file(p, ec);
+}
+
+static bool is_directory(const std::string& p) {
+    std::error_code ec;
+    return std::filesystem::is_directory(p, ec);
+}
+
+static std::string normalize_rel(const std::string& p) {
+    std::string s = p;
+    std::replace(s.begin(), s.end(), '\\', '/');
+    while (s.size() > 2 && s[0] == '.' && s[1] == '/') s = s.substr(2);
+    return s;
+}
+
+// Split one script line into tokens: quoted strings stay whole, '(' ')' ','
+// and whitespace separate tokens, '#' starts a comment.
+static std::vector<std::string> script_tokens(const std::string& line) {
+    std::vector<std::string> out;
+    std::string cur;
+    bool inQuote = false;
+    for (size_t i = 0; i < line.size(); ++i) {
+        char c = line[i];
+        if (inQuote) {
+            if (c == '\\' && i + 1 < line.size() && line[i + 1] == '"') { cur += '"'; ++i; }
+            else if (c == '"') { inQuote = false; out.push_back(cur); cur.clear(); }
+            else cur += c;
+            continue;
+        }
+        if (c == '"') { inQuote = true; continue; }
+        if (c == '#' && cur.empty()) break;                        // comment (outside quotes)
+        if (c == '(' || c == ')' || c == ',' || c == ' ' || c == '\t' || c == '\r') {
+            if (!cur.empty()) { out.push_back(cur); cur.clear(); }
+            continue;
+        }
+        cur += c;
+    }
+    if (!cur.empty()) out.push_back(cur);
+    return out;
+}
+
+// Collect the scripts and referenced files of a vmake project rooted at root.
+// Each result is (absolute path, entry name relative to root).
+static bool collect_vmake_project(const std::string& root,
+                                  std::vector<std::pair<std::string, std::string> >& out,
+                                  std::string& err) {
+    std::set<std::string> visitedScripts;
+    std::set<std::string> seenEntries;
+    std::vector<std::string> queue;
+    queue.push_back(join_path(root, "VmakeLists.txt"));
+
+    while (!queue.empty()) {
+        std::string script = queue.back();
+        queue.pop_back();
+        std::error_code ec;
+        std::string canon = std::filesystem::weakly_canonical(script, ec).string();
+        if (canon.empty()) canon = script;
+        if (!visitedScripts.insert(canon).second) continue;
+
+        std::vector<unsigned char> raw;
+        if (!vortex::pack::read_file(script, raw, err)) return false;
+
+        auto add_file = [&](const std::string& absPath) {
+            std::error_code rec;
+            std::string rel = std::filesystem::relative(absPath, root, rec).string();
+            if (rec || rel.empty() || rel.find("..") == 0) rel = basename_of(absPath);
+            rel = normalize_rel(rel);
+            if (!seenEntries.insert(rel).second) return;
+            out.push_back(std::make_pair(absPath, rel));
+        };
+        add_file(script);
+
+        // Directory arguments (e.g. target_include_directories) contribute headers.
+        auto add_dir_headers = [&](const std::string& dir) {
+            std::error_code dec;
+            for (std::filesystem::recursive_directory_iterator it(dir, dec), end;
+                 it != end && !dec; it.increment(dec)) {
+                if (!it->is_regular_file(dec)) continue;
+                std::string ext = lower_ext(it->path().string());
+                if (ext == ".h" || ext == ".hh" || ext == ".hpp" || ext == ".hxx")
+                    add_file(it->path().string());
+            }
+        };
+
+        const std::string scriptDir = dir_of(script);
+        std::string src(raw.begin(), raw.end());
+        std::istringstream iss(src);
+        std::string line;
+        while (std::getline(iss, line)) {
+            std::vector<std::string> toks = script_tokens(line);
+            if (toks.size() < 2) continue;
+            const std::string cmd = toks[0];
+
+            if (cmd == "add_subdirectory") {
+                for (size_t i = 1; i < toks.size(); ++i) {
+                    if (toks[i].empty() || toks[i][0] == '$') continue;
+                    std::string sub = join_path(scriptDir, toks[i]);
+                    std::string subScript = join_path(sub, "VmakeLists.txt");
+                    if (is_regular_file(subScript)) { queue.push_back(subScript); break; }
+                }
+                continue;
+            }
+            if (cmd == "include") {
+                for (size_t i = 1; i < toks.size(); ++i) {
+                    if (toks[i].empty() || toks[i][0] == '$') continue;
+                    std::string cand = join_path(scriptDir, toks[i]);
+                    std::string withExt = cand + ".vmake";
+                    if (is_regular_file(cand)) { queue.push_back(cand); break; }
+                    if (is_regular_file(withExt)) { queue.push_back(withExt); break; }
+                }
+                continue;
+            }
+            for (size_t i = 1; i < toks.size(); ++i) {
+                const std::string& t = toks[i];
+                if (t.empty() || t[0] == '$' || t[0] == '-') continue;
+                std::string cand = join_path(scriptDir, t);
+                if (is_regular_file(cand)) { add_file(cand); continue; }
+                if (is_directory(cand)) { add_dir_headers(cand); continue; }
+                cand = join_path(root, t);                       // fall back to project root
+                if (is_regular_file(cand)) { add_file(cand); continue; }
+                if (is_directory(cand)) add_dir_headers(cand);
+            }
+        }
+    }
+    return true;
+}
+
 
 int main(int argc, char** argv) {
     if (argc < 2) { usage(argv[0]); return 1; }
@@ -139,12 +290,33 @@ int main(int argc, char** argv) {
     if (cmd == "pack") {
         std::string out = "out.vtp";
         std::vector<std::string> files;
+        std::string projectDir;
+        bool noProject = false;
         for (int i = 2; i < argc; ++i) {
             std::string a = argv[i];
             if (a == "-o" && i + 1 < argc) { out = argv[++i]; }
+            else if (a == "--project") {
+                projectDir = ".";
+                if (i + 1 < argc && argv[i + 1][0] != '-') projectDir = argv[++i];
+            }
+            else if (a == "--no-project") { noProject = true; }
             else files.push_back(a);
         }
-        if (files.empty()) { std::fprintf(stderr, "no input files\n"); return 1; }
+        // A directory argument that holds a VmakeLists.txt is a vmake project root.
+        std::vector<std::string> plain;
+        for (size_t i = 0; i < files.size(); ++i) {
+            if (is_directory(files[i]) && is_regular_file(join_path(files[i], "VmakeLists.txt")))
+                projectDir = files[i];
+            else
+                plain.push_back(files[i]);
+        }
+        files = plain;
+        // Default: pack the whole project when the current directory is one.
+        if (!noProject && projectDir.empty() && is_regular_file("VmakeLists.txt")) projectDir = ".";
+        if (files.empty() && projectDir.empty()) {
+            std::fprintf(stderr, "no input files (pass a .vt file, a vmake project dir, or run inside one)\n");
+            return 1;
+        }
         std::vector<Entry> entries;
         std::string err;
         std::set<std::string> addedNames;   // 已加入条目的文件名（去重）
@@ -177,11 +349,25 @@ int main(int argc, char** argv) {
             return true;
         };
 
-        // 1. 输入文件本体
+        // 1. vmake 工程：脚本与脚本引用到的全部文件（相对路径作为条目名）
+        std::vector<std::pair<std::string, std::string> > projectFiles;
+        if (!projectDir.empty()) {
+            if (!collect_vmake_project(projectDir, projectFiles, err)) {
+                std::fprintf(stderr, "error: %s\n", err.c_str()); return 1;
+            }
+            std::printf("vmake project: %s (%zu file(s))\n", projectDir.c_str(), projectFiles.size());
+        }
+        // 2. 显式输入的文件本体（条目名取 basename）
         for (auto& f : files)
             if (!add_entry(f, basename_of(f))) { std::fprintf(stderr, "error: %s\n", err.c_str()); return 1; }
-        // 2. 递归收集并打包依赖文件
+        for (size_t i = 0; i < projectFiles.size(); ++i)
+            if (!add_entry(projectFiles[i].first, projectFiles[i].second)) {
+                std::fprintf(stderr, "error: %s\n", err.c_str()); return 1;
+            }
+        // 3. 递归收集并打包依赖文件（.vt extdef / PE 导入表）
         for (auto& f : files) if (!collect_deps(f)) { std::fprintf(stderr, "error: %s\n", err.c_str()); return 1; }
+        for (size_t i = 0; i < projectFiles.size(); ++i)
+            if (!collect_deps(projectFiles[i].first)) { std::fprintf(stderr, "error: %s\n", err.c_str()); return 1; }
         std::set<std::string> depSeen;
         for (size_t i = 0; i < depQueue.size(); ++i) {
             std::string dep = depQueue[i];
@@ -208,13 +394,18 @@ int main(int argc, char** argv) {
         if (cmd == "list") {
             for (auto& e : entries) std::printf("%-30s %zu bytes\n", e.name.c_str(), e.data.size());
         } else {
-#ifdef _WIN32
-            _mkdir(outdir.c_str());
-#else
-            mkdir(outdir.c_str(), 0755);
-#endif
+            std::error_code dec;
+            std::filesystem::create_directories(outdir, dec);
             for (auto& e : entries) {
-                std::string path = outdir + "/" + e.name;
+                // Entries may carry a relative path (vmake project mode); refuse
+                // absolute paths and '..' so extraction cannot escape outdir.
+                if (e.name.empty() || is_abs_path(e.name) || e.name.find("..") != std::string::npos) {
+                    std::fprintf(stderr, "skipped unsafe entry: %s\n", e.name.c_str());
+                    continue;
+                }
+                std::string path = join_path(outdir, e.name);
+                std::filesystem::path pp(path);
+                if (pp.has_parent_path()) std::filesystem::create_directories(pp.parent_path(), dec);
                 FILE* fo = std::fopen(path.c_str(), "wb");
                 if (!fo) { std::fprintf(stderr, "cannot write %s\n", path.c_str()); return 1; }
                 std::fwrite(e.data.data(), 1, e.data.size(), fo);

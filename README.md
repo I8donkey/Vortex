@@ -525,6 +525,8 @@ import mymath;                      # still resolves when the .vt is gone
 
 When a packed `.vt` declares `extdef ... from "..."`, `vtpm` also bundles the referenced DLLs (and recursively the PE imports of any `.exe`/`.dll` input) so the package is self-contained. See [USAGE.md](USAGE.md#23-vtpm--packager-vt--vtp-lzma2-compression).
 
+Inside a **vmake project**, `vtpm pack .` (or `vtpm pack <project-dir>`) embeds the project scripts plus every file they reference, keeping paths relative to the root; `--no-project` opts out.
+
 Both the interpreter and `vtcc` support `.vt`/`.vtp` module imports.
 
 ---

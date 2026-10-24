@@ -89,6 +89,7 @@ vtcc build prog.vt -O3 --asm
 
 ```
 vtpm pack [-o out.vtp] <file.vt> [file2.vt ...]
+vtpm pack [-o out.vtp] <vmake 工程目录>
 vtpm list <pkg.vtp>
 vtpm extract <pkg.vtp> [-o dir]
 ```
@@ -99,11 +100,27 @@ vtpm extract <pkg.vtp> [-o dir]
 
 `.vtp` 是私有二进制容器（`VTPD` 头 + 条目表 + LZMA2 压缩负载），首页 Core/解释器/编译器共用 `liblzma` 读写。
 
+**vmake 工程模式。** 当打包目标是 vmake 工程（含 `VmakeLists.txt` 的目录，或当前目录就是工程根）时，`pack` 会把工程脚本引用到的所有东西一并纳入：
+
+- 脚本本身：`VmakeLists.txt`、`include(...)` 的 `.vmake` 模块、`add_subdirectory(...)` 的子目录（递归展开）；
+- 脚本中出现的、确实存在的文件：源码（`add_executable`/`add_library`/`target_sources`）、`configure_file` 输入、`install(FILES ...)` 等；
+- 脚本中出现的目录里的头文件（如 `target_include_directories` 指定的 include 目录）；
+- 条目名保留相对工程根的路径，`extract` 会自动重建子目录。
+
+```sh
+vtpm pack . -o demo.vtp          # 在 vmake 工程内：打包整个工程
+vtpm pack path/to/project -o demo.vtp
+vtpm pack --project path/to/project
+vtpm pack --no-project main.cpp  # 只打列出的文件，忽略所在工程
+```
+
+文本扫描不会展开 `file(GLOB ...)`（这由 `vmake` 负责），`${VAR}` 这类变量也会跳过。
+
 **自动打包依赖。** `pack` 还会收集并打入程序依赖的文件：
 
 - 对每个 `.vt` 输入，扫描 `extdef ... from "<库>"` 子句，把引用的库加入包（相对 `.vt` 所在目录优先，其次当前目录）。
 - 对每个 `.exe`/`.dll` 输入，用 `objdump -p` 读取 PE 导入表，递归加入与输入同目录的导入 DLL（找不到的系统 DLL 跳过）。
-- 条目按文件名去重，并保留原文件名。
+- 显式列出的文件按文件名去重并保留原文件名；工程文件保留相对路径。
 
 ```sh
 # 打入 mymath.vt 以及（经 extdef from 引用的）libzlib.dll

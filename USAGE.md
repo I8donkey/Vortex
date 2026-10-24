@@ -90,6 +90,7 @@ vtcc build prog.vt -O3 --asm
 
 ```
 vtpm pack [-o out.vtp] <file.vt> [file2.vt ...]
+vtpm pack [-o out.vtp] <vmake-project-dir>
 vtpm list <pkg.vtp>
 vtpm extract <pkg.vtp> [-o dir]
 ```
@@ -100,11 +101,27 @@ vtpm extract <pkg.vtp> [-o dir]
 
 A `.vtp` is a private binary container (`VTPD` header + entry table + LZMA2 payloads), read/written via `liblzma`.
 
+**vmake project mode.** When the target is a vmake project (a directory containing `VmakeLists.txt`, or the current directory), `pack` also embeds everything the project scripts reference:
+
+- the scripts themselves: `VmakeLists.txt`, `include(...)`d `.vmake` modules and `add_subdirectory(...)` trees (followed recursively);
+- every existing file named in a script: sources (`add_executable`/`add_library`/`target_sources`), `configure_file` inputs, `install(FILES ...)`, etc.;
+- headers found in directories named by the script (e.g. `target_include_directories`);
+- entries keep their path relative to the project root, and `extract` recreates the subdirectories.
+
+```sh
+vtpm pack . -o demo.vtp          # inside a vmake project: whole project
+vtpm pack path/to/project -o demo.vtp
+vtpm pack --project path/to/project
+vtpm pack --no-project main.cpp  # only the listed file, ignore the project
+```
+
+`file(GLOB ...)` patterns are not expanded by the text scanner (they are resolved by `vmake`, not `vtpm`), and variables such as `${VAR}` are skipped.
+
 **Automatic dependency bundling.** `pack` also collects and embeds the files a program depends on:
 
 - For each `.vt` input it scans `extdef ... from "<lib>"` clauses and adds the referenced library (resolved relative to the `.vt`, then cwd).
 - For each `.exe`/`.dll` input it reads the PE import table with `objdump -p` and recursively adds any imported DLL found next to the input (system DLLs that cannot be found are skipped).
-- Entries are deduplicated by file name and keep their original names.
+- Explicitly listed files are deduplicated by file name and keep their original names; project files keep their relative paths.
 
 ```sh
 # bundles mymath.vt plus libzlib.dll (referenced via extdef from)
