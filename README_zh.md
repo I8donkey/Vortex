@@ -1,5 +1,5 @@
 # Vortex
-
+![License](https://img.shields.io/github/license/i8donkey/vortex) ![Author](https://img.shields.io/badge/Author-i8doney-orange) 
 > English version: [English](README.md)
 
 Vortex 是一门借鉴 Python 的脚本语言，提供三种互通使用方式：**树遍历解释器**、**LLVM 原生编译器 `vtcc`**（将 `.vt` 源码直接编译为独立机器码可执行文件）、以及整合两者的 **Qt 编辑器**。所有语言特性在「解释器」与「编译器」**两端均已实现**，并通过 golden 回归测试保证两种后端语义完全一致。

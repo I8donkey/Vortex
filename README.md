@@ -1,4 +1,5 @@
 # Vortex
+![License](https://img.shields.io/github/license/i8donkey/vortex) ![Author](https://img.shields.io/badge/Author-i8doney-orange) 
 
 > 简体中文版见：[中文文档](README_zh.md)
 
