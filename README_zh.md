@@ -418,7 +418,7 @@ from random import seed;
 
 | 模块 | 用途 |
 |---|---|
-| `math` | 常量 `pi` `e` `tau` `inf` `nan`；`sqrt cbrt pow exp log log2 log10 sin cos tan asin acos atan atan2 sinh cosh tanh floor ceil round fmod gcd lcm isinf isnan hypot` |
+| `math` | 常量 `pi` `e` `tau` `inf` `nan`；`sqrt cbrt pow ipow exp log log2 log10 sin cos tan asin acos atan atan2 sinh cosh tanh floor ceil round fmod gcd lcm isinf isnan hypot` |
 | `time` | `time sleep gmtime localtime mktime strftime strptime counter reset_counter process_time` |
 | `random` | `seed getstate setstate random uniform randint randrange choice choices shuffle sample gauss expovariate triangular` |
 | `thread` | 线程、互斥锁、原子量、channel、线程池 |

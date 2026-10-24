@@ -338,6 +338,7 @@ print(crc32(0, "hello", 5)); # 907060870
 | `sqrt(x)`                                         | double | 平方根                    |
 | `cbrt(x)`                                         | double | 立方根                    |
 | `pow(x,y)`                                        | double | `x**y`                 |
+| `ipow(base,exp)`                                  | long   | 整数快速幂（平方-乘算法）           |
 | `exp`、`log(x,base)`、`log2`、`log10`                | double | 对数                     |
 | `sin/cos/tan/asin/acos/atan/atan2/sinh/cosh/tanh` | double | 三角函数                   |
 | `floor`、`ceil`、`trunc`                            | long   | 取整                     |
@@ -351,7 +352,12 @@ print(crc32(0, "hello", 5)); # 907060870
 import math;
 double area = math.pi * 5.0 ** 2;
 print(math.gcd(48, 18));   # 6
+print(math.lcm(4, 6));     # 12
+print(math.ipow(2, 10));   # 1024（精确整数，结果类型为 int）
 ```
+
+- `ipow(base, exp)` 要求 `exp >= 0`；负指数抛出类型化的 `ValueError`。溢出按二补码回绕，两端一致。
+- `gcd` 用绝对值上的欧几里得算法（`gcd(0, 0) == 0`）；`lcm` 为 `|a / gcd(a, b) * b|`（任一参数为 `0` 时结果为 `0`）。
 
 ### 4.2 `time`
 

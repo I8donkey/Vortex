@@ -339,6 +339,7 @@ Constants: `pi`, `e`, `tau`, `inf`, `nan`.
 | `sqrt(x)`                                         | double  | square root            |
 | `cbrt(x)`                                         | double  | cube root              |
 | `pow(x,y)`                                        | double  | `x**y`                 |
+| `ipow(base,exp)`                                  | long    | integer fast power (square-and-multiply) |
 | `exp`, `log(x,base)`, `log2`, `log10`             | double  | logarithms (radians)   |
 | `sin/cos/tan/asin/acos/atan/atan2/sinh/cosh/tanh` | double  | trigonometric          |
 | `floor`, `ceil`, `trunc`                          | long    | rounding               |
@@ -351,7 +352,12 @@ Constants: `pi`, `e`, `tau`, `inf`, `nan`.
 import math;
 double area = math.pi * 5.0 ** 2;
 print(math.gcd(48, 18));   # 6
+print(math.lcm(4, 6));     # 12
+print(math.ipow(2, 10));   # 1024 (exact integer, result type int)
 ```
+
+- `ipow(base, exp)` requires `exp >= 0`; a negative exponent raises a typed `ValueError`. Overflow wraps as two's complement, identical in both backends.
+- `gcd` uses Euclid's algorithm on absolute values (`gcd(0, 0) == 0`); `lcm` is `|a / gcd(a, b) * b|` (`lcm` with `0` is `0`).
 
 ### 4.2 `time`
 

@@ -418,7 +418,7 @@ The `thread` module provides thread creation/join, mutex, atomics, channels, and
 
 | Module | Purpose |
 |---|---|
-| `math` | constants `pi` `e` `tau` `inf` `nan`; `sqrt cbrt pow exp log log2 log10 sin cos tan asin acos atan atan2 sinh cosh tanh floor ceil round fmod gcd lcm isinf isnan hypot` |
+| `math` | constants `pi` `e` `tau` `inf` `nan`; `sqrt cbrt pow ipow exp log log2 log10 sin cos tan asin acos atan atan2 sinh cosh tanh floor ceil round fmod gcd lcm isinf isnan hypot` |
 | `time` | `time sleep gmtime localtime mktime strftime strptime counter reset_counter process_time` |
 | `random` | `seed getstate setstate random uniform randint randrange choice choices shuffle sample gauss expovariate triangular` |
 | `thread` | threads, mutex, atomic, channel, thread pool |
