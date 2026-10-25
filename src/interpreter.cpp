@@ -1452,11 +1452,19 @@ ValuePtr Interpreter::load_user_module(const std::string& module) {
         auto mid = std_modules_.find(module);
         if (mid != std_modules_.end()) return mid->second;
     }
-    std::string src, err;
-    if (!pack::find_module_source(module, module_base_, src, err))
+    std::string src, err, foundPath;
+    if (!pack::find_module_source(module, module_base_, src, err, &foundPath))
         throw RuntimeError("Unknown module: '" + module + "' (" + err + ")");
 
     auto sub = std::make_unique<Interpreter>();
+    // Nested imports resolve relative to the module that declares them, so a
+    // module pulled in by another module finds its own sibling modules.
+    if (!foundPath.empty()) {
+        size_t slash = foundPath.find_last_of("/\\");
+        sub->set_module_path(slash == std::string::npos ? "." : foundPath.substr(0, slash));
+    } else {
+        sub->set_module_path(module_base_);
+    }
     // 解析并持久保命在 sub 中（否则函数 def 指针悬空）
     vortex::Lexer lexer(src);
     auto toks = lexer.tokenize();

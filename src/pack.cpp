@@ -185,7 +185,9 @@ bool read_entry(const std::string& path, const std::string& name,
 }
 
 bool find_module_source(const std::string& module, const std::string& base_dir,
-                        std::string& out, std::string& err) {
+                        std::string& out, std::string& err,
+                        std::string* found_path) {
+    if (found_path) found_path->clear();
     std::string mod = module;
     // 模块名里的点/斜杠 → 路径分隔
     for (auto& c : mod) if (c == '.') c = '/';
@@ -199,10 +201,18 @@ bool find_module_source(const std::string& module, const std::string& base_dir,
 
     // 1) <module>.vt（脚本目录优先，其次 cwd）
     std::string vt = join(base_dir, mod + ".vt");
-    if (read_file(vt, bytes, err)) { out.assign(bytes.begin(), bytes.end()); return true; }
+    if (read_file(vt, bytes, err)) {
+        out.assign(bytes.begin(), bytes.end());
+        if (found_path) *found_path = vt;
+        return true;
+    }
     err.clear();
     vt = mod + ".vt";
-    if (read_file(vt, bytes, err)) { out.assign(bytes.begin(), bytes.end()); return true; }
+    if (read_file(vt, bytes, err)) {
+        out.assign(bytes.begin(), bytes.end());
+        if (found_path) *found_path = vt;
+        return true;
+    }
     err.clear();
 
     // 2) <module>.vtp 内名为 "<module>.vt" 的条目
@@ -211,6 +221,7 @@ bool find_module_source(const std::string& module, const std::string& base_dir,
     if (read_entry(vtp, mod + ".vt", entry, err)) {
         out.assign(entry.begin(), entry.end());
         if (!out.empty() && out.back() != '\n') out.push_back('\n');
+        if (found_path) *found_path = vtp;
         return true;
     }
     err.clear();
@@ -218,6 +229,7 @@ bool find_module_source(const std::string& module, const std::string& base_dir,
     if (read_entry(vtp, mod + ".vt", entry, err)) {
         out.assign(entry.begin(), entry.end());
         if (!out.empty() && out.back() != '\n') out.push_back('\n');
+        if (found_path) *found_path = vtp;
         return true;
     }
     err = "cannot find module '" + module + "' (looked for .vt and .vtp)";

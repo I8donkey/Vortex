@@ -45,8 +45,10 @@ bool decompress(const std::vector<unsigned char>& in, size_t raw_len,
 // 定位并读取模块源码文本：
 //   先在 base_dir 下找 <module>.vt，其次 <module>.vtp 里名为 "<module>.vt" 的条目。
 // 返回 true 且 out=源码；否则 false，err 描述原因。
+// found_path（可选）返回实际命中的文件路径，供嵌套 import 继续按该文件目录解析。
 bool find_module_source(const std::string& module, const std::string& base_dir,
-                        std::string& out, std::string& err);
+                        std::string& out, std::string& err,
+                        std::string* found_path = nullptr);
 
 } // namespace pack
 } // namespace vortex
