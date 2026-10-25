@@ -2,7 +2,7 @@
 
 > English version: [USAGE.md](USAGE.md)
 
-**版本：** 1.0
+**版本：** 1.1
 
 本文是 Vortex 的完整操作参考。README 负责语言参考；本文给出全部 CLI 命令、标准库模块签名、错误处理与回归测试流程。
 
@@ -13,9 +13,10 @@
 | 程序                    | 作用                          |
 | --------------------- | --------------------------- |
 | `vortex`              | 树遍历**解释器**                  |
-| `vtcc`            | **LLVM 原生编译器**（`.vt` → exe） |
+| `vtcc`                | **LLVM 原生编译器**（`.vt` → exe） |
 | `vortex_editor`       | 集成运行 + 编译的 Qt 编辑器           |
 | `vtpm`                | `.vt` → `.vtp` 打包工具（LZMA2）      |
+| `vmake`               | CMake 风格构建工具（`.vt` 与 C/C++）  |
 | `libvortex_runtime.a` | 编译产物链接的静态运行时库               |
 
 构建后所有二进制发布到 `bin/` 目录。
@@ -76,6 +77,10 @@ vtcc build hello.vt -o hello.exe
 vtcc build prog.vt -o prog.exe --debug
 # prog.exe 携带 DWARF 信息：函数断点、调用栈、近似行号（LLVM 23 格式）。
 ```
+
+**模块** —— 用户模块（`import <名称>;`）会被内联进编译单元；`import` 在入口脚本所在目录与当前目录查找 `<名称>.vt`/`.vtp`。模块自身的 `import` 以**该模块所在目录**为基准解析，因此模块可以导入同目录的兄弟模块。
+
+已知限制：跨模块调用目前支持数值参数，但传/返 `str` 会触发 LLVM 校验失败（`Call parameter type does not match function signature`）。字符串相关逻辑请暂放在入口文件中；`vmake --run`（解释器）没有此限制。
 
 **优化示例**
 
@@ -143,10 +148,10 @@ import mymath;
 print(mymath.add(2, 3));
 ```
 
-- 解析顺序：先内置/扩展模块，再按**脚本所在目录 / 当前目录**查找 `<name>.vt` 或 `<name>.vtp`。
+- 解析顺序：先内置/扩展模块，再按**脚本所在目录 / 当前目录**查找 `<name>.vt` 或 `<name>.vtp`。模块内部的 `import` 以**该模块所在目录**为基准解析，因此兄弟模块不受调用方 cwd 影响。
 - `.vtp` 里的条目名为 `<name>.vt`（即 `vtpm pack mymath.vt` 默认产物）。
 - 模块顶层 `def`/常量/全局 成为模块成员；解释器每次 `import` 执行一次并缓存。
-- 编译器（`vtcc`）同样支持：把模块源码内联进编译单元，模块函数以 `模块名.函数名` 静态链接。用户函数参数/返回支持 `int`/`float`/`str`/`bool`。注意编译端 `int / int` 为整除（与解释器真除语义不同）。
+- 编译器（`vtcc`）同样支持：把模块源码内联进编译单元，模块函数以 `模块名.函数名` 静态链接。类型层面用户函数参数/返回支持 `int`/`float`/`str`/`bool`；但跨模块传 `str` 目前会触发 LLVM 校验失败（见 2.2）。编译端 `int / int` 与解释器一致为真除，`//`、`%` 两端均为 Python floor 语义。
 
 ### 2.5 `vmake` — 构建工具
 
@@ -810,7 +815,17 @@ powershell -ExecutionPolicy Bypass -File runtest.ps1          # 默认：白名�
 powershell -ExecutionPolicy Bypass -File runtest.ps1 -a       # -a：把所有 .vt 都纳入 golden 验证
 powershell -ExecutionPolicy Bypass -File runtest.ps1 -j 16    # -j：并行 worker 数
 powershell -ExecutionPolicy Bypass -File runtest.ps1 -t 20    # -t：单步超时秒数（默认 20）
+powershell -ExecutionPolicy Bypass -File runtest.ps1 -InterpOnly       # 只跑解释器（无需 vtcc）
+powershell -ExecutionPolicy Bypass -File runtest.ps1 -Retries 2        # 解释器失败后重试次数
+powershell -ExecutionPolicy Bypass -File runtest.ps1 -Skip a,b         # 跳过指定用例
+powershell -ExecutionPolicy Bypass -File runtest.ps1 -JUnit report.xml # 生成 JUnit XML 报告
 ```
+
+- `-InterpOnly` 只运行解释器并只要求退出码为 0；CI 在 Linux/macOS 与 release 产物上使用（release 的 `vtcc` 内嵌构建机运行时路径）。
+- `-Retries <n>` 在解释器运行失败后重试（默认 1 次），因为线程相关用例偶发竞态。
+- `-Skip <名称[,名称...]>` 跳过指定用例；非 Windows 主机自动跳过 `test_ffi`。
+- `-JUnit <路径>` 输出 JUnit XML（GitHub Actions 的测试任务会读取并展示）。
+- 环境变量 `CI=true` 时脚本不会等待按键。
 
 每个运行/编译步骤超过 `-t` 秒会被强制终止并报 `FAIL (timeout)`，防止挂起测试拖垮整个套件。缺失 `.expected` 且不在白名单的 `.vt` 默认跳过（可用 `-a` 强制运行）。
 
@@ -818,14 +833,16 @@ powershell -ExecutionPolicy Bypass -File runtest.ps1 -t 20    # -t：单步超�
 
 > `extdef` 用例（`test_ffi`）会链接 DLL，套件运行前会把 `bin/libzlib.dll` 复制到编译产物旁边。
 
-预期收尾（白名单共 50 项）：
+预期收尾（共发现 73 项；Unix 跳过 `test_ffi` 时为 72 项）：
 
 ```
-[1/50] errtest ... ok
+[1/73] errtest ... ok
 ...
 ================================
 ALL PASS
 ```
+
+CI（`.github/workflows/tests.yml`）在 Linux、Windows、macOS 三平台运行该套件，发布逐用例 JUnit 结果，并额外冒烟测试 `vmake`（C++ 示例与 `.vt` 示例；Windows 上会对比解释器与编译产物输出）。
 
 ## 7. 错误提示
 

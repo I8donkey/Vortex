@@ -2,7 +2,7 @@
 
 > 简体中文版见：[中文使用指南](USAGE_zh.md)
 
-**Version:** 1.0
+**Version:** 1.1
 
 This document is the complete operational reference for Vortex. README.md covers the language reference; here you get every CLI command, the standard-library module signatures, error handling, and the regression-test workflow.
 
@@ -13,9 +13,10 @@ This document is the complete operational reference for Vortex. README.md covers
 | Binary                | Role                                            |
 | --------------------- | ----------------------------------------------- |
 | `vortex`              | Tree-walking **interpreter**                    |
-| `vtcc`            | **LLVM native compiler** (`.vt` → exe)          |
+| `vtcc`                | **LLVM native compiler** (`.vt` → exe)          |
 | `vortex_editor`       | Qt editor integrating run + compile             |
 | `vtpm`                | `.vt` → `.vtp` packager (LZMA2)                 |
+| `vmake`               | CMake-style build tool (`.vt` and C/C++)        |
 | `libvortex_runtime.a` | Static runtime linked into compiled executables |
 
 All binaries are published to `bin/` after a build.
@@ -77,6 +78,10 @@ vtcc build prog.vt -o prog.exe --debug
 # prog.exe now carries DWARF info: function breakpoints,
 # backtraces, and approximate line numbers (LLVM 23 format).
 ```
+
+**Modules** — user modules (`import <name>;`) are inlined into the compilation unit; `import` searches the entry script's directory and the current directory for `<name>.vt`/`.vtp`. A module's own imports resolve relative to **that module's directory**, so modules may import their siblings.
+
+Known limitation: calls across a module boundary currently work for numeric arguments, but passing or returning `str` fails LLVM verification (`Call parameter type does not match function signature`). Keep string-typed work in the entry file until the codegen is fixed; `vmake --run` (interpreter) has no such restriction.
 
 **Optimization example**
 
@@ -144,10 +149,10 @@ import mymath;
 print(mymath.add(2, 3));
 ```
 
-- Resolution: built-in/extension modules first, then `<name>.vt` or `<name>.vtp` in the **script's directory / cwd**.
+- Resolution: built-in/extension modules first, then `<name>.vt` or `<name>.vtp` in the **script's directory / cwd**. Inside a module, its own imports resolve relative to **that module's directory**, so sibling modules work regardless of the caller's working directory.
 - The `.vtp` entry is named `<name>.vt` (the default of `vtpm pack mymath.vt`).
 - Top-level `def`s/constants/globals become module members; the interpreter runs and caches each module once.
-- `vtcc` supports the same: it inlines the module source into the compilation unit and statically links module functions as `module.func`. User functions support `int`/`float`/`str`/`bool` parameters and returns. Note: compiled `int / int` is integer division (unlike the interpreter's true division).
+- `vtcc` supports the same: it inlines the module source into the compilation unit and statically links module functions as `module.func`. User functions support `int`/`float`/`str`/`bool` parameters and returns at the type level; cross-module `str` arguments currently trip LLVM verification (see 2.2). Compiled `int / int` follows the interpreter's true division, and `//` / `%` use the same Python floor semantics on both sides.
 
 ### 2.5 `vmake` — build tool
 
@@ -769,7 +774,17 @@ powershell -ExecutionPolicy Bypass -File runtest.ps1          # default: whiteli
 powershell -ExecutionPolicy Bypass -File runtest.ps1 -a       # -a: also golden-verify every *.vt
 powershell -ExecutionPolicy Bypass -File runtest.ps1 -j 16    # -j: parallel workers
 powershell -ExecutionPolicy Bypass -File runtest.ps1 -t 20    # -t: per-step timeout seconds (default 20)
+powershell -ExecutionPolicy Bypass -File runtest.ps1 -InterpOnly       # interpreter only (no vtcc)
+powershell -ExecutionPolicy Bypass -File runtest.ps1 -Retries 2        # retry a failed interpreter run
+powershell -ExecutionPolicy Bypass -File runtest.ps1 -Skip a,b         # drop named tests
+powershell -ExecutionPolicy Bypass -File runtest.ps1 -JUnit report.xml # JUnit XML report
 ```
+
+- `-InterpOnly` runs the interpreter alone and only requires a clean exit; used in CI on Linux/macOS and for release binaries (a released `vtcc` embeds a build-machine runtime path).
+- `-Retries <n>` re-runs a failed interpreter attempt (default 1) because the thread tests are occasionally racy.
+- `-Skip <name[,name...]>` drops tests; non-Windows hosts skip `test_ffi` automatically.
+- `-JUnit <path>` writes a JUnit XML report (also consumed by the GitHub Actions test job).
+- With `CI=true` in the environment the script never waits for a key press.
 
 Every run/compile step that exceeds `-t` seconds is force-killed and reported as `FAIL (timeout)`, so a hanging test cannot stall the whole suite. A `.vt` with neither `.expected` nor whitelist membership is skipped by default (use `-a` to force it).
 
@@ -777,12 +792,14 @@ Covered cases (all must pass): scalars & control flow, containers, references (`
 
 > The `extdef` test (`test_ffi`) links a DLL, so the suite copies `bin/libzlib.dll` next to the compiled executables before running them.
 
-Expected end state (50 whitelisted tests):
+Expected end state (73 discovered tests; 72 when `test_ffi` is skipped on Unix):
 
 ```
-[1/50] errtest ... ok
+[1/73] errtest ... ok
 ...
 ================================
 ALL PASS
 ```
+
+CI (`.github/workflows/tests.yml`) runs the suite on Linux, Windows and macOS, publishes per-test JUnit results, and additionally smoke-tests `vmake` (C++ example and the `.vt` example, comparing interpreted and compiled output on Windows).
 
