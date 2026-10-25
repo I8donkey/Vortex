@@ -1,0 +1,7 @@
+import util;
+import helper;
+
+print(util.quad(5));
+print(util.bump(41));
+print(helper.twice(21));
+print("done");

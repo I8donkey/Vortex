@@ -210,6 +210,50 @@ static int versionCompare(const std::string& a, const std::string& b) {
 }
 
 // ---------------------------------------------------------------------------
+// Vortex (.vt) source helpers
+// ---------------------------------------------------------------------------
+
+static bool isVtSource(const fs::path& p) {
+    std::string e = toLower(p.extension().string());
+    return e == ".vt" || e == ".vtp";
+}
+
+static const std::set<std::string>& builtinVortexModules() {
+    static const std::set<std::string> names = {
+        "math", "time", "random", "thread", "log", "file", "zip", "xml", "html",
+        "sql", "os", "regex", "json", "base64", "datetime", "csv", "hash", "str",
+        "net", "sys", "game2d", "render3d", "gui"};
+    return names;
+}
+
+// `import name;` or `import name as alias;` -> "name" ("" when not an import).
+static std::string parseImportName(const std::string& line) {
+    std::string s = line;
+    size_t h = s.find('#');
+    if (h != std::string::npos) s = s.substr(0, h);
+    s = trim(s);
+    if (s.rfind("import", 0) != 0) return std::string();
+    if (s.size() > 6 && (s[6] == '_' || std::isalnum(static_cast<unsigned char>(s[6]))))
+        return std::string();
+    std::string rest = trim(s.substr(6));
+    size_t end = rest.find_first_of(" \t\r;");
+    std::string name = (end == std::string::npos) ? rest : rest.substr(0, end);
+    if (name.size() >= 2 && name.front() == '"' && name.back() == '"')
+        name = name.substr(1, name.size() - 2);
+    return name;
+}
+
+static fs::path findVortexModule(const std::string& name, const std::vector<fs::path>& dirs) {
+    for (const fs::path& d : dirs) {
+        fs::path a = d / (name + ".vt");
+        if (fs::exists(a)) return a;
+        fs::path b = d / (name + ".vtp");
+        if (fs::exists(b)) return b;
+    }
+    return fs::path();
+}
+
+// ---------------------------------------------------------------------------
 // Process helpers
 // ---------------------------------------------------------------------------
 
@@ -436,6 +480,9 @@ struct Target {
     bool pic = false;
     fs::path srcDir;
     std::vector<std::string> installRuntime, installLibrary, installArchive;
+    // Vortex (.vt) targets
+    std::string vtMain;                 // VT_MAIN property: entry script
+    std::vector<fs::path> vtModuleDirs; // extra `import` search directories
 };
 
 struct InstallFile {
@@ -501,6 +548,8 @@ struct Interp {
     std::vector<std::string> targetOrder;
     std::vector<InstallFile> installFiles;
     std::map<std::string, CacheEntry> cache;
+    // target -> interpreter entry inside the build tree (vt/<main>.vt)
+    std::map<std::string, std::string> vtEntries;
 
     // ---- scopes and variables ----
 
@@ -713,6 +762,8 @@ struct Interp {
         setDefault("VMAKE_C_FLAGS", "STRING", "-O2 -Wall", "Global C compiler flags");
         setDefault("VMAKE_EXE_LINKER_FLAGS", "STRING", "", "Global executable linker flags");
         setDefault("VMAKE_CXX_STANDARD", "STRING", "17", "Default C++ standard");
+        setDefault("VMAKE_VTCC", "FILEPATH", "vtcc", "Vortex native compiler used for .vt targets");
+        setDefault("VMAKE_VORTEX", "FILEPATH", "vortex", "Vortex interpreter used by --run");
         cache["VMAKE_HOME_DIRECTORY"] = CacheEntry{"PATH", sourceDir.string(), "Source directory"};
 
         if (toLower(cache["VMAKE_GENERATOR"].value) != "ninja") {
@@ -1168,6 +1219,18 @@ struct Interp {
             }
             return;
         }
+        if (name == "target_vortex_modules") {
+            std::vector<std::string> a = flattenLists(expandArgs(cmd.args));
+            if (a.empty())
+                throw FatalError(where(cmd) + "target_vortex_modules() requires a target");
+            Target& t = requireTarget(a[0], cmd);
+            for (size_t k = 1; k < a.size(); ++k) {
+                fs::path p = a[k];
+                if (p.is_relative()) p = scope->srcDir / p;
+                t.vtModuleDirs.push_back(p.lexically_normal());
+            }
+            return;
+        }
         if (name == "target_include_directories" || name == "target_link_libraries" ||
             name == "target_compile_definitions" || name == "target_compile_options" ||
             name == "target_link_options") {
@@ -1231,6 +1294,7 @@ struct Interp {
                 if (key == "OUTPUT_NAME") t.outputName = value;
                 else if (key == "CXX_STANDARD") t.cxxStandard = value;
                 else if (key == "POSITION_INDEPENDENT_CODE") t.pic = isTruthy(value);
+                else if (key == "VT_MAIN") t.vtMain = value;
             }
             return;
         }
@@ -1637,7 +1701,83 @@ struct Interp {
         return r;
     }
 
-    void generateNinjaFile() const {
+    // Gather the .vt sources of a target plus every transitively imported
+    // module. Both vtcc and the interpreter then see the same flattened tree
+    // (<build>/vt), so `import <name>` resolves identically in both.
+    void collectVortexSources(const Target& t, std::vector<fs::path>& out,
+                              fs::path& entry) const {
+        std::vector<fs::path> search;
+        for (const fs::path& s : t.sources) search.push_back(s.parent_path());
+        for (const fs::path& p : t.incPrivate) search.push_back(p);
+        for (const fs::path& p : t.incPublic) search.push_back(p);
+        for (const fs::path& p : t.vtModuleDirs) search.push_back(p);
+        search.push_back(t.srcDir);
+        search.push_back(sourceDir);
+
+        entry = t.sources.empty() ? fs::path() : t.sources.front();
+        if (!t.vtMain.empty()) {
+            fs::path m = t.vtMain;
+            if (m.is_relative()) m = t.srcDir / m;
+            entry = m.lexically_normal();
+        }
+
+        std::map<std::string, fs::path> chosen;   // file name -> source path
+        std::set<std::string> visited;
+        std::vector<fs::path> queue;
+        auto add = [&](const fs::path& p) {
+            std::string name = p.filename().string();
+            auto it = chosen.find(name);
+            if (it == chosen.end()) { chosen[name] = p; return; }
+            if (!fs::equivalent(it->second, p)) {
+                throw FatalError("vortex module name collision: '" + name + "' ('" +
+                                 it->second.string() + "' vs '" + p.string() + "')");
+            }
+        };
+        if (entry.empty()) throw FatalError("target '" + t.name + "' has no sources");
+        add(entry);
+        queue.push_back(entry);
+        for (const fs::path& s : t.sources) {
+            if (s.lexically_normal() == entry.lexically_normal()) continue;
+            add(s);
+            queue.push_back(s);
+        }
+
+        while (!queue.empty()) {
+            fs::path src = queue.back();
+            queue.pop_back();
+            std::string key = src.lexically_normal().string();
+            if (!visited.insert(key).second) continue;
+            std::ifstream in(src, std::ios::binary);
+            if (!in) throw FatalError("cannot read vortex source '" + src.string() + "'");
+            std::string line;
+            while (std::getline(in, line)) {
+                std::string name = parseImportName(line);
+                if (name.empty() || builtinVortexModules().count(name)) continue;
+                fs::path found = findVortexModule(name, search);
+                if (found.empty()) continue;   // built-in or provided at run time
+                add(found);
+                queue.push_back(found);
+            }
+        }
+
+        out.clear();
+        for (const auto& kv : chosen) out.push_back(kv.second);
+    }
+
+    // Resolve a tool variable: an explicit cache value wins, otherwise use the
+    // executable sitting next to vmake when present (release layout), else PATH.
+    std::string resolveTool(const std::string& varName, const char* exeName) const {
+        std::string v = getVar(varName);
+        if (!v.empty() && v != exeName) return v;
+        fs::path sibling = g_vmakeExe.parent_path() / exeName;
+#ifdef _WIN32
+        sibling += ".exe";
+#endif
+        if (!sibling.empty() && fs::exists(sibling)) return sibling.string();
+        return v;
+    }
+
+    void generateNinjaFile() {
         fs::create_directories(buildDir / "bin");
         fs::create_directories(buildDir / "lib");
         fs::create_directories(buildDir / "vmake_files");
@@ -1651,7 +1791,9 @@ struct Interp {
         o << "CXX = \"" << escapeNinjaValue(getVar("VMAKE_CXX_COMPILER")) << "\"\n";
         o << "CC = \"" << escapeNinjaValue(getVar("VMAKE_C_COMPILER")) << "\"\n";
         o << "AR = ar\n";
-        o << "VMAKE = \"" << escapeNinjaValue(vmakeExe) << "\"\n\n";
+        o << "VMAKE = \"" << escapeNinjaValue(vmakeExe) << "\"\n";
+        o << "VTCC = \"" << escapeNinjaValue(resolveTool("VMAKE_VTCC", "vtcc")) << "\"\n";
+        o << "VORTEX = \"" << escapeNinjaValue(resolveTool("VMAKE_VORTEX", "vortex")) << "\"\n\n";
 
         o << "rule cxx\n";
         o << "  command = $CXX -std=c++$STD $FLAGS $DEFINES $INCLUDES -MMD -MF $DEP -c $in -o $out\n";
@@ -1681,10 +1823,70 @@ struct Interp {
         o << "  command = $VMAKE -E copy $in $out\n";
         o << "  description = Installing $out\n\n";
 
+        o << "rule vcopy\n";
+        o << "  command = $VMAKE -E copy_if_different $in $out\n";
+        o << "  description = COPY $out\n\n";
+
+        o << "rule vtcc\n";
+        o << "  command = $VTCC build $ENTRY -o $out\n";
+        o << "  description = VTCC $out\n\n";
+
+        o << "rule vrun\n";
+        o << "  command = $VORTEX $in\n";
+        o << "  description = RUN $in\n\n";
+
         const std::string config = toUpper(getVar("VMAKE_BUILD_TYPE"));
 
         for (const std::string& tname : targetOrder) {
             const Target& t = targets.at(tname);
+
+            // ---- Vortex (.vt) targets: compile with vtcc, run with vortex ----
+            bool hasVt = false, hasOther = false;
+            for (const fs::path& s : t.sources) {
+                std::string e = toLower(s.extension().string());
+                if (e.empty()) continue;
+                if (isVtSource(s)) hasVt = true;
+                else if (e != ".h" && e != ".hh" && e != ".hpp" && e != ".hxx" &&
+                         e != ".h++" && e != ".inc") hasOther = true;
+            }
+            if (hasVt) {
+                if (hasOther)
+                    throw FatalError("target '" + tname +
+                                     "' mixes .vt sources with C/C++ sources");
+                if (t.type != Target::Type::Executable)
+                    throw FatalError("target '" + tname +
+                                     "': only executables can be built from .vt sources");
+                std::vector<fs::path> vtSources;
+                fs::path entry;
+                collectVortexSources(t, vtSources, entry);
+                fs::create_directories(buildDir / "vt");
+                std::vector<std::string> rels;
+                std::string entryRel;
+                for (const fs::path& src : vtSources) {
+                    std::string rel = "vt/" + src.filename().string();
+                    // Copy now so `vmake --run` works without building (and
+                    // without vtcc); the Ninja edge below keeps it in sync.
+                    std::error_code cec;
+                    fs::copy_file(src, buildDir / "vt" / src.filename().string(),
+                                  fs::copy_options::overwrite_existing, cec);
+                    if (cec)
+                        throw FatalError("cannot copy '" + src.string() + "' into the build tree: " +
+                                         cec.message());
+                    if (src.lexically_normal() == entry.lexically_normal()) entryRel = rel;
+                    rels.push_back(rel);
+                    o << "build " << escapeNinjaPath(rel) << ": vcopy "
+                      << escapeNinjaPath(src.generic_string()) << "\n\n";
+                }
+                if (entryRel.empty()) entryRel = "vt/" + entry.filename().string();
+                o << "build " << escapeNinjaPath(outputPath(t).generic_string()) << ": vtcc";
+                for (const std::string& r : rels) o << " " << escapeNinjaPath(r);
+                o << "\n  ENTRY = " << escapeNinjaValue(entryRel) << "\n\n";
+                o << "build " << escapeNinjaPath(tname + "-run") << ": vrun "
+                  << escapeNinjaPath(entryRel) << "\n\n";
+                vtEntries[tname] = entryRel;
+                continue;
+            }
+
             std::string stdStr = t.cxxStandard.empty() ? getVar("VMAKE_CXX_STANDARD") : t.cxxStandard;
             if (stdStr.empty()) stdStr = "17";
 
@@ -1817,6 +2019,16 @@ struct Interp {
         }
         o << "\n\n";
         o << "default all\n";
+
+        // Manifest consumed by `vmake --run`: target -> interpreter entry.
+        if (!vtEntries.empty()) {
+            fs::path manifest = buildDir / "vmake_run.txt";
+            std::ofstream mf(manifest, std::ios::binary | std::ios::trunc);
+            if (!mf) throw FatalError("cannot write '" + manifest.string() + "'");
+            for (const auto& kv : vtEntries)
+                mf << kv.first << "\t" << kv.second << "\n";
+            if (!mf) throw FatalError("failed while writing '" + manifest.string() + "'");
+        }
 
         fs::path ninjaPath = buildDir / kNinjaFileName;
         std::ofstream out(ninjaPath, std::ios::binary | std::ios::trunc);
@@ -1989,6 +2201,7 @@ struct Options {
     std::string scriptFile;
     std::string buildModeDir;
     std::string installModeDir;
+    std::string runModeDir;
     std::string target;
     std::string jobs;
     std::string logLevel;
@@ -2002,6 +2215,7 @@ static void printUsage(std::ostream& os) {
           "       vmake [options] <path-to-existing-build>\n"
           "       vmake [options] -S <path-to-source> -B <path-to-build>\n"
           "       vmake --build <dir> [--target <t>] [-j <n>]\n"
+          "       vmake --run <dir> [--target <t>]\n"
           "       vmake --install <dir>\n"
           "       vmake -E <command> [args...]\n"
           "       vmake --version | --help\n"
@@ -2022,6 +2236,7 @@ static void printUsage(std::ostream& os) {
           "  -N                       View mode: resolve targets but write nothing\n"
           "  -P <file>                Run a script\n"
           "  --build <dir>            Build an existing build directory\n"
+          "  --run <dir>              Run a .vt target with the interpreter\n"
           "  --install <dir>          Install from an existing build directory\n"
           "  --target <name>          Target to build (with --build)\n"
           "  -j <n>                   Parallel build jobs (with --build)\n"
@@ -2131,6 +2346,10 @@ static Options parseOptions(int argc, char** argv) {
             o.installModeDir = needValue(i, a);
         } else if (a.rfind("--install=", 0) == 0) {
             o.installModeDir = a.substr(std::string("--install=").size());
+        } else if (a == "--run") {
+            o.runModeDir = needValue(i, a);
+        } else if (a.rfind("--run=", 0) == 0) {
+            o.runModeDir = a.substr(std::string("--run=").size());
         } else if (a == "--target") {
             o.target = needValue(i, a);
         } else if (a == "-j") {
@@ -2477,6 +2696,63 @@ static int doInstall(const Options& opts) {
     return runProcess({"ninja", "-C", dir.string(), "install"});
 }
 
+static int doRun(const Options& opts) {
+    fs::path dir = fs::absolute(fs::path(opts.runModeDir));
+    fs::path manifest = dir / "vmake_run.txt";
+    std::ifstream mf(manifest, std::ios::binary);
+    if (!mf) {
+        printError("no vmake_run.txt in '" + dir.string() +
+                   "'; configure a project with .vt targets first");
+        return 1;
+    }
+
+    const std::string want = opts.target;
+    std::string chosenTarget, entry, line;
+    while (std::getline(mf, line)) {
+        size_t tab = line.find('\t');
+        if (tab == std::string::npos) continue;
+        std::string tname = line.substr(0, tab);
+        if (!want.empty() && tname != want) continue;
+        chosenTarget = tname;
+        entry = trim(line.substr(tab + 1));
+        break;
+    }
+    if (entry.empty()) {
+        printError(want.empty() ? std::string("no .vt target in this project")
+                                : "target '" + want + "' is not a .vt target");
+        return 1;
+    }
+
+    // Interpreter binary: cache value, else the sibling of vmake, else PATH.
+    std::string vortexBin = "vortex";
+    std::ifstream cf(dir / kCacheFileName, std::ios::binary);
+    while (std::getline(cf, line)) {
+        if (line.rfind("VMAKE_VORTEX:", 0) != 0) continue;
+        size_t eq = line.find('=');
+        if (eq != std::string::npos) {
+            std::string v = trim(line.substr(eq + 1));
+            if (!v.empty() && v != "vortex") vortexBin = v;
+        }
+        break;
+    }
+    if (vortexBin == "vortex") {
+        fs::path sibling = g_vmakeExe.parent_path() / "vortex";
+#ifdef _WIN32
+        sibling += ".exe";
+#endif
+        if (fs::exists(sibling)) vortexBin = sibling.string();
+    }
+
+    fs::path entryPath = dir / entry;
+    if (!fs::exists(entryPath)) {
+        printError("entry script not found: '" + entryPath.string() +
+                   "'; run vmake --build first");
+        return 1;
+    }
+    printStatus("Running '" + chosenTarget + "' with the interpreter: " + entryPath.string());
+    return runProcess({vortexBin, entryPath.string()});
+}
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
@@ -2503,6 +2779,7 @@ int main(int argc, char** argv) {
         }
         if (opts.eMode) return handleE(opts.eArgs);
         if (!opts.buildModeDir.empty()) return doBuild(opts);
+        if (!opts.runModeDir.empty()) return doRun(opts);
         if (!opts.installModeDir.empty()) return doInstall(opts);
         if (!opts.scriptFile.empty()) return doScriptMode(opts);
         return doConfigure(opts);

@@ -1,0 +1,9 @@
+import helper;
+
+def quad(x) {
+    return helper.twice(helper.twice(x));
+}
+
+def bump(x) {
+    return x + 1;
+}
