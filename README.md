@@ -562,6 +562,24 @@ install(TARGETS hello DESTINATION bin)
 
 Supported: `project`, `set`/`unset`/`list`, `add_executable`/`add_library`, `target_sources`, `target_include_directories`, `target_link_libraries`, `target_compile_definitions`/`_options`, `set_target_properties`, `if`/`elseif`/`else`, `foreach`, `include`, `add_subdirectory`, `message`, `file(GLOB …)`, `configure_file`, `install`.
 
+Vortex sources are first-class targets:
+
+```cmake
+add_executable(vtapp main.vt)
+set_target_properties(vtapp PROPERTIES VT_MAIN main.vt)
+# optional extra `import` search directories:
+target_vortex_modules(vtapp lib)
+```
+
+```sh
+vmake -S . -B build -G Ninja
+vmake --build build            # compiles main.vt with vtcc
+vmake --run build              # runs the same sources with the interpreter
+ninja -C build vtapp-run       # equivalent run edge
+```
+
+Every `.vt` source plus each transitively imported module is copied into `<build>/vt/`, so `import <name>` resolves identically for `vtcc` and the interpreter; both therefore behave the same. Only executables can be built from `.vt` sources, and mixing `.vt` with C/C++ sources in one target is rejected. `VMAKE_VTCC` / `VMAKE_VORTEX` select the tools (defaults: the executables next to `vmake`, else `vtcc` / `vortex` on `PATH`).
+
 Deferred: `find_package`, `add_custom_command`/`add_custom_target` and `try_compile` are reported as unsupported and skipped; only the `Ninja` generator is implemented. See [USAGE.md](USAGE.md#25-vmake--build-tool) for the full option list.
 
 ---

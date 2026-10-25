@@ -167,6 +167,7 @@ print(mymath.add(2, 3));
 | `-N` | 只解析并打印目标，不写文件 |
 | `-P <file>` | 执行脚本 |
 | `--build <dir> [--target <t>] [-j <n>]` | 调用 `ninja` |
+| `--run <dir> [--target <t>]` | 用解释器运行 `.vt` 目标 |
 | `--install <dir>` | 调用 `ninja install` |
 | `-E <cmd> ...` | `echo`、`copy`、`copy_if_different`、`make_directory`、`remove`、`remove_directory`、`cat`、`touch`、`compare_files` |
 
@@ -178,9 +179,33 @@ vmake --install build
 
 支持的脚本命令：`vmake_minimum_required`、`project`、`set`/`unset`/`list`、`add_executable`、`add_library`、`target_sources`、`target_include_directories`、`target_link_libraries`、`target_compile_definitions`、`target_compile_options`、`target_link_options`、`set_target_properties`、`if`/`elseif`/`else`、`foreach`、`include`、`add_subdirectory`、`message`、`file(GLOB/MAKE_DIRECTORY/WRITE)`、`get_filename_component`、`configure_file`、`install`。
 
-暂未实现：`find_package`、`add_custom_command`、`add_custom_target`、`try_compile`（会提示并跳过）。相关变量：`VMAKE_CXX_COMPILER`、`VMAKE_C_COMPILER`、`VMAKE_CXX_FLAGS`、`VMAKE_C_FLAGS`、`VMAKE_CXX_STANDARD`、`VMAKE_BUILD_TYPE`、`VMAKE_INSTALL_PREFIX`，以及带 `<CONFIG>` 后缀的变体。
+**Vortex（`.vt`）目标。** 源文件为 `.vt` 的目标用 `vtcc` 编译：
 
-示例工程：`vmake/examples/hello`。
+```cmake
+add_executable(vtapp main.vt)
+set_target_properties(vtapp PROPERTIES VT_MAIN main.vt)   # 入口脚本（默认取第一个源）
+target_vortex_modules(vtapp lib)                          # 额外的 import 搜索目录
+```
+
+```sh
+vmake -S . -B build -G Ninja
+vmake --build build        # vtcc build vt/main.vt -o bin/vtapp
+vmake --run build          # vortex build/vt/main.vt
+ninja -C build vtapp-run   # 等价的 Ninja 目标
+```
+
+行为说明：
+
+- 配置时会把每个 `.vt` 源以及递归 `import` 到的模块复制进 `<build>/vt/`（并由 Ninja 的 `vcopy` 边保持同步），因此 `import <名称>` 对 `vtcc` 与解释器的解析结果一致，两端看到的是同一份源码。
+- 嵌套 `import` 相对**声明它的模块所在目录**解析，所以模块可以引用同目录的其它模块。
+- `.vt` 只支持可执行目标；同一目标混用 `.vt` 与 C/C++ 源会报配置错误。
+- 不同目录下同名模块（basename 冲突）会报配置错误。
+- `VMAKE_VTCC` / `VMAKE_VORTEX` 指定工具；默认优先用 `vmake` 同目录的可执行文件，否则用 `PATH` 上的 `vtcc` / `vortex`。
+- `--run` 读取配置时写出的 `<build>/vmake_run.txt` 来定位所选目标的入口脚本。
+
+暂未实现：`find_package`、`add_custom_command`、`add_custom_target`、`try_compile`（会提示并跳过）。相关变量：`VMAKE_CXX_COMPILER`、`VMAKE_C_COMPILER`、`VMAKE_CXX_FLAGS`、`VMAKE_C_FLAGS`、`VMAKE_CXX_STANDARD`、`VMAKE_BUILD_TYPE`、`VMAKE_INSTALL_PREFIX`、`VMAKE_VTCC`、`VMAKE_VORTEX`，以及带 `<CONFIG>` 后缀的变体。
+
+示例工程：`vmake/examples/hello`（C++）与 `vmake/examples/vtapp`（Vortex）。
 
 ***
 

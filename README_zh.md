@@ -561,6 +561,24 @@ install(TARGETS hello DESTINATION bin)
 
 已支持：`project`、`set`/`unset`/`list`、`add_executable`/`add_library`、`target_sources`、`target_include_directories`、`target_link_libraries`、`target_compile_definitions`/`_options`、`set_target_properties`、`if`/`elseif`/`else`、`foreach`、`include`、`add_subdirectory`、`message`、`file(GLOB …)`、`configure_file`、`install`。
 
+Vortex 源码是一等目标：
+
+```cmake
+add_executable(vtapp main.vt)
+set_target_properties(vtapp PROPERTIES VT_MAIN main.vt)
+# 额外的 import 搜索目录（可选）：
+target_vortex_modules(vtapp lib)
+```
+
+```sh
+vmake -S . -B build -G Ninja
+vmake --build build            # 用 vtcc 编译 main.vt
+vmake --run build              # 用解释器运行同一份源码
+ninja -C build vtapp-run       # 等价的运行目标
+```
+
+每个 `.vt` 源连同它递归导入的模块都会复制到 `<build>/vt/`，因此 `import <名称>` 对 `vtcc` 与解释器解析结果完全一致，两端行为相同。`.vt` 只能用于可执行目标，且同一目标里不允许混用 `.vt` 与 C/C++ 源。`VMAKE_VTCC` / `VMAKE_VORTEX` 可指定工具（默认取 `vmake` 同目录的可执行文件，否则用 `PATH` 上的 `vtcc` / `vortex`）。
+
 暂未实现：`find_package`、`add_custom_command`/`add_custom_target`、`try_compile`（会提示不支持并跳过）；生成器目前只有 `Ninja`。完整选项见 [USAGE_zh.md](USAGE_zh.md#25-vmake--构建工具)。
 
 ---

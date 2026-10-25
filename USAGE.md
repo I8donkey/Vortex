@@ -168,6 +168,7 @@ A minimal CMake-style configure/build tool. It reads `VmakeLists.txt`, stores op
 | `-N` | parse and print targets, write nothing |
 | `-P <file>` | run a script |
 | `--build <dir> [--target <t>] [-j <n>]` | run `ninja` |
+| `--run <dir> [--target <t>]` | run a `.vt` target with the interpreter |
 | `--install <dir>` | run `ninja install` |
 | `-E <cmd> ...` | `echo`, `copy`, `copy_if_different`, `make_directory`, `remove`, `remove_directory`, `cat`, `touch`, `compare_files` |
 
@@ -179,9 +180,33 @@ vmake --install build
 
 Script commands: `vmake_minimum_required`, `project`, `set`/`unset`/`list`, `add_executable`, `add_library`, `target_sources`, `target_include_directories`, `target_link_libraries`, `target_compile_definitions`, `target_compile_options`, `target_link_options`, `set_target_properties`, `if`/`elseif`/`else`, `foreach`, `include`, `add_subdirectory`, `message`, `file(GLOB/MAKE_DIRECTORY/WRITE)`, `get_filename_component`, `configure_file`, `install`.
 
-Not implemented yet: `find_package`, `add_custom_command`, `add_custom_target`, `try_compile` (reported and skipped). Variables: `VMAKE_CXX_COMPILER`, `VMAKE_C_COMPILER`, `VMAKE_CXX_FLAGS`, `VMAKE_C_FLAGS`, `VMAKE_CXX_STANDARD`, `VMAKE_BUILD_TYPE`, `VMAKE_INSTALL_PREFIX`, plus `<CONFIG>`-suffixed variants.
+**Vortex (`.vt`) targets.** A target whose sources are `.vt` files is compiled with `vtcc`:
 
-Sample project: `vmake/examples/hello`.
+```cmake
+add_executable(vtapp main.vt)
+set_target_properties(vtapp PROPERTIES VT_MAIN main.vt)   # entry script (default: first source)
+target_vortex_modules(vtapp lib)                          # extra `import` search dirs
+```
+
+```sh
+vmake -S . -B build -G Ninja
+vmake --build build        # vtcc build vt/main.vt -o bin/vtapp
+vmake --run build          # vortex build/vt/main.vt
+ninja -C build vtapp-run   # same, as a Ninja edge
+```
+
+Behavior:
+
+- Every `.vt` source and every transitively `import`ed module is copied into `<build>/vt/` at configure time (and refreshed by a Ninja `vcopy` edge), so `import <name>` resolves the same way for `vtcc` and the interpreter; interpreted and compiled runs therefore see identical sources.
+- Nested imports resolve relative to the module that declares them, so a module can import its own sibling modules.
+- `.vt` sources are supported for executables only; mixing `.vt` with C/C++ sources in one target is a configure error.
+- Module name collisions (same basename from different directories) are a configure error.
+- `VMAKE_VTCC` / `VMAKE_VORTEX` choose the tools. Default: the executable next to `vmake` if present, otherwise `vtcc` / `vortex` from `PATH`.
+- `--run` reads `<build>/vmake_run.txt` (written at configure time) to find the entry script of the selected target.
+
+Not implemented yet: `find_package`, `add_custom_command`, `add_custom_target`, `try_compile` (reported and skipped). Variables: `VMAKE_CXX_COMPILER`, `VMAKE_C_COMPILER`, `VMAKE_CXX_FLAGS`, `VMAKE_C_FLAGS`, `VMAKE_CXX_STANDARD`, `VMAKE_BUILD_TYPE`, `VMAKE_INSTALL_PREFIX`, `VMAKE_VTCC`, `VMAKE_VORTEX`, plus `<CONFIG>`-suffixed variants.
+
+Sample projects: `vmake/examples/hello` (C++) and `vmake/examples/vtapp` (Vortex).
 
 ***
 
