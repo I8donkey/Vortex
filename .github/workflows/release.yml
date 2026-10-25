@@ -63,29 +63,36 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        
       - name: Install deps (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            qt6-base-dev liblzma-dev libsqlite3-dev zlib1g-dev libgl1-mesa-dev \
-            libx11-dev libxkbcommon-dev libglu1-mesa-dev
+            qt6-base-dev liblzma-dev libsqlite3-dev zlib1g-dev \
+            libgl1-mesa-dev libglew-dev libglu1-mesa-dev \
+            libx11-dev libxkbcommon-dev libxkbcommon-x11-0 \
+            libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev
+            
       - name: Install LLVM (Linux)
         if: runner.os == 'Linux' && inputs.with_llvm
-        run: sudo apt-get install -y llvm-dev libclang-dev clang
+        run: sudo apt-get install -y llvm-dev libclang-dev clang lld
+        
       - name: Install deps (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install qt@6 xz sqlite
+          brew install qt@6 xz sqlite glew sdl2 sdl2_image sdl2_mixer sdl2_ttf
           QT_PREFIX=$(brew --prefix qt@6)
           XZ_PREFIX=$(brew --prefix xz)
           SQLITE_PREFIX=$(brew --prefix sqlite)
           echo "CMAKE_PREFIX_PATH=$QT_PREFIX:$XZ_PREFIX:$SQLITE_PREFIX" >> "$GITHUB_ENV"
+          
       - name: Install LLVM (macOS)
         if: runner.os == 'macOS' && inputs.with_llvm
         run: |
           brew install llvm
           echo "LLVM_DIR=$(brew --prefix llvm)/lib/cmake/llvm" >> "$GITHUB_ENV"
+          
       - name: Install deps (Windows, MSYS2/MinGW)
         if: runner.os == 'Windows'
         uses: msys2/setup-msys2@v2
@@ -100,56 +107,75 @@ jobs:
             mingw-w64-x86_64-xz
             mingw-w64-x86_64-sqlite3
             mingw-w64-x86_64-zlib
+            mingw-w64-x86_64-glew
+            mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-SDL2_image
+            mingw-w64-x86_64-SDL2_mixer
+            mingw-w64-x86_64-SDL2_ttf
+            
       - name: Install LLVM (Windows)
         if: runner.os == 'Windows' && inputs.with_llvm
         shell: msys2 {0}
-        run: pacman -S --noconfirm --needed mingw-w64-x86_64-llvm
+        run: pacman -S --noconfirm --needed mingw-w64-x86_64-llvm mingw-w64-x86_64-clang mingw-w64-x86_64-lld
+        
       - name: Set CMAKE_PREFIX_PATH (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: echo "CMAKE_PREFIX_PATH=/mingw64" >> "$GITHUB_ENV"
+        
       - name: Configure (Unix)
         if: runner.os != 'Windows'
         shell: bash
         run: |
+          LLVM_EXTRA=""
+          if [ "${{ inputs.with_llvm }}" = "true" ]; then
+            LLVM_EXTRA="-DVORTEX_USE_LLD=OFF"
+          fi
           cmake -S . -B build \
             -G "${{ matrix.generator }}" \
             -DCMAKE_BUILD_TYPE=Release \
             -DVORTEX_USE_CPM=OFF \
             -DVORTEX_WITH_LLVM=${{ inputs.with_llvm }} \
             -DVORTEX_BUILD_EDITOR=ON \
+            $LLVM_EXTRA \
             -DCMAKE_C_COMPILER=${{ matrix.cc }} \
             -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
             -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH"
+            
       - name: Configure (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
+          LLVM_EXTRA=""
+          if [ "${{ inputs.with_llvm }}" = "true" ]; then
+            LLVM_EXTRA="-DVORTEX_USE_LLD=OFF"
+          fi
           cmake -S . -B build \
             -G "${{ matrix.generator }}" \
             -DCMAKE_BUILD_TYPE=Release \
             -DVORTEX_USE_CPM=OFF \
             -DVORTEX_WITH_LLVM=${{ inputs.with_llvm }} \
             -DVORTEX_BUILD_EDITOR=ON \
+            $LLVM_EXTRA \
             -DCMAKE_C_COMPILER=${{ matrix.cc }} \
             -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
-            -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH" \
-            -DCMAKE_ARCHIVE_OUTPUT_DIRECTORY="$(pwd)/build/lib" \
-            -DCMAKE_LIBRARY_OUTPUT_DIRECTORY="$(pwd)/build/lib" \
-            -DCMAKE_RUNTIME_OUTPUT_DIRECTORY="$(pwd)/build/bin"
+            -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH"
+            
       - name: Build (Unix)
         if: runner.os != 'Windows'
         shell: bash
         run: cmake --build build --config Release --parallel
+        
       - name: Build (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: |
           cmake --build build --config Release --parallel || {
-            echo "=== Build failed. Searching for libvortex_runtime* ==="
-            find build -name "libvortex_runtime*" || true
+            echo "=== Build failed. Searching for target files ==="
+            find build -name "*.a" -o -name "*.dll" -o -name "*.exe" || true
             exit 1
           }
+          
       - name: Stage binaries (Linux/macOS)
         if: runner.os != 'Windows'
         shell: bash
@@ -157,13 +183,14 @@ jobs:
           mkdir -p staged/vortex staged/vmake
           cp build/bin/vortex build/bin/vortex_editor staged/vortex/ 2>/dev/null || true
           cp build/bin/vtcc build/bin/vtpm staged/vortex/ 2>/dev/null || true
-          cp build/bin/*.dll staged/vortex/ 2>/dev/null || true
+          cp build/bin/*.dll build/bin/*.so build/bin/*.dylib staged/vortex/ 2>/dev/null || true
           cp build/bin/vmake staged/vmake/ 2>/dev/null || true
           cp README.md README_zh.md USAGE.md USAGE_zh.md staged/vortex/ 2>/dev/null || true
           cp README.md README_zh.md USAGE.md USAGE_zh.md staged/vmake/ 2>/dev/null || true
           mkdir -p staged/vmake/examples
           cp -r vmake/examples/* staged/vmake/examples/ 2>/dev/null || true
           ls -la staged/vortex staged/vmake
+          
       - name: Stage binaries (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}
@@ -198,16 +225,19 @@ jobs:
           ls -la staged/vortex
           echo "--- vmake contents ---"
           ls -la staged/vmake
+          
       - name: Upload vortex artifact
         uses: actions/upload-artifact@v4
         with:
           name: vortex-${{ matrix.os }}
           path: staged/vortex/
+          
       - name: Upload vmake artifact
         uses: actions/upload-artifact@v4
         with:
           name: vmake-${{ matrix.os }}
           path: staged/vmake/
+          
   release:
     name: Create GitHub Release
     needs: build
@@ -221,6 +251,7 @@ jobs:
         with:
           path: dist
           merge-multiple: false
+          
       - name: Build release zip per platform
         run: |
           cd dist
@@ -229,6 +260,7 @@ jobs:
             zip -r "${plat}.zip" "$d"
           done
           ls -la
+          
       - name: Create GitHub Release (draft)
         uses: softprops/action-gh-release@v2
         with:
