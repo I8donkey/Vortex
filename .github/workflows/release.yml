@@ -133,7 +133,10 @@ jobs:
             -DVORTEX_BUILD_EDITOR=ON \
             -DCMAKE_C_COMPILER=${{ matrix.cc }} \
             -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
-            -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH"
+            -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH" \
+            -DCMAKE_ARCHIVE_OUTPUT_DIRECTORY="$(pwd)/build/lib" \
+            -DCMAKE_LIBRARY_OUTPUT_DIRECTORY="$(pwd)/build/lib" \
+            -DCMAKE_RUNTIME_OUTPUT_DIRECTORY="$(pwd)/build/bin"
       - name: Build (Unix)
         if: runner.os != 'Windows'
         shell: bash
@@ -141,7 +144,12 @@ jobs:
       - name: Build (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}
-        run: cmake --build build --config Release --parallel
+        run: |
+          cmake --build build --config Release --parallel || {
+            echo "=== Build failed. Searching for libvortex_runtime* ==="
+            find build -name "libvortex_runtime*" || true
+            exit 1
+          }
       - name: Stage binaries (Linux/macOS)
         if: runner.os != 'Windows'
         shell: bash
