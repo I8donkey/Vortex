@@ -34,12 +34,10 @@ on:
         default: false
         type: boolean
 
-# 统一版本号
 env:
   VERSION: ${{ inputs.version }}
 
 jobs:
-  # 按输入决定实际构建哪些平台，输出矩阵 JSON 供 build job 使用（被关掉的平台不占 runner）
   prepare:
     name: Prepare build matrix
     runs-on: ubuntu-latest
@@ -71,7 +69,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ---------- 平台依赖 ----------
       - name: Install deps (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -124,9 +121,6 @@ jobs:
         shell: msys2 {0}
         run: echo "CMAKE_PREFIX_PATH=/mingw64" >> "$GITHUB_ENV"
 
-      # ---------- 配置与构建 ----------
-      # 注意：shell 关键字不支持 matrix 上下文（校验会报 Unrecognized named-value: 'matrix'），
-      # 故按 OS 拆分步骤并写死 shell。
       - name: Configure (Unix)
         if: runner.os != 'Windows'
         shell: bash
@@ -165,7 +159,6 @@ jobs:
         shell: msys2 {0}
         run: cmake --build build --config Release --parallel
 
-      # ---------- 收集产物（vortex 主体与 vmake 分成两个包） ----------
       - name: Stage binaries (Linux/macOS)
         if: runner.os != 'Windows'
         shell: bash
@@ -194,7 +187,25 @@ jobs:
           cp README.md README_zh.md USAGE.md USAGE_zh.md staged/vmake/ 2>/dev/null || true
           mkdir -p staged/vmake/examples
           cp -r vmake/examples/* staged/vmake/examples/ 2>/dev/null || true
-          ls -la staged/vortex staged/vmake
+          
+          for exe in staged/vortex/*.exe staged/vmake/*.exe; do
+            if [ -f "$exe" ]; then
+              windeployqt "$exe" --no-translations --compiler-runtime >/dev/null 2>&1 || true
+            fi
+          done
+          
+          for target in staged/vortex staged/vmake; do
+            find "$target" -name '*.exe' | while read -r exe; do
+              ldd "$exe" | awk '{print $3}' | grep '^/mingw64/bin/' | while read -r dll; do
+                cp -n "$dll" "$target/" 2>/dev/null || true
+              done
+            done
+          done
+          
+          echo "--- vortex contents ---"
+          ls -la staged/vortex
+          echo "--- vmake contents ---"
+          ls -la staged/vmake
 
       - name: Upload vortex artifact
         uses: actions/upload-artifact@v4
@@ -213,7 +224,6 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: ${{ inputs.create_release && needs.build.result == 'success' }}
-    # 创建 Release 需要写权限；默认 GITHUB_TOKEN 只有只读权限
     permissions:
       contents: write
     steps:
