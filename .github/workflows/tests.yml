@@ -242,6 +242,11 @@ jobs:
           bin/vmake -S vmake/examples/hello -B /tmp/vmake-hello -G Ninja
           bin/vmake --build /tmp/vmake-hello
           /tmp/vmake-hello/bin/hello
+          # Vortex (.vt) target: interpreter mode (vtcc is Windows-only here)
+          rm -rf /tmp/vmake-vtapp
+          bin/vmake -S vmake/examples/vtapp -B /tmp/vmake-vtapp -G Ninja
+          bin/vmake --run /tmp/vmake-vtapp | grep -v '^-- ' > /tmp/vtapp.run.txt
+          grep -q "done" /tmp/vtapp.run.txt
 
       - name: Smoke test vmake (Windows)
         if: ${{ runner.os == 'Windows' && !inputs.use_release }}
@@ -252,6 +257,14 @@ jobs:
           ./bin/vmake.exe -S vmake/examples/hello -B /tmp/vmake-hello -G Ninja
           ./bin/vmake.exe --build /tmp/vmake-hello
           /tmp/vmake-hello/bin/hello.exe
+          rm -rf /tmp/vmake-vtapp
+          ./bin/vmake.exe -S vmake/examples/vtapp -B /tmp/vmake-vtapp -G Ninja
+          ./bin/vmake.exe --run /tmp/vmake-vtapp | grep -v '^-- ' > /tmp/vtapp.run.txt
+          if [ -f bin/vtcc.exe ]; then
+            ./bin/vmake.exe --build /tmp/vmake-vtapp
+            /tmp/vmake-vtapp/bin/vtapp.exe > /tmp/vtapp.exe.txt
+            diff /tmp/vtapp.run.txt /tmp/vtapp.exe.txt
+          fi
 
       # ---------------- Run tests ----------------
       # Smoke test: proves the staged binary itself works before the suite runs,
