@@ -1,5 +1,4 @@
 name: Build & Release (manual)
-
 on:
   workflow_dispatch:
     inputs:
@@ -33,10 +32,8 @@ on:
         required: false
         default: false
         type: boolean
-
 env:
   VERSION: ${{ inputs.version }}
-
 jobs:
   prepare:
     name: Prepare build matrix
@@ -56,7 +53,6 @@ jobs:
           MATRIX=$(echo "$ALL" | python3 -c 'import json,sys;d=json.load(sys.stdin);print(json.dumps({"include":[{k:v for k,v in e.items() if k!="enabled"} for e in d if e["enabled"]=="true"]}))')
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
           echo "selected matrix: $MATRIX"
-
   build:
     name: Build on ${{ matrix.os }}
     needs: prepare
@@ -64,11 +60,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Install deps (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -76,11 +70,9 @@ jobs:
           sudo apt-get install -y \
             qt6-base-dev liblzma-dev libsqlite3-dev zlib1g-dev libgl1-mesa-dev \
             libx11-dev libxkbcommon-dev libglu1-mesa-dev
-
       - name: Install LLVM (Linux)
         if: runner.os == 'Linux' && inputs.with_llvm
         run: sudo apt-get install -y llvm-dev libclang-dev clang
-
       - name: Install deps (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -89,13 +81,11 @@ jobs:
           XZ_PREFIX=$(brew --prefix xz)
           SQLITE_PREFIX=$(brew --prefix sqlite)
           echo "CMAKE_PREFIX_PATH=$QT_PREFIX:$XZ_PREFIX:$SQLITE_PREFIX" >> "$GITHUB_ENV"
-
       - name: Install LLVM (macOS)
         if: runner.os == 'macOS' && inputs.with_llvm
         run: |
           brew install llvm
           echo "LLVM_DIR=$(brew --prefix llvm)/lib/cmake/llvm" >> "$GITHUB_ENV"
-
       - name: Install deps (Windows, MSYS2/MinGW)
         if: runner.os == 'Windows'
         uses: msys2/setup-msys2@v2
@@ -110,17 +100,14 @@ jobs:
             mingw-w64-x86_64-xz
             mingw-w64-x86_64-sqlite3
             mingw-w64-x86_64-zlib
-
       - name: Install LLVM (Windows)
         if: runner.os == 'Windows' && inputs.with_llvm
         shell: msys2 {0}
         run: pacman -S --noconfirm --needed mingw-w64-x86_64-llvm
-
       - name: Set CMAKE_PREFIX_PATH (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: echo "CMAKE_PREFIX_PATH=/mingw64" >> "$GITHUB_ENV"
-
       - name: Configure (Unix)
         if: runner.os != 'Windows'
         shell: bash
@@ -134,7 +121,6 @@ jobs:
             -DCMAKE_C_COMPILER=${{ matrix.cc }} \
             -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
             -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH"
-
       - name: Configure (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}
@@ -148,17 +134,14 @@ jobs:
             -DCMAKE_C_COMPILER=${{ matrix.cc }} \
             -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
             -DCMAKE_PREFIX_PATH="$CMAKE_PREFIX_PATH"
-
       - name: Build (Unix)
         if: runner.os != 'Windows'
         shell: bash
         run: cmake --build build --config Release --parallel
-
       - name: Build (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}
         run: cmake --build build --config Release --parallel
-
       - name: Stage binaries (Linux/macOS)
         if: runner.os != 'Windows'
         shell: bash
@@ -173,7 +156,6 @@ jobs:
           mkdir -p staged/vmake/examples
           cp -r vmake/examples/* staged/vmake/examples/ 2>/dev/null || true
           ls -la staged/vortex staged/vmake
-
       - name: Stage binaries (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}
@@ -188,37 +170,36 @@ jobs:
           mkdir -p staged/vmake/examples
           cp -r vmake/examples/* staged/vmake/examples/ 2>/dev/null || true
           
-          for exe in staged/vortex/*.exe staged/vmake/*.exe; do
-            if [ -f "$exe" ]; then
-              windeployqt "$exe" --no-translations --compiler-runtime >/dev/null 2>&1 || true
-            fi
-          done
+          WINDEPLOYQT=$(command -v windeployqt || command -v windeployqt6 || true)
           
           for target in staged/vortex staged/vmake; do
-            find "$target" -name '*.exe' | while read -r exe; do
-              ldd "$exe" | awk '{print $3}' | grep '^/mingw64/bin/' | while read -r dll; do
-                cp -n "$dll" "$target/" 2>/dev/null || true
-              done
-            done
+            while read -r exe; do
+              [ -f "$exe" ] || continue
+              if [ -n "$WINDEPLOYQT" ]; then
+                "$WINDEPLOYQT" "$exe" --no-translations --compiler-runtime || true
+              fi
+              while read -r dll; do
+                if [ -f "$dll" ]; then
+                  cp -f "$dll" "$target/" 2>/dev/null || true
+                fi
+              done < <(ldd "$exe" 2>/dev/null | awk '{print $3}' | grep '^/mingw64/bin/' || true)
+            done < <(find "$target" -maxdepth 1 -name '*.exe' 2>/dev/null)
           done
           
           echo "--- vortex contents ---"
           ls -la staged/vortex
           echo "--- vmake contents ---"
           ls -la staged/vmake
-
       - name: Upload vortex artifact
         uses: actions/upload-artifact@v4
         with:
           name: vortex-${{ matrix.os }}
           path: staged/vortex/
-
       - name: Upload vmake artifact
         uses: actions/upload-artifact@v4
         with:
           name: vmake-${{ matrix.os }}
           path: staged/vmake/
-
   release:
     name: Create GitHub Release
     needs: build
@@ -232,7 +213,6 @@ jobs:
         with:
           path: dist
           merge-multiple: false
-
       - name: Build release zip per platform
         run: |
           cd dist
@@ -241,7 +221,6 @@ jobs:
             zip -r "${plat}.zip" "$d"
           done
           ls -la
-
       - name: Create GitHub Release (draft)
         uses: softprops/action-gh-release@v2
         with:
