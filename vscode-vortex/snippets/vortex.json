@@ -1,0 +1,103 @@
+{
+  "Function": {
+    "prefix": "def",
+    "body": [
+      "def ${1:name}(${2:args}) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Define a function"
+  },
+  "Typed function": {
+    "prefix": "defray",
+    "body": [
+      "${1:int} ${2:name}(${3:int a, int b}) {",
+      "\treturn $0",
+      "}"
+    ],
+    "description": "Define a function with a return type"
+  },
+  "Class": {
+    "prefix": "class",
+    "body": [
+      "class ${1:Name} {",
+      "\t${2:int value;",
+      "\tdef init(self, ${3:value}) { self.value = ${3:value}; }",
+      "\t$0",
+      "}"
+    ],
+    "description": "Define a class"
+  },
+  "Class with parent": {
+    "prefix": "classext",
+    "body": [
+      "class ${1:Child}(${2:Parent}) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Define a subclass"
+  },
+  "If": {
+    "prefix": "if",
+    "body": [
+      "if (${1:condition}) {",
+      "\t$0",
+      "} else {",
+      "",
+      "}"
+    ],
+    "description": "If statement"
+  },
+  "For": {
+    "prefix": "for",
+    "body": [
+      "for (${1:item} in ${2:items}) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "For-in loop"
+  },
+  "While": {
+    "prefix": "while",
+    "body": [
+      "while (${1:condition}) {",
+      "\t$0",
+      "}"
+    ],
+    "description": "While loop"
+  },
+  "Import": {
+    "prefix": "import",
+    "body": [
+      "import ${1:module};",
+      "$0"
+    ],
+    "description": "Import a module"
+  },
+  "Lambda": {
+    "prefix": "lambda",
+    "body": [
+      "object ${1:fn} = lambda(${2:x}) { return $0; };"
+    ],
+    "description": "Anonymous closure"
+  },
+  "Try/catch": {
+    "prefix": "try",
+    "body": [
+      "try {",
+      "\t$0",
+      "} catch (${1:e}) {",
+      "",
+      "}"
+    ],
+    "description": "Exception handling"
+  },
+  "External C function": {
+    "prefix": "extdef",
+    "body": [
+      "extdef ${1:cstr} ${2:name}(${3:}) from \"${4:../bin/libzlib.dll}\";",
+      "$0"
+    ],
+    "description": "Declare an external C function"
+  }
+}

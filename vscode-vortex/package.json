@@ -1,0 +1,127 @@
+{
+  "name": "vortex-language",
+  "displayName": "Vortex",
+  "description": "Vortex language support: syntax highlighting, snippets, and run/compile commands.",
+  "version": "0.1.0",
+  "publisher": "vortex-lang",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "vortex",
+    "vt",
+    "vmake"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onLanguage:vortex",
+    "onCommand:vortex.runFile",
+    "onCommand:vortex.compileFile"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "vortex",
+        "aliases": [
+          "Vortex",
+          "vortex"
+        ],
+        "extensions": [
+          ".vt"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "vortex",
+        "scopeName": "source.vortex",
+        "path": "./syntaxes/vortex.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "vortex",
+        "path": "./snippets/vortex.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "vortex.runFile",
+        "title": "Vortex: Run File",
+        "icon": "$(play)"
+      },
+      {
+        "command": "vortex.compileFile",
+        "title": "Vortex: Compile File",
+        "icon": "$(gear)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "vortex.runFile",
+          "when": "resourceLangId == vortex",
+          "group": "navigation@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "vortex.runFile",
+          "when": "resourceLangId == vortex"
+        },
+        {
+          "command": "vortex.compileFile",
+          "when": "resourceLangId == vortex"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Vortex",
+      "properties": {
+        "vortex.interpreterPath": {
+          "type": "string",
+          "default": "vortex",
+          "description": "Path to the Vortex interpreter (or a command on PATH)."
+        },
+        "vortex.interpreterArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Extra arguments passed to the interpreter before the script path."
+        },
+        "vortex.compilerPath": {
+          "type": "string",
+          "default": "vtcc",
+          "description": "Path to the Vortex native compiler vtcc (or a command on PATH)."
+        },
+        "vortex.optimization": {
+          "type": "string",
+          "enum": [
+            "",
+            "-O0",
+            "-O1",
+            "-O2",
+            "-O3"
+          ],
+          "default": "",
+          "description": "Optimization level passed to vtcc (empty means vtcc default)."
+        },
+        "vortex.runAfterCompile": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run the produced executable automatically after a successful compile command."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "package": "vsce package"
+  }
+}

@@ -1304,7 +1304,7 @@ ControlSignal Interpreter::exec_class(const ClassDeclStmt* s) {
 
 // ---- operator 重载：登记、查找与调用 ----
 ControlSignal Interpreter::exec_operator_decl(const OperatorDeclStmt* s) {
-    op_overloads_[op_key(s->op, s->left_type, s->right_type, s->unary)] = s;
+    op_overloads_[op_key(s->op, s->left_type, s->right_type, s->unary)] = OpOverload{s, current_env_};
     return {};
 }
 
@@ -1393,11 +1393,11 @@ ValuePtr Interpreter::call_extern(const ExtDefStmt* ed, const CallExpr* e) {
 }
 
 // 查重载：先精确匹配 (左类型, 右类型)，再沿左/右操作数的类父链回退
-const OperatorDeclStmt* Interpreter::find_operator(const std::string& op, const std::string& lt,
-                                                   const std::string& rt, bool unary) const {
-    auto probe = [&](const std::string& a, const std::string& b) -> const OperatorDeclStmt* {
+const Interpreter::OpOverload* Interpreter::find_operator(const std::string& op, const std::string& lt,
+                                                          const std::string& rt, bool unary) const {
+    auto probe = [&](const std::string& a, const std::string& b) -> const OpOverload* {
         auto it = op_overloads_.find(op_key(op, a, b, unary));
-        return it == op_overloads_.end() ? nullptr : it->second;
+        return it == op_overloads_.end() ? nullptr : &it->second;
     };
     if (auto* od = probe(lt, rt)) return od;
     auto chain_of = [&](const std::string& cls) {
@@ -1422,9 +1422,13 @@ const OperatorDeclStmt* Interpreter::find_operator(const std::string& op, const 
     return nullptr;
 }
 
-ValuePtr Interpreter::call_operator(const OperatorDeclStmt* od, const ValuePtr& l, const ValuePtr& r) {
+ValuePtr Interpreter::call_operator(const OpOverload& ov, const ValuePtr& l, const ValuePtr& r) {
+    const OperatorDeclStmt* od = ov.decl;
+    if (!od) throw RuntimeError("operator body not available");
+    // Run the body in the scope where it was declared (for operators imported
+    // from a module this is the module's globals, so class/global names resolve).
     Environment* saved = current_env_;
-    Environment scope(current_env_);
+    Environment scope(ov.env ? ov.env : current_env_);
     current_env_ = &scope;
     scope.define(od->left_name, l, false);
     if (!od->unary && r) scope.define(od->right_name, r, false);
@@ -1481,6 +1485,13 @@ ValuePtr Interpreter::load_user_module(const std::string& module) {
     std::vector<std::string> before = sub->globals().locals();
     std::unordered_set<std::string> beforeSet(before.begin(), before.end());
     sub->run(*sub->held_prog_);
+
+    // Operator overloads and class registrations declared by the module must be
+    // visible to the importing script. Instances returned from the module are
+    // then usable with the operators the module defines (e.g. `a + b`), instead
+    // of falling back to numeric promotion and failing on 'instance'.
+    for (const auto& entry : sub->op_overloads_) op_overloads_[entry.first] = entry.second;
+    for (const auto& entry : sub->classes_) classes_[entry.first] = entry.second;
 
     auto mod = Value::make_module();
     auto& rep = *mod->module_rep;
@@ -1682,7 +1693,7 @@ ValuePtr Interpreter::eval_unary(const UnaryOpExpr* e) {
     auto operand = evaluate(e->operand.get());
     // 用户自定义一元运算符优先
     if (auto* od = find_operator(op, op_type_name(operand), "", true))
-        return call_operator(od, operand, nullptr);
+        return call_operator(*od, operand, nullptr);
     if (op == "!") return value_not(operand);
     if (op == "-") return value_neg(operand);
     if (op == "+") return value_pos(operand);
@@ -1707,7 +1718,7 @@ ValuePtr Interpreter::eval_binary(const BinaryOpExpr* e) {
     auto r = evaluate(e->right.get());
     // 用户自定义运算符优先：按 (运算符, 左类型, 右类型) 命中则调用其函数体
     if (auto* od = find_operator(e->op, op_type_name(l), op_type_name(r), false))
-        return call_operator(od, l, r);
+        return call_operator(*od, l, r);
     if (e->op == "+") return value_add(l, r);
     if (e->op == "-") return value_sub(l, r);
     if (e->op == "*") return value_mul(l, r);

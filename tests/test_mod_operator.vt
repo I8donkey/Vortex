@@ -1,0 +1,9 @@
+# test_mod_operator.vt - operators declared in an imported module
+import test_fracmod;
+auto p = test_fracmod.make(3);
+auto q = test_fracmod.make(4);
+print(type(p));
+print((p + q).get());
+print((-p).get());
+print(p + q == test_fracmod.make(7));
+print(p == q);

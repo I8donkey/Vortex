@@ -158,13 +158,19 @@ private:
     ControlSignal exec_class(const ClassDeclStmt* s);
     // ---- operator 重载（只能顶层声明）----
     // 重载表：key = "op#左类型" (一元) 或 "op#左类型#右类型" (二元)
-    std::unordered_map<std::string, const OperatorDeclStmt*> op_overloads_;
+    // 每条记录还保存声明所在的模块作用域：导入模块声明的运算符在调用方执行时，
+    // 函数体必须能解析该模块内的类名/全局名。
+    struct OpOverload {
+        const OperatorDeclStmt* decl = nullptr;
+        Environment* env = nullptr;
+    };
+    std::unordered_map<std::string, OpOverload> op_overloads_;
     // 已声明的 class：类名 -> class 值（供父链回退查找）
     std::unordered_map<std::string, ValuePtr> classes_;
     ControlSignal exec_operator_decl(const OperatorDeclStmt* s);
-    const OperatorDeclStmt* find_operator(const std::string& op, const std::string& lt,
-                                          const std::string& rt, bool unary) const;
-    ValuePtr call_operator(const OperatorDeclStmt* od, const ValuePtr& l, const ValuePtr& r);
+    const OpOverload* find_operator(const std::string& op, const std::string& lt,
+                                    const std::string& rt, bool unary) const;
+    ValuePtr call_operator(const OpOverload& ov, const ValuePtr& l, const ValuePtr& r);
     // ---- 外部 C 函数（Lib-O3）----
     // extdef 表：名字 -> 声明（顶层声明；run 前预扫描以支持先调用后声明）
     std::unordered_map<std::string, const ExtDefStmt*> extdefs_;

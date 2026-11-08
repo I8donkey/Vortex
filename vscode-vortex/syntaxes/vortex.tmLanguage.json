@@ -1,0 +1,157 @@
+{
+  "name": "Vortex",
+  "scopeName": "source.vortex",
+  "fileTypes": ["vt"],
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#function-def" },
+    { "include": "#class-def" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#constants" },
+    { "include": "#builtins" },
+    { "include": "#operators" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.number-sign.vortex",
+          "match": "#.*$"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.vortex",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.vortex",
+              "match": "\\\\."
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.vortex",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.vortex",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.extfloat.vortex",
+          "match": "\\b\\d[\\d_]*(?:\\.\\d+)?ext\\b"
+        },
+        {
+          "name": "constant.numeric.hex.vortex",
+          "match": "\\b0[xX][0-9a-fA-F_]+\\b"
+        },
+        {
+          "name": "constant.numeric.binary.vortex",
+          "match": "\\b0[bB][01_]+\\b"
+        },
+        {
+          "name": "constant.numeric.octal.vortex",
+          "match": "\\b0[oO][0-7_]+\\b"
+        },
+        {
+          "name": "constant.numeric.float.vortex",
+          "match": "\\b\\d[\\d_]*\\.\\d+(?:[eE][+-]?\\d+)?\\b"
+        },
+        {
+          "name": "constant.numeric.float.vortex",
+          "match": "\\b\\d+[eE][+-]?\\d+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.vortex",
+          "match": "\\b\\d[\\d_]*\\b"
+        }
+      ]
+    },
+    "function-def": {
+      "patterns": [
+        {
+          "match": "(?<!\\w)(def)\\s+([A-Za-z_]\\w*)",
+          "captures": {
+            "1": { "name": "keyword.control.vortex" },
+            "2": { "name": "entity.name.function.vortex" }
+          }
+        }
+      ]
+    },
+    "class-def": {
+      "patterns": [
+        {
+          "match": "(?<!\\w)(class)\\s+([A-Za-z_]\\w*)(?:\\s*\\(\\s*([A-Za-z_]\\w*)\\s*\\))?",
+          "captures": {
+            "1": { "name": "keyword.control.vortex" },
+            "2": { "name": "entity.name.type.class.vortex" },
+            "3": { "name": "entity.other.inherited-class.vortex" }
+          }
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.vortex",
+          "match": "\\b(?:def|const|del|if|elif|else|for|while|break|continue|return|lambda|import|from|as|in|is|global|try|catch|finally|assert|match|case|default|class|operator|and|or|not|raise|extdef|self)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "storage.type.vortex",
+          "match": "\\b(?:int|uint|short|ushort|long|ulong|float|double|char|unichar|memadr|bool|str|unistr|bin|list|stack|queue|set|undset|dict|pair|tuple|object|function|auto|extfloat|cint|cuint|clong|culong|cdouble|cstr|cptr)\\b"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.vortex",
+          "match": "\\b(?:true|false|None)\\b"
+        }
+      ]
+    },
+    "builtins": {
+      "patterns": [
+        {
+          "name": "support.function.builtin.vortex",
+          "match": "\\b(?:print|len|type|range|abs|max|min|size|input|exit|ord|chr)\\b(?=\\s*\\()"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.vortex",
+          "match": "(?<!\\w)(?://=|\\*\\*=|<<=|>>=|\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^=|//|\\*\\*|<<|>>|<=|>=|==|!=|&&|\\|\\||[+\\-*/%&|^~!<>=@?])(?!\\w)"
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.vortex",
+          "match": "[{}()\\[\\],;.]"
+        }
+      ]
+    }
+  }
+}

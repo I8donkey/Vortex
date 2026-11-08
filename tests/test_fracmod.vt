@@ -1,0 +1,12 @@
+# test_fracmod.vt - module used by test_mod_operator
+# Declares a class plus operators; the importing script must be able to use
+# those operators on instances returned from this module.
+class Pair {
+    long a;
+    def init(self, a) { self.a = a; }
+    def get(self) { return self.a; }
+}
+def make(a) { return Pair(a); }
+Pair operator Pair x + Pair y { return Pair(x.a + y.a); }
+Pair operator - Pair x { return Pair(-x.a); }
+bool operator Pair x == Pair y { return x.a == y.a; }
